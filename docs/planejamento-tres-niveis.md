@@ -1312,3 +1312,27 @@ Sem migração e sem comando novo. A barra de linhas marcadas continua sem "limp
   - Enter continua descendo na coluna;
   - o cartão do celular tem a opção em branco.
 - **Não validado:** uso logado com dados reais.
+
+## Médio prazo: arrastar a largura da coluna derrubava a tela (16/11/2026)
+
+### Pedido
+
+O usuário mandou o print da tela "Algo deu errado — Esta tela não pôde ser exibida" no cronograma do médio prazo (`/obras/…/medio-prazo`). Ela aparecia ao arrastar a borda de um cabeçalho para mudar a largura da coluna.
+
+### Causa
+
+O separador de cada cabeçalho (`schedule-resize`, em `src/modules/medio-prazo/schedule-sheet.tsx`) calculava a largura nova **dentro** do atualizador do estado: `setWidths(w => … e.currentTarget.dataset.width …)`. O React zera `currentTarget` ao fim do evento. O `pointermove` é evento contínuo, e o atualizador nem sempre roda na hora: no primeiro movimento ele roda dentro do evento e funciona, mas os seguintes ficam na fila e rodam na pintura seguinte. Aí `currentTarget` já é `null`. O `TypeError: Cannot read properties of null (reading 'dataset')` estourava dentro de `Sheet` durante a renderização, e o limite de erro trocava a tela inteira pelo aviso. O defeito existia desde `d096cac` (21/10/2026).
+
+### Comportamento entregue
+
+- A largura é calculada no próprio evento, com o elemento guardado numa variável, e o estado recebe o número pronto. Limites mantidos: 36 a 600 px.
+- O separador entre a tabela e o Gantt já calculava o valor no evento e não tinha o defeito. As setas do teclado no separador da coluna também não. Nos outros módulos, a busca por atualizador que leia `currentTarget` não achou outro caso. Os que leem `event.target` não têm o problema, porque o React não zera `target`.
+
+Sem migração e sem mudança de dado: as larguras continuam só no estado da tela.
+
+### Validação (16/11/2026)
+
+- Página de prévia temporária, apagada depois, com o `Sheet` real e três tarefas. `next dev` na 3102 e Playwright arrastando a borda de "Nome da tarefa": 15 passos de mouse real, depois 10 movimentos no mesmo instante, como um mouse rápido.
+  - **Com o código antigo:** a tela caiu no aviso "Esta tela não pôde ser exibida", com `Cannot read properties of null (reading 'dataset')` dentro de `Sheet`. Este é o erro do print.
+  - **Com a correção:** a coluna passou de 300 para 420 px, sem erro no console.
+- **Não validado:** uso logado no servidor da ATR depois da publicação.

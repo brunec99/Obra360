@@ -2607,17 +2607,16 @@ export function Sheet({
                                   e.currentTarget.dataset.width = String(widths[c.key] ?? c.width);
                                 }}
                                 onPointerMove={e => {
-                                  if (e.currentTarget.hasPointerCapture(e.pointerId))
-                                    setWidths(w => ({
-                                      ...w,
-                                      [c.key]: Math.max(
-                                        36,
-                                        Math.min(
-                                          600,
-                                          Number(e.currentTarget.dataset.width) + e.clientX - Number(e.currentTarget.dataset.x),
-                                        ),
-                                      ),
-                                    }));
+                                  const handle = e.currentTarget;
+                                  if (!handle.hasPointerCapture(e.pointerId)) return;
+                                  // A largura sai daqui, já calculada: o React zera `currentTarget` ao fim do
+                                  // evento, e o atualizador do estado pode rodar só na pintura seguinte. Lido lá
+                                  // dentro, `currentTarget.dataset` estourava e derrubava a tela inteira.
+                                  const width = Math.max(
+                                    36,
+                                    Math.min(600, Number(handle.dataset.width) + e.clientX - Number(handle.dataset.x)),
+                                  );
+                                  setWidths(w => (w[c.key] === width ? w : { ...w, [c.key]: width }));
                                 }}
                               />
                             </th>
