@@ -63,7 +63,8 @@ export interface ActivityDependency extends RecordBase {
 }
 
 /** Plano mensal de médio prazo: a folha que o planejador preenche para o mês, que nasce vazia.
- * Um plano por mês por obra. A linha de base é o próprio plano congelado — `baselineOf` aponta
+ * Até 16/11/2026 era um plano por mês por obra; desde então o mesmo mês pode ter mais de um (o nome
+ * repetido ganha " (2)" e, onde só um aparece, vale o criado por último — `newestPlanFirst`). A linha de base é o próprio plano congelado — `baselineOf` aponta
  * para o plano de origem e `frozenAt` marca o congelamento; plano congelado não aceita edição,
  * e por isso pode ser aberto no mesmo cronograma para comparar com o vivo. `copiedFromPlanId` aponta
  * o plano do mês anterior de que este nasceu como cópia (o horizonte de cada plano é de três meses). */

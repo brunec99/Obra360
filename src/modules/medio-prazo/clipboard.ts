@@ -51,3 +51,26 @@ export function decodeGrid(text: string, limit = 1000): string[][] {
   if (rows.some(row => row.length !== rows[0].length)) throw new Error('Selecione um intervalo retangular.');
   return rows;
 }
+/** Intervalo selecionado na grade, em posições de linha e coluna visíveis. */
+export interface GridRange {
+  r0: number;
+  r1: number;
+  c0: number;
+  c1: number;
+}
+/** Onde cada valor colado cai, como no Excel: com mais de uma célula selecionada e a seleção múltipla
+ * exata do bloco copiado (uma célula copiada serve para qualquer seleção), o bloco se repete até cobrir
+ * a seleção; senão, ele entra inteiro a partir do canto de cima à esquerda da seleção, ainda que passe
+ * dela — quem chama decide o que fazer com o que sobrar da grade. */
+export function pasteTargets(matrix: string[][], range: GridRange): { row: number; col: number; text: string }[] {
+  const height = matrix.length,
+    width = matrix[0]?.length ?? 0;
+  if (!height || !width) return [];
+  const rows = range.r1 - range.r0 + 1,
+    cols = range.c1 - range.c0 + 1;
+  const tile = (rows > 1 || cols > 1) && rows % height === 0 && cols % width === 0;
+  const out: { row: number; col: number; text: string }[] = [];
+  for (let r = 0; r < (tile ? rows : height); r++)
+    for (let c = 0; c < (tile ? cols : width); c++) out.push({ row: range.r0 + r, col: range.c0 + c, text: matrix[r % height][c % width] });
+  return out;
+}

@@ -123,6 +123,16 @@ test('escolhe o plano vivo do mês da data e cai no mais recente até o mês ou 
   assert.equal(buildMediumTermPanel(data, WORK, refFor('2026-12-07'), { week: '2026-12-07' })?.plan.id, 'plan-nov');
 });
 
+test('com dois cronogramas no mesmo mês, escolhe o criado por último (16/11/2026)', () => {
+  const data = setup();
+  const november = data.plans.find(p => p.id === 'plan-nov')!;
+  data.plans.push({ ...november, id: 'plan-nov-v2', name: 'Novembro revisado', createdAt: '2099-01-01T00:00:00Z' });
+  assert.equal(pickPlan(data.plans, WORK, '2026-11-07')?.id, 'plan-nov-v2');
+  // Ordem de chegada dos dados não muda a escolha.
+  data.plans.reverse();
+  assert.equal(pickPlan(data.plans, WORK, '2026-11-07')?.id, 'plan-nov-v2');
+});
+
 test('sem plano vivo o módulo fica sem dado', () => {
   const data = setup();
   data.plans = data.plans.filter(p => p.id === 'base-nov');

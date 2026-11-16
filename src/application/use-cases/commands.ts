@@ -40,6 +40,7 @@ import {
   buildLegalizationTasks,
   isLegalizationPlan,
   legalizationMonth,
+  uniquePlanName,
 } from '../../domain/legalization';
 export type ActivityInput = Pick<
   Activity,
@@ -1190,21 +1191,19 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
     case 'create_plan': {
       checkWork(command.workId);
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(command.month)) throw new Error('Informe o mês no formato AAAA-MM.');
-      // O Gantt de legalização também grava um `month` (o início da janela), mas não ocupa o mês.
-      if (data.plans.some(p => p.workId === command.workId && p.month === command.month && !p.baselineOf && !isLegalizationPlan(p)))
-        throw new Error('Esta obra já tem um plano para este mês.');
+      // 16/11/2026: a obra pode ter mais de um cronograma no mesmo mês; o nome repetido ganha " (2)".
       const source = command.copyFrom === undefined ? undefined : planFor(command.copyFrom);
       if (source) {
         if (isLegalizationPlan(source)) throw new Error('Copie de um cronograma do mês, não do Gantt de legalização.');
         if (source.workId !== command.workId) throw new Error('O plano de origem deve ser da mesma obra.');
         if (source.baselineOf || source.frozenAt) throw new Error('Copie de um plano vivo, não de uma linha de base.');
-        if (source.month >= command.month) throw new Error('O plano de origem deve ser de um mês anterior ao novo plano.');
+        if (source.month > command.month) throw new Error('O plano de origem deve ser do mesmo mês ou de um mês anterior ao novo plano.');
       }
       const plan: MediumTermPlan = {
         ...base(),
         workId: command.workId,
         month: command.month,
-        name: command.name?.trim() || `Plano de ${command.month}`,
+        name: uniquePlanName(data.plans, command.workId, command.month, command.name),
         createdBy: actorId,
         ...(source ? { copiedFromPlanId: source.id, ...(source.calendar ? { calendar: structuredClone(source.calendar) } : {}) } : {}),
       };
@@ -1225,8 +1224,6 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
     case 'import_plan': {
       checkWork(command.workId);
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(command.month)) throw new Error('Informe o mês no formato AAAA-MM.');
-      if (data.plans.some(p => p.workId === command.workId && p.month === command.month && !p.baselineOf && !isLegalizationPlan(p)))
-        throw new Error('Esta obra já tem um plano para este mês.');
       const fileName = requireText(command.fileName, 'Arquivo');
       if (!Array.isArray(command.tasks) || !command.tasks.length) throw new Error('O arquivo não tem tarefas para importar.');
       if (command.tasks.length > MAX_IMPORTED_TASKS || !Array.isArray(command.links) || command.links.length > MAX_IMPORTED_LINKS)
@@ -1239,7 +1236,7 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
         ...base(),
         workId: command.workId,
         month: command.month,
-        name: command.name?.trim() || `Plano de ${command.month}`,
+        name: uniquePlanName(data.plans, command.workId, command.month, command.name),
         createdBy: actorId,
         calendar,
       };

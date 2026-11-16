@@ -4,6 +4,7 @@ import { ClipboardList, Plus, Trash2, X } from 'lucide-react';
 import { CONSTRAINT_TYPES, LINK_TYPES, type ConstraintType, type LinkType, type Team } from '@/domain/entities';
 import { CONSTRAINT_LABELS, constraintNeedsDate } from '@/domain/plan-schedule';
 import { formatLink } from '@/domain/rules';
+import { openNativePicker } from '@/shared/native-picker';
 
 /* "Informações da tarefa" do Project (Shift+F2, ou duplo clique na linha ou na barra), com as abas
  * Geral, Predecessoras, Recursos, Avançado e Anotações sobre uma tarefa só. O diálogo não valida datas
@@ -282,6 +283,7 @@ export function TaskInfoDialog({
                 <input
                   className="field mt-1.5"
                   type="date"
+                  onClick={openNativePicker}
                   value={values.start}
                   disabled={!editable.start}
                   onChange={e => set('start', e.target.value)}
@@ -292,6 +294,7 @@ export function TaskInfoDialog({
                 <input
                   className="field mt-1.5"
                   type="date"
+                  onClick={openNativePicker}
                   value={values.end}
                   disabled={!editable.end}
                   onChange={e => set('end', e.target.value)}
@@ -488,6 +491,7 @@ export function TaskInfoDialog({
                 <input
                   className="field mt-1.5 sm:w-1/2"
                   type="date"
+                  onClick={openNativePicker}
                   value={values.deadline}
                   disabled={!editable.deadline}
                   onChange={e => set('deadline', e.target.value)}
@@ -513,6 +517,7 @@ export function TaskInfoDialog({
                 <input
                   className="field mt-1.5"
                   type="date"
+                  onClick={openNativePicker}
                   value={constraintNeedsDate(values.constraintType) ? values.constraintDate : ''}
                   disabled={!editable.constraintDate || !constraintNeedsDate(values.constraintType)}
                   onChange={e => set('constraintDate', e.target.value)}

@@ -1,5 +1,5 @@
 import type { PlanningData, PlanTask, Team, WeeklyCommitment } from './entities';
-import { isMonthlyPlan } from './legalization';
+import { isMonthlyPlan, newestPlanFirst } from './legalization';
 import { daysBetween, floorSchedule, latestPercents, physicalProgress, planSpan, type LongTermPlanDocument } from './long-term-plan';
 import { analyzeSchedule, DEFAULT_CALENDAR } from './plan-schedule';
 import { causePareto, isOverdue, ppc, ppcSeries, rollUpPlan, targetPercent, wagonStatus } from './rules';
@@ -239,9 +239,7 @@ function longTerm(doc: LongTermPlanDocument | undefined, data: PlanningData, wor
 
 function mediumTerm(data: PlanningData, workId: string, today: string) {
   // Gantt de legalização (04/11/2026, regra 17): fica só na aba 1, fora do dossiê do médio prazo.
-  const livePlans = data.plans
-    .filter(p => p.workId === workId && !p.baselineOf && !p.frozenAt && isMonthlyPlan(p))
-    .sort((a, b) => b.month.localeCompare(a.month));
+  const livePlans = data.plans.filter(p => p.workId === workId && !p.baselineOf && !p.frozenAt && isMonthlyPlan(p)).sort(newestPlanFirst);
   const plan = livePlans[0];
   const empty: MediumTermSummary = {
     late: [],

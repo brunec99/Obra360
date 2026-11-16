@@ -255,6 +255,7 @@ type PlanRow = {
   baseline_of: string | null;
   frozen_at: string | null;
   schedule_meta: { kind?: string } | null;
+  created_at: string | null;
 };
 type TaskRow = {
   id: string;
@@ -271,7 +272,7 @@ const TASK_COLUMNS = 'id, plan_id, name, planned_start, order_index, level, sche
 async function fetchPlans(workId: string): Promise<PendingSourcePlan[]> {
   const { data, error } = await getServiceClient()
     .from('medium_term_plans')
-    .select('id, month, baseline_of, frozen_at, schedule_meta')
+    .select('id, month, baseline_of, frozen_at, schedule_meta, created_at')
     .eq('work_id', workId);
   checkSource(error, 'ler medium_term_plans');
   return ((data ?? []) as PlanRow[]).map(r => ({
@@ -279,6 +280,7 @@ async function fetchPlans(workId: string): Promise<PendingSourcePlan[]> {
     month: r.month,
     baseline: Boolean(r.baseline_of || r.frozen_at),
     legalization: r.schedule_meta?.kind === 'legalizacao',
+    ...optional('createdAt', r.created_at),
   }));
 }
 

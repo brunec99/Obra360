@@ -15,6 +15,7 @@ import {
   type PendingSourceOptions,
   type PendingStatus,
 } from '../../domain/pending-board';
+import { newestPlanFirst } from '../../domain/legalization';
 
 /** Regras da Lista de pendência da aba 2 (migração 0043), sem banco: recebe os cards, checklists e
  * mensagens de UMA obra e devolve o que gravar e quem avisar por e-mail. Mesmo desenho da segurança
@@ -474,6 +475,8 @@ export interface PendingSourcePlan {
   baseline: boolean;
   /** Gantt de legalização: não entra na sucessão dos planos do mês. */
   legalization: boolean;
+  /** Criação do plano: desempata cronogramas do mesmo mês (16/11/2026), o mais novo primeiro. */
+  createdAt?: string;
 }
 export interface PendingSourceTask {
   id: string;
@@ -550,7 +553,9 @@ export function resolvePendingSources(cards: readonly PendingCard[], sources: Pe
   };
   const monthly = [...live.values()]
     .filter(p => !p.legalization)
-    .sort((a, b) => a.month.localeCompare(b.month) || a.id.localeCompare(b.id));
+    // Mês crescente e, no mesmo mês (mais de um cronograma desde 16/11/2026), o mais novo primeiro: o "plano do
+    // mês seguinte" do caminho por nomes é o criado por último naquele mês.
+    .sort((a, b) => a.month.localeCompare(b.month) || (b.createdAt ?? '').localeCompare(a.createdAt ?? '') || a.id.localeCompare(b.id));
   const monthOf = (task: PendingSourceTask) => live.get(task.planId)!.month;
 
   function successor(task: PendingSourceTask): PendingSourceTask | undefined {
@@ -558,7 +563,7 @@ export function resolvePendingSources(cards: readonly PendingCard[], sources: Pe
     // 1) Elo gravado: a cópia no mês mais recente.
     const linked = (copiesOf.get(task.id) ?? [])
       .filter(t => monthOf(t) > plan.month)
-      .sort((a, b) => monthOf(b).localeCompare(monthOf(a)))[0];
+      .sort((a, b) => newestPlanFirst(live.get(a.planId)!, live.get(b.planId)!))[0];
     if (linked) return linked;
     if (plan.legalization) return undefined;
     // 2) Sem elo: o plano do mês seguinte, pelo caminho de nomes, se ele não for uma cópia com elo.
@@ -606,7 +611,7 @@ export function resolvePendingSources(cards: readonly PendingCard[], sources: Pe
 /** Plano do médio prazo oferecido ao ligar uma pendência à mão na aba 2: o mensal vivo mais recente (o
  * mesmo "plano vivo" da tela do médio prazo). Linha de base e Gantt de legalização ficam de fora. */
 export function linkablePlan(plans: readonly PendingSourcePlan[]): PendingSourcePlan | undefined {
-  return plans.filter(p => !p.baseline && !p.legalization).sort((a, b) => b.month.localeCompare(a.month) || b.id.localeCompare(a.id))[0];
+  return plans.filter(p => !p.baseline && !p.legalization).sort(newestPlanFirst)[0];
 }
 
 /** O que o formulário "Nova pendência" da aba 2 oferece para ligar o card: as tarefas do plano vivo mais

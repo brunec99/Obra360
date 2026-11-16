@@ -161,10 +161,19 @@ test('recusa o que o cronograma do mês não aceita', () => {
   for (const [extra, message] of cases) assert.throws(() => run(createMockData(), command(extra)), message, String(message));
 });
 
-test('recusa um segundo plano no mesmo mês da obra', () => {
+test('aceita um segundo plano no mesmo mês da obra, com o nome numerado (16/11/2026)', () => {
   const data = createMockData();
-  run(data, command());
-  assert.throws(() => run(data, command()), /já tem um plano para este mês/);
+  const first = run(data, command());
+  const second = run(data, command());
+  assert.notEqual(first, second);
+  assert.deepEqual(
+    [first, second].map(id => data.plans.find(p => p.id === id)!.name),
+    ['BLT_Médio Prazo NOV - JAN', 'BLT_Médio Prazo NOV - JAN (2)'],
+  );
+  // Cada um com as próprias tarefas: a segunda importação não mexe na primeira.
+  const tasksOf = (id: string) => data.planTasks.filter(t => t.planId === id).length;
+  assert.equal(tasksOf(first), tasksOf(second));
+  assert.ok(tasksOf(first) > 0);
 });
 
 test('ciclo no arquivo é recusado pelo motor, sem gravar nada', () => {

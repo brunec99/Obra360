@@ -73,7 +73,7 @@ Ao abrir uma obra, a barra lateral mostra o nome dela, o **Dashboard da obra** n
 - **0 · Dashboard da obra** — o resumo da obra em quadros, um por módulo. Fica no topo, fora dos grupos.
 - **1 · Prazo** — o planejamento, descendo do macro para a semana:
   - **1.1 Cronograma de longo prazo** — o plano macro da obra: fluxograma de serviços que vira Linha de Balanço, linhas de base e medições. É de dentro dela que se abre o **Planejamento de vagão** (botão "Planejamento de vagão", para quem tem o módulo Vagões): os períodos de takt (vagões) com as atividades, a terminalidade de cada período e as liberações. O Planejamento de vagão não tem mais item nem número no menu.
-  - **1.2 Cronograma de médio prazo** — um cronograma por mês, com horizonte de três meses, no layout do MS Project (tabela e Gantt), recursos e linha de base.
+  - **1.2 Cronograma de médio prazo** — cronogramas do mês (o mesmo mês pode ter mais de um), com horizonte de três meses, no layout do MS Project (tabela e Gantt), recursos e linha de base.
   - **1.3 Cronograma de curto prazo** — a planilha semanal de produção: o que cada empresa e equipe faz na semana, o Status (Sim/Não), a causa de não cumprimento e o PPC.
   - **1.4 Quadro de Restrições** — o quadro de cards (Kanban) com prazo, responsável, conversa e checklists (antes "Lista de pendência"). Tem item próprio no menu e o endereço /obras/{obraId}/restricoes.
 - **2 · Controles de obra**:
@@ -140,7 +140,7 @@ O planejamento segue a lógica do Last Planner System, descendo do macro para a 
 
 - **Longo prazo (aba 1.1)** responde *quando cada serviço passa por cada pavimento* na obra inteira. É o plano macro: fluxograma de serviços, Linha de Balanço, ritmo, equipes por serviço, linha de base e medição do avanço físico. Dele saem os vagões.
 - **Vagões** (o Planejamento de vagão, sem número no menu: abre pelo botão "Planejamento de vagão" da aba 1.1) são os períodos de takt em que o longo prazo é fatiado. Cada vagão tem as atividades previstas para aquele período, com responsável, local, datas, percentual executado, critérios de terminalidade, pendências, restrições e liberação para o período seguinte.
-- **Médio prazo (aba 1.2)** responde *o que a obra faz nos próximos três meses, semana a semana*, no detalhe de um cronograma do MS Project: tarefas, durações, predecessoras, recursos, caminho crítico e linha de base do mês. Há um cronograma por mês, e o seguinte nasce como cópia do anterior.
+- **Médio prazo (aba 1.2)** responde *o que a obra faz nos próximos três meses, semana a semana*, no detalhe de um cronograma do MS Project: tarefas, durações, predecessoras, recursos, caminho crítico e linha de base do mês. Cada cronograma é de um mês (desde 16/11/2026 o mesmo mês pode ter mais de um), e o seguinte nasce como cópia do anterior.
 - **Curto prazo (aba 1.3)** responde *o que cada empresa e equipe se comprometeu a fazer nesta semana e se fez*. É a planilha de produção, com Status Sim/Não, causa de não cumprimento e PPC (percentual de compromissos cumpridos).
 - **Quadro de Restrições (aba 1.4)** acompanha, em cards com prazo e responsável, o que precisa ser resolvido para as frentes andarem; um card pode nascer de uma tarefa do médio prazo ou de um serviço do longo prazo e não trava vagão.
 - **Terminalidade (aba 2.1)** fecha a obra apartamento por apartamento: a lista de pendências com fotos de antes e depois, por pavimento, apartamento e empreiteiro.

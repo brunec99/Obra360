@@ -18,6 +18,7 @@ import { parseLinks, formatLink, formatLinks, rollUpPlan } from '../src/domain/r
 import type { PlanTask, PlanDependency, LinkType, PlanningData } from '../src/domain/entities';
 import { createMockData } from '../src/mocks/planning';
 import { applyCommand, type Command, type CommandContext } from '../src/application/use-cases/commands';
+import { newestPlanFirst, uniquePlanName } from '../src/domain/legalization';
 import { MockPlanningRepository } from '../src/infrastructure/repositories/mock/planning-repository';
 import { planningDataToPayload, rowsToPlanningData, type Rows } from '../src/infrastructure/repositories/supabase/mappers';
 
@@ -507,7 +508,7 @@ test('plano novo nasce como cópia do anterior, sem o que já terminou e com ví
   );
 });
 
-test('cópia só de plano vivo, da mesma obra e de mês anterior', () => {
+test('cópia só de plano vivo, da mesma obra e do mesmo mês ou de mês anterior', () => {
   const data = september();
   const baseline = run(data, { type: 'freeze_plan_baseline', planId: 'set', name: 'Base setembro' });
   const before = structuredClone(data);
@@ -522,4 +523,41 @@ test('cópia só de plano vivo, da mesma obra e de mês anterior', () => {
   const empty = run(data, { type: 'create_plan', workId: 'obra-1', month: '2026-10' });
   assert.equal(data.planTasks.filter(t => t.planId === empty).length, 0);
   assert.equal(data.plans.find(p => p.id === empty)!.copiedFromPlanId, undefined);
+});
+
+test('mais de um cronograma no mesmo mês (16/11/2026): cópia do mesmo mês, nome numerado e o mais novo na frente', () => {
+  const data = september();
+  // Cópia de setembro para setembro: permitida, com as tarefas e o elo de origem.
+  const copy = run(data, { type: 'create_plan', workId: 'obra-1', month: '2026-09', copyFrom: 'set' });
+  const plan = data.plans.find(p => p.id === copy)!;
+  assert.equal(plan.copiedFromPlanId, 'set');
+  assert.ok(data.planTasks.some(t => t.planId === copy));
+  assert.equal(plan.name, 'Plano de 2026-09');
+  // O nome pedido que já existe no mês (sem diferença de maiúsculas) ganha número; em outro mês, não.
+  const named = (month: string, name?: string) => {
+    const id = run(data, { type: 'create_plan', workId: 'obra-1', month, name });
+    return data.plans.find(p => p.id === id)!.name;
+  };
+  assert.equal(named('2026-09'), 'Plano de 2026-09 (2)');
+  assert.equal(named('2026-09', '  plano de 2026-09 '), 'plano de 2026-09 (3)');
+  assert.equal(named('2026-09', 'Torre B'), 'Torre B');
+  assert.equal(named('2026-10', 'Torre B'), 'Torre B');
+  // Linha de base e Gantt de legalização não ocupam nome.
+  run(data, { type: 'freeze_plan_baseline', planId: 'set', name: 'Torre C' });
+  assert.equal(named('2026-09', 'Torre C'), 'Torre C');
+  assert.equal(uniquePlanName(data.plans, 'obra-2', '2026-09', 'Torre B'), 'Torre B');
+});
+
+test('newestPlanFirst: mês mais recente primeiro e, no mesmo mês, o criado por último', () => {
+  const plan = (id: string, month: string, createdAt?: string) => ({ id, month, createdAt });
+  const sorted = [
+    plan('a', '2026-10', '2026-10-01T10:00:00Z'),
+    plan('b', '2026-11', '2026-11-01T10:00:00Z'),
+    plan('c', '2026-11', '2026-11-16T09:00:00Z'),
+    plan('d', '2026-09'),
+  ].sort(newestPlanFirst);
+  assert.deepEqual(
+    sorted.map(p => p.id),
+    ['c', 'b', 'a', 'd'],
+  );
 });

@@ -1,10 +1,11 @@
 'use client';
-import { encodeGrid, decodeGrid } from './clipboard';
+import { encodeGrid, decodeGrid, pasteTargets, type GridRange } from './clipboard';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   BookUser,
   CalendarClock,
+  CalendarDays,
   ChartGantt,
   ClipboardList,
   Check,
@@ -72,7 +73,8 @@ import {
   type WorkCalendar,
 } from '@/domain/plan-schedule';
 import { buildMspdi } from '@/domain/mspdi';
-import { isMonthlyPlan } from '@/domain/legalization';
+import { isMonthlyPlan, newestPlanFirst } from '@/domain/legalization';
+import { decideRecovery, draftKey, formatSavedAt, hashText, serializeDraft } from './draft-storage';
 import { parseLinks, formatLink, rollUpPlan } from '@/domain/rules';
 import { validateDate } from '@/domain/validation';
 import { useDeveloper, useModules, usePlanning } from '@/modules/planejamento/planning-provider';
@@ -84,6 +86,7 @@ import { useConfirm } from '@/modules/layout/confirm';
 import { useToast } from '@/modules/layout/toast';
 import { HelpNote } from '@/modules/layout/help-note';
 import { formatDate } from '@/shared/format';
+import { openNativePicker } from '@/shared/native-picker';
 import {
   GANTT_DAY_PX,
   GanttChart,
@@ -100,6 +103,7 @@ import { TeamPlanner } from './team-planner';
 import { ResourceUsageView } from './resource-usage-view';
 import { ResourceSheetView } from './resource-sheet-view';
 import { NewPlanDrawer } from './new-plan-drawer';
+import { DatePopover } from './date-picker';
 import { TaskInfoDialog, type TaskInfoChange, type TaskInfoTab, type TaskInfoValues } from './task-info-dialog';
 
 /* Cronograma do mês no layout do MS Project: tabela à esquerda, Gantt de acompanhamento à direita,
@@ -277,6 +281,9 @@ const LEAF_ONLY: Col[] = [
 /** Colunas editadas num `<select>`, não num `<input>`: a tecla digitada não vira semente. */
 const SELECT_COLS: Col[] = ['team', 'constraintType'];
 const DATE_COLS: Col[] = ['actualStart', 'actualEnd', 'constraintDate', 'deadline'];
+/** Colunas de data que abrem o calendário (16/11/2026): o ícone na célula, o duplo clique, F2 ou Enter
+ * abrem o editor já com o calendário; quem começa digitando não vê o calendário (Alt+↓ abre). */
+const CALENDAR_COLS: Col[] = ['actualStart', 'actualEnd', 'start', 'end', 'constraintDate', 'deadline'];
 type Column = (typeof columns)[number];
 const COLUMN = Object.fromEntries(columns.map(c => [c.key, c])) as Record<Col, Column>;
 /** Ordem padrão das colunas. Id e Indicadores ficam presas no começo, como a coluna de identificação
@@ -393,6 +400,14 @@ function dateInput(raw: string) {
   validateDate(d);
   return d;
 }
+/** A data que o texto da célula representa, para o calendário marcar; texto vazio ou incompleto não marca nada. */
+function typedDate(raw: string) {
+  try {
+    return blank(raw) ? undefined : dateInput(raw);
+  } catch {
+    return undefined;
+  }
+}
 /** Tipo de restrição como se cola do Project: o nome em português ("Não iniciar antes de"), a sigla
  * (NIAD) ou o código interno (SNET), sem distinguir acento nem caixa. Vazio é "O mais breve possível". */
 function constraintInput(raw: string): ConstraintType {
@@ -481,11 +496,9 @@ export function ScheduleSheet({ workId }: { workId: string }) {
   const actor = context.planning.data.users.find(u => u.id === context.actorId);
   if (!actor?.workIds.includes(workId)) return null;
   // O Gantt de legalização da aba 1 usa este mesmo cronograma, mas não é plano do mês (regra 17).
-  const plans = context.planning.data.plans
-    .filter(p => p.workId === workId && !p.baselineOf && isMonthlyPlan(p))
-    .sort((a, b) => b.month.localeCompare(a.month));
+  const plans = context.planning.data.plans.filter(p => p.workId === workId && !p.baselineOf && isMonthlyPlan(p)).sort(newestPlanFirst);
   const today = context.planning.today;
-  // Abre no cronograma do mês corrente; sem ele, no mais recente.
+  // Abre no cronograma do mês corrente (havendo mais de um, o criado por último); sem ele, no mais recente.
   const plan = plans.find(p => p.id === id) ?? plans.find(p => p.month === today.slice(0, 7)) ?? plans[0];
   return (
     <section className="panel my-5 overflow-hidden" data-tour="medio-gantt">
@@ -541,9 +554,38 @@ export function Sheet({
   /** Gantt de legalização da aba 1; sem ele, o cronograma do mês. */
   variant?: SheetVariant;
 }) {
-  const [draft, setDraft] = useState<Draft>(() => initial(data, plan));
-  const [base, setBase] = useState(() => planSnapshot(plan, data.planTasks, data.planDependencies));
-  const [original, setOriginal] = useState<Draft>(() => initial(data, plan));
+  // Rascunho automático (16/11/2026): o que ficou sem "Revisar e salvar" volta deste navegador ao
+  // reabrir o cronograma. Original e retrato vêm do banco, como sempre; só o rascunho vem guardado.
+  // Ler o localStorage já no estado inicial é seguro porque o Sheet só monta no navegador: as duas
+  // telas esperam o planejamento carregar (`context.state === 'ready'`), que nunca vem do servidor.
+  const persist = !readOnly && !plan.frozenAt && !plan.baselineOf;
+  const storageKey = draftKey(actorId, plan.id);
+  const [opening] = useState(() => {
+    const current = initial(data, plan);
+    const snapshot = planSnapshot(plan, data.planTasks, data.planDependencies);
+    let raw: string | null = null;
+    if (persist)
+      try {
+        raw = localStorage.getItem(storageKey);
+      } catch {}
+    const recovery = decideRecovery(raw, { actorId, planId: plan.id, current, currentHash: hashText(snapshot) });
+    return { current, snapshot, recovery };
+  });
+  const [draft, setDraft] = useState<Draft>(() =>
+    opening.recovery.kind === 'restore' ? structuredClone(opening.recovery.stored.draft) : opening.current,
+  );
+  const [base, setBase] = useState(opening.snapshot);
+  const [original, setOriginal] = useState<Draft>(opening.current);
+  // O aviso do rascunho recuperado. `staleHash`: o cronograma gravado mudou depois que o rascunho
+  // começou; enquanto a pessoa não escolher, salvar fica barrado (gravaria por cima do que mudou).
+  const [recovered, setRecovered] = useState<{ savedAt: string; staleHash?: string } | null>(() =>
+    opening.recovery.kind === 'restore'
+      ? {
+          savedAt: opening.recovery.stored.savedAt,
+          ...(opening.recovery.stale ? { staleHash: opening.recovery.stored.baseHash } : {}),
+        }
+      : null,
+  );
   const [past, setPast] = useState<Draft[]>([]),
     [future, setFuture] = useState<Draft[]>([]);
   const [locked, setLocked] = useState(true),
@@ -599,7 +641,7 @@ export function Sheet({
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [selected, setSelected] = useState<{ row: number; col: number }>({ row: 0, col: 3 }),
     [anchor, setAnchor] = useState<{ row: number; col: number }>({ row: 0, col: 3 });
-  const [editor, setEditor] = useState<{ id: string; key: Col; text: string; seeded?: boolean } | null>(null);
+  const [editor, setEditor] = useState<{ id: string; key: Col; text: string; seeded?: boolean; calendar?: boolean } | null>(null);
   const baselines = data.plans.filter(p => p.baselineOf === plan.id).sort((a, b) => (b.frozenAt ?? '').localeCompare(a.frozenAt ?? ''));
   // Como no Project, a linha de base aparece sempre; a mais recente é a padrão.
   const [baseId, setBaseId] = useState(() => baselines[0]?.id ?? ''),
@@ -620,6 +662,8 @@ export function Sheet({
     chartScroll = useRef<HTMLDivElement>(null);
   const prefKey = `cronograma:${actorId}:${plan.id}`;
   const dirty = JSON.stringify(draft) !== JSON.stringify(original);
+  // Rascunho que voltou a ser igual ao gravado (desfazer, descartar, salvar) encerra o aviso de recuperado.
+  if (recovered && !dirty) setRecovered(null);
   const canEdit = !readOnly && !locked && !busy && !plan.frozenAt;
   const teams = data.teams.filter(t => t.workId === plan.workId);
   const teamLabel = (id?: string) => {
@@ -831,6 +875,58 @@ export function Sheet({
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty, editor]);
+  // Rascunho automático: grava 400 ms depois da última mudança, e na hora quando a aba some (pagehide,
+  // aba oculta) ou a tela fecha. Sem alteração pendente, a chave sai. A célula em digitação ainda não é
+  // rascunho e não vai.
+  const baseHash = useMemo(() => (persist ? (recovered?.staleHash ?? hashText(base)) : ''), [persist, base, recovered?.staleHash]);
+  const pendingWrite = useRef<(() => void) | null>(null);
+  const storageWarned = useRef(false);
+  const toastRef = useRef(toast);
+  useEffect(() => {
+    toastRef.current = toast;
+  });
+  useEffect(() => {
+    if (!persist) return;
+    if (!dirty) {
+      pendingWrite.current = null;
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {}
+      return;
+    }
+    const write = () => {
+      pendingWrite.current = null;
+      try {
+        localStorage.setItem(storageKey, serializeDraft({ actorId, planId: plan.id, savedAt: new Date().toISOString(), baseHash, draft }));
+      } catch {
+        if (!storageWarned.current) {
+          storageWarned.current = true;
+          toastRef.current({
+            title: 'Rascunho não guardado neste navegador',
+            description:
+              'O navegador não deixou guardar o rascunho (espaço cheio ou bloqueado). Use “Revisar e salvar” para não perder as alterações.',
+            tone: 'danger',
+          });
+        }
+      }
+    };
+    pendingWrite.current = write;
+    const timer = setTimeout(write, 400);
+    return () => clearTimeout(timer);
+  }, [persist, dirty, draft, storageKey, baseHash, actorId, plan.id]);
+  useEffect(() => {
+    const flush = () => pendingWrite.current?.();
+    const hidden = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', hidden);
+      flush();
+    };
+  }, []);
   // Com rascunho aberto, clicar num link pergunta antes de sair. O diálogo é assíncrono, então o clique
   // é sempre barrado e a navegação refeita pelo router se a pessoa confirmar. Nova aba (target ou
   // Ctrl/Cmd+clique) e download não perdem o rascunho e passam direto.
@@ -843,18 +939,20 @@ export function Sheet({
       e.stopPropagation();
       const href = link.getAttribute('href') ?? '';
       void confirm({
-        title: 'Sair e perder as alterações não salvas?',
-        description: 'O rascunho do cronograma ainda não foi salvo. Volte e use “Revisar e salvar” para gravá-lo.',
+        title: 'Sair sem salvar no sistema?',
+        description: persist
+          ? 'As alterações ainda não estão no sistema. O rascunho fica guardado só neste navegador e volta quando você reabrir este cronograma aqui; para gravar no sistema, use “Revisar e salvar”.'
+          : 'O rascunho do cronograma ainda não foi salvo. Volte e use “Revisar e salvar” para gravá-lo.',
         confirmLabel: 'Sair sem salvar',
         cancelLabel: 'Continuar editando',
-        tone: 'danger',
+        tone: persist ? 'default' : 'danger',
       }).then(ok => {
         if (ok && href) router.push(href);
       });
     };
     document.addEventListener('click', guard, true);
     return () => document.removeEventListener('click', guard, true);
-  }, [dirty, editor, confirm, router]);
+  }, [dirty, editor, confirm, router, persist]);
   // Atualizações externas não substituem um rascunho aberto.
   useEffect(() => {
     if (!dirty && !editor) {
@@ -1057,127 +1155,147 @@ export function Sheet({
     t.constraintType = type;
     if (constraintNeedsDate(type)) t.constraintDate = date;
   }
+  /** Célula que recebe colagem e Ctrl+D: as que se editam, menos as presas ao andamento real — o
+   * início de quem já começou e o término e a duração de quem terminou, que se corrigem pelas datas
+   * reais. Lido no rascunho que está sendo montado, para valer a ordem das colunas coladas. */
+  const pasteable = (t: PlanTask, key: Col) =>
+    editable(t, key) && !(key === 'start' && t.actualStart) && !((key === 'end' || key === 'duration') && t.actualEnd);
   function applyCells(entries: { id: string; key: Col; text: string }[]) {
     stage(applyCellsTo(latest(), entries));
   }
   /** As células aplicadas sobre `base`, já reagendadas, sem mexer no rascunho: quem chama decide se
-   * grava direto ou se encadeia outra operação (Enter na última linha edita e insere de uma vez). */
-  function applyCellsTo(base: Draft, entries: { id: string; key: Col; text: string }[]): Draft {
+   * grava direto ou se encadeia outra operação (Enter na última linha edita e insere de uma vez).
+   * Com `paste` (colagem e Ctrl+D), a célula calculada, de resumo ou presa ao andamento real é pulada
+   * e contada em `paste.skipped`, e o valor inválido diz em que linha e coluna está. */
+  function applyCellsTo(base: Draft, entries: { id: string; key: Col; text: string }[], paste?: { skipped: number }): Draft {
     if (entries.length > 1000) throw new Error('Limite de 1000 células por operação.');
     const next = structuredClone(base);
     for (const entry of entries) {
       const at = next.tasks.findIndex(t => t.id === entry.id);
       const t = next.tasks[at];
+      if (paste && t && !pasteable(t, entry.key)) {
+        paste.skipped++;
+        continue;
+      }
       if (!t || !editable(t, entry.key)) throw new Error('O intervalo contém uma célula bloqueada ou calculada.');
-      switch (entry.key) {
-        case 'name':
-          if (!entry.text.trim()) throw new Error('Nome é obrigatório.');
-          t.name = entry.text.trim();
-          break;
-        case 'notes':
-          t.notes = entry.text;
-          break;
-        case 'progress': {
-          const n = Number(entry.text.replace('%', '').replace(',', '.').trim());
-          if (!entry.text.trim() || !Number.isFinite(n)) throw new Error('% concluída deve ficar entre 0 e 100.');
-          next.tasks[at] = withProgress(t, n, next.calendar);
-          break;
-        }
-        case 'actualStart':
-          next.tasks[at] = withActualStart(t, blank(entry.text) ? undefined : dateInput(entry.text), next.calendar);
-          break;
-        case 'actualEnd':
-          next.tasks[at] = withActualEnd(t, blank(entry.text) ? undefined : dateInput(entry.text), next.calendar);
-          break;
-        case 'team': {
-          const text = entry.text.trim();
-          const match = teams.find(
-            e =>
-              e.id === text ||
-              `${e.company} · ${e.name}` === text ||
-              normalize(e.name) === normalize(text) ||
-              normalize(e.company) === normalize(text),
-          );
-          if (text && !match) throw new Error('Escolha um recurso cadastrado na obra.');
-          t.teamId = match?.id;
-          break;
-        }
-        case 'duration':
-          if (t.actualEnd) throw new Error('Tarefa concluída: a duração vem do início e do término reais.');
-          t.duration = parseDuration(entry.text);
-          break;
-        case 'start': {
-          if (t.actualStart) throw new Error('A tarefa já começou: corrija o Início real.');
-          // Apagar o início de uma tarefa com predecessoras devolve a data à rede, como "o mais breve possível".
-          if (blank(entry.text)) {
-            if (!next.links.some(l => l.successorId === t.id)) throw new Error('Informe o início.');
-            setConstraint(t, 'ASAP');
-            break;
-          }
-          // Como no Project: digitar o início cria "Não iniciar antes de" nessa data.
-          const start = dateInput(entry.text);
-          t.duration ??= { value: countedDays(t.plannedStart, t.plannedEnd, false, next.calendar), unit: 'dd' };
-          setConstraint(t, 'SNET', start);
-          t.plannedStart = start;
-          t.plannedEnd = endFor(start, t.duration, next.calendar).end;
-          break;
-        }
-        case 'end': {
-          if (t.actualEnd) throw new Error('Tarefa concluída: corrija o Término real.');
-          const end = dateInput(entry.text);
-          const business = t.duration ? !['dd', 'md'].includes(t.duration.unit) : true;
-          t.duration = { value: countedDays(t.plannedStart, end, business, next.calendar), unit: business ? 'd' : 'dd' };
-          if (!t.duration.value) throw new Error('Período sem dia de trabalho.');
-          t.plannedEnd = end;
-          // Como no Project: digitar o término cria "Não terminar antes de" nessa data.
-          setConstraint(t, 'FNET', end);
-          break;
-        }
-        case 'constraintType': {
-          const type = constraintInput(entry.text);
-          // Tipo com data numa tarefa sem data: o Project usa o início (ou o término) atual da tarefa.
-          const date = constraintOf(t).date ?? (startConstraint(type) ? t.plannedStart : t.plannedEnd);
-          setConstraint(t, type, date);
-          break;
-        }
-        case 'constraintDate': {
-          if (blank(entry.text)) {
-            setConstraint(t, 'ASAP');
-            break;
-          }
-          // Data numa tarefa sem restrição vira "Não iniciar antes de", como no Project.
-          const current = constraintOf(t).type;
-          setConstraint(t, constraintNeedsDate(current) ? current : 'SNET', dateInput(entry.text));
-          break;
-        }
-        case 'deadline':
-          if (blank(entry.text)) delete t.deadline;
-          else t.deadline = dateInput(entry.text);
-          break;
-        case 'links': {
-          const parsed = parseLinks(entry.text);
-          if (parsed.invalid.length) throw new Error(`Predecessora inválida: ${parsed.invalid.join(', ')}`);
-          next.links = next.links.filter(l => l.successorId !== t.id);
-          for (const l of parsed.links) {
-            const p = next.tasks[l.number - 1];
-            if (!p) throw new Error(`Linha ${l.number} não existe.`);
-            if (p.id === t.id) throw new Error('A tarefa não pode ser predecessora dela mesma.');
-            next.links.push({
-              id: crypto.randomUUID(),
-              ...stamp(),
-              predecessorId: p.id,
-              successorId: t.id,
-              type: l.type,
-              lagDays: l.lagDays,
-              lagBusiness: l.lagBusiness,
-            });
-          }
-          break;
-        }
+      try {
+        applyCell(next, at, entry);
+      } catch (e) {
+        throw paste ? new Error(`Linha ${at + 1} · ${COLUMN[entry.key].label}: ${(e as Error).message}`) : e;
       }
     }
     next.tasks = scheduleTasks(next.tasks, next.links, next.calendar);
     return next;
+  }
+  /** Uma célula sobre `next`, que `applyCellsTo` já clonou; a tarefa da linha é `next.tasks[at]`. */
+  function applyCell(next: Draft, at: number, entry: { id: string; key: Col; text: string }) {
+    const t = next.tasks[at];
+    switch (entry.key) {
+      case 'name':
+        if (!entry.text.trim()) throw new Error('Nome é obrigatório.');
+        t.name = entry.text.trim();
+        break;
+      case 'notes':
+        t.notes = entry.text;
+        break;
+      case 'progress': {
+        const n = Number(entry.text.replace('%', '').replace(',', '.').trim());
+        if (!entry.text.trim() || !Number.isFinite(n)) throw new Error('% concluída deve ficar entre 0 e 100.');
+        next.tasks[at] = withProgress(t, n, next.calendar);
+        break;
+      }
+      case 'actualStart':
+        next.tasks[at] = withActualStart(t, blank(entry.text) ? undefined : dateInput(entry.text), next.calendar);
+        break;
+      case 'actualEnd':
+        next.tasks[at] = withActualEnd(t, blank(entry.text) ? undefined : dateInput(entry.text), next.calendar);
+        break;
+      case 'team': {
+        const text = entry.text.trim();
+        const match = teams.find(
+          e =>
+            e.id === text ||
+            `${e.company} · ${e.name}` === text ||
+            normalize(e.name) === normalize(text) ||
+            normalize(e.company) === normalize(text),
+        );
+        if (text && !match) throw new Error('Escolha um recurso cadastrado na obra.');
+        t.teamId = match?.id;
+        break;
+      }
+      case 'duration':
+        if (t.actualEnd) throw new Error('Tarefa concluída: a duração vem do início e do término reais.');
+        t.duration = parseDuration(entry.text);
+        break;
+      case 'start': {
+        if (t.actualStart) throw new Error('A tarefa já começou: corrija o Início real.');
+        // Apagar o início de uma tarefa com predecessoras devolve a data à rede, como "o mais breve possível".
+        if (blank(entry.text)) {
+          if (!next.links.some(l => l.successorId === t.id)) throw new Error('Informe o início.');
+          setConstraint(t, 'ASAP');
+          break;
+        }
+        // Como no Project: digitar o início cria "Não iniciar antes de" nessa data.
+        const start = dateInput(entry.text);
+        t.duration ??= { value: countedDays(t.plannedStart, t.plannedEnd, false, next.calendar), unit: 'dd' };
+        setConstraint(t, 'SNET', start);
+        t.plannedStart = start;
+        t.plannedEnd = endFor(start, t.duration, next.calendar).end;
+        break;
+      }
+      case 'end': {
+        if (t.actualEnd) throw new Error('Tarefa concluída: corrija o Término real.');
+        const end = dateInput(entry.text);
+        const business = t.duration ? !['dd', 'md'].includes(t.duration.unit) : true;
+        t.duration = { value: countedDays(t.plannedStart, end, business, next.calendar), unit: business ? 'd' : 'dd' };
+        if (!t.duration.value) throw new Error('Período sem dia de trabalho.');
+        t.plannedEnd = end;
+        // Como no Project: digitar o término cria "Não terminar antes de" nessa data.
+        setConstraint(t, 'FNET', end);
+        break;
+      }
+      case 'constraintType': {
+        const type = constraintInput(entry.text);
+        // Tipo com data numa tarefa sem data: o Project usa o início (ou o término) atual da tarefa.
+        const date = constraintOf(t).date ?? (startConstraint(type) ? t.plannedStart : t.plannedEnd);
+        setConstraint(t, type, date);
+        break;
+      }
+      case 'constraintDate': {
+        if (blank(entry.text)) {
+          setConstraint(t, 'ASAP');
+          break;
+        }
+        // Data numa tarefa sem restrição vira "Não iniciar antes de", como no Project.
+        const current = constraintOf(t).type;
+        setConstraint(t, constraintNeedsDate(current) ? current : 'SNET', dateInput(entry.text));
+        break;
+      }
+      case 'deadline':
+        if (blank(entry.text)) delete t.deadline;
+        else t.deadline = dateInput(entry.text);
+        break;
+      case 'links': {
+        const parsed = parseLinks(entry.text);
+        if (parsed.invalid.length) throw new Error(`Predecessora inválida: ${parsed.invalid.join(', ')}`);
+        next.links = next.links.filter(l => l.successorId !== t.id);
+        for (const l of parsed.links) {
+          const p = next.tasks[l.number - 1];
+          if (!p) throw new Error(`Linha ${l.number} não existe.`);
+          if (p.id === t.id) throw new Error('A tarefa não pode ser predecessora dela mesma.');
+          next.links.push({
+            id: crypto.randomUUID(),
+            ...stamp(),
+            predecessorId: p.id,
+            successorId: t.id,
+            type: l.type,
+            lagDays: l.lagDays,
+            lagBusiness: l.lagBusiness,
+          });
+        }
+        break;
+      }
+    }
   }
   /** Tarefa nova logo abaixo da linha `at` (no fim, sem linha). Fica no nível dela; abaixo de um
    * resumo vira a primeira subtarefa, senão as subtarefas dele passariam para a linha nova. Nasce
@@ -1217,6 +1335,76 @@ export function Sheet({
     committedEditor.current = null;
     setEditor({ id: task.id, key: 'name', text: task.name });
   }
+  /** Colagem na grade (Ctrl+V, 16/11/2026), como no Excel e no Project: o bloco cai a partir da
+   * seleção, ou se repete por ela quando ela é múltipla dele; linhas que passam da última viram
+   * tarefas novas no fim; o que passa da última coluna visível fica de fora; a célula calculada, de
+   * resumo ou presa ao andamento real fica como estava, sem barrar as outras; a que já mostra o mesmo
+   * texto não é regravada (colar a data igual não cria restrição). Um valor inválido cancela a
+   * colagem inteira e diz linha e coluna. `fill` é o Ctrl+D: mesma regra, sem linhas novas e sem
+   * mexer na seleção; sem ele, o intervalo colado fica selecionado. */
+  function pasteGrid(matrix: string[][], range: GridRange = bounds, fill = false) {
+    if (!canEdit) throw new Error('Libere a edição da grade para colar.');
+    const targets = pasteTargets(matrix, range);
+    if (!targets.length) return;
+    const lastRow = Math.max(...targets.map(p => p.row));
+    const extra = fill ? 0 : Math.max(0, lastRow - (rows.length - 1));
+    if (extra && filtering)
+      throw new Error('A colagem passa da última linha do filtro. Limpe o filtro para colar criando tarefas novas no fim.');
+    // As tarefas novas entram no fim, no nível e na data da última linha visível, como o "Inserir
+    // tarefa" nela; o reagendamento sai uma vez só, junto com as células.
+    let base = latest();
+    const last = rows.at(-1);
+    const start = last ? (roll.get(last.id)?.plannedStart ?? last.plannedStart) : win.start;
+    const fresh: PlanTask[] = Array.from({ length: extra }, (_, i) => ({
+      id: crypto.randomUUID(),
+      ...stamp(),
+      planId: plan.id,
+      name: 'Nova tarefa',
+      plannedStart: start,
+      plannedEnd: start,
+      duration: { value: 1, unit: 'd' },
+      progress: 0,
+      order: base.tasks.length + i + 1,
+      level: last?.level ?? 0,
+    }));
+    if (fresh.length) base = { ...base, tasks: [...base.tasks, ...fresh] };
+    let outside = 0,
+      calculated = 0;
+    const entries: { id: string; key: Col; text: string }[] = [];
+    for (const p of targets) {
+      const col = visibleCols[p.col];
+      if (!col) outside++;
+      else if (!col.editable) calculated++;
+      else if (p.row < rows.length) {
+        if (raw(rows[p.row], col.key) !== p.text) entries.push({ id: rows[p.row].id, key: col.key, text: p.text });
+      } else entries.push({ id: fresh[p.row - rows.length].id, key: col.key, text: p.text });
+    }
+    const report = { skipped: 0 };
+    const next = applyCellsTo(base, entries, report);
+    const skipped = calculated + report.skipped;
+    if (entries.length === report.skipped && !fresh.length) {
+      if (skipped)
+        throw new Error(
+          `Nada foi colado: ${skipped === 1 ? 'a célula de destino é calculada' : 'as células de destino são calculadas'} (Id, folgas, linha de base…), de resumo ou presa ao andamento real.`,
+        );
+      return;
+    }
+    stage(next);
+    if (!fill) {
+      setSelected({ row: range.r0, col: range.c0 });
+      setAnchor({ row: lastRow, col: Math.min(visibleCols.length - 1, Math.max(...targets.map(p => p.col))) });
+    }
+    const notes = [
+      fresh.length ? `${fresh.length} ${fresh.length === 1 ? 'tarefa nova criada' : 'tarefas novas criadas'} no fim do cronograma.` : '',
+      skipped
+        ? `${skipped} ${skipped === 1 ? 'célula calculada, de resumo ou presa ao andamento real ficou' : 'células calculadas, de resumo ou presas ao andamento real ficaram'} como estava${skipped === 1 ? '' : 'm'}.`
+        : '',
+      outside
+        ? `${outside} ${outside === 1 ? 'célula passou' : 'células passaram'} da última coluna visível e ficou${outside === 1 ? '' : 'ram'} de fora.`
+        : '',
+    ].filter(Boolean);
+    if (notes.length) toast({ title: fill ? 'Preenchimento aplicado' : 'Colagem aplicada', description: notes.join(' '), tone: 'info' });
+  }
   function commit() {
     if (!editor || committedEditor.current === editor) return true;
     try {
@@ -1246,7 +1434,30 @@ export function Sheet({
                 ? text.replace('%', '')
                 : text;
       const select = SELECT_COLS.includes(key);
-      setEditor({ id: t.id, key, seeded: seed !== undefined && !select, text: select ? current : (seed ?? current) });
+      setEditor({
+        id: t.id,
+        key,
+        seeded: seed !== undefined && !select,
+        text: select ? current : (seed ?? current),
+        calendar: seed === undefined && CALENDAR_COLS.includes(key),
+      });
+    }
+  }
+  /** Dia escolhido no calendário da célula: grava na hora e devolve o foco à célula, como o Enter. Se a
+   * data não passar nas regras da coluna, o editor fica aberto com ela e o erro aparece na faixa vermelha. */
+  function pickDate(date: string | undefined, r: number, c: number) {
+    if (!editor) return;
+    const picked = { ...editor, text: date ? projectDate(date) : '' };
+    try {
+      applyCells([picked]);
+      // O campo some com o editor; o blur que vier dele traz o editor antigo e não pode gravar de novo.
+      committedEditor.current = editor;
+      setEditor(null);
+      focus(r, c);
+    } catch (e) {
+      setEditor(picked);
+      setError((e as Error).message);
+      editRef.current?.focus();
     }
   }
   /** XML do Project (MSPDI) com o rascunho como está, inclusive folgas e caminho crítico. */
@@ -1279,8 +1490,48 @@ export function Sheet({
       setError((e as Error).message);
     }
   }
+  /** Apaga o rascunho guardado neste navegador (salvo, descartado). */
+  function forgetStoredDraft() {
+    pendingWrite.current = null;
+    setRecovered(null);
+    if (persist)
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {}
+  }
+  /** Descartar (barra do cronograma e aviso de recuperado): volta ao que está gravado. Com o rascunho
+   * limpo, o efeito das atualizações externas recarrega a versão atual do banco. */
+  async function discardDraft() {
+    const count = changed.length + removed.length;
+    if (
+      !(await confirm({
+        title: 'Descartar todas as alterações não salvas?',
+        description: `${count} ${count === 1 ? 'tarefa volta' : 'tarefas voltam'} ao que está gravado${persist ? ', e o rascunho guardado neste navegador é apagado' : ''}.`,
+        confirmLabel: 'Descartar',
+        cancelLabel: 'Manter rascunho',
+        tone: 'danger',
+      }))
+    )
+      return;
+    setDraft(original);
+    setPast([]);
+    setFuture([]);
+    setEditor(null);
+    forgetStoredDraft();
+  }
+  /** Rascunho recuperado de um cronograma que mudou depois dele: as alterações passam a ser contadas
+   * contra a versão gravada agora, e salvar fica liberado (a revisão mostra o que muda). */
+  function adoptRecoveredDraft() {
+    setOriginal(initial(data, plan));
+    setBase(planSnapshot(plan, data.planTasks, data.planDependencies));
+    setRecovered(r => (r ? { savedAt: r.savedAt } : r));
+  }
   async function save() {
     if (editor && !commit()) return;
+    if (recovered?.staleHash) {
+      setError('O cronograma mudou no sistema depois deste rascunho. Descarte o rascunho ou use-o sobre a versão atual antes de salvar.');
+      return;
+    }
     const count = changed.length + removed.length;
     setBusy(true);
     setError('');
@@ -1299,6 +1550,7 @@ export function Sheet({
       setFuture([]);
       setReview(false);
       setReason('');
+      forgetStoredDraft();
       toast({
         title: 'Cronograma salvo',
         description: `${count} ${count === 1 ? 'tarefa gravada' : 'tarefas gravadas'} ${variant ? `no ${variant.title}` : `em ${monthLabel(plan.month)}`}.`,
@@ -1399,6 +1651,12 @@ export function Sheet({
   }
   function editorKey(e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>, r: number, c: number) {
     e.stopPropagation();
+    // Alt+↓ abre e fecha o calendário da célula de data, como a lista suspensa do Project.
+    if (e.altKey && e.key === 'ArrowDown' && editor && CALENDAR_COLS.includes(editor.key)) {
+      e.preventDefault();
+      setEditor({ ...editor, calendar: !editor.calendar });
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       committedEditor.current = editor;
@@ -1880,14 +2138,18 @@ export function Sheet({
       structural(e.key === 'ArrowRight' ? 'indent' : 'outdent');
       return;
     }
+    // Ctrl+D copia a primeira linha da seleção para as de baixo; com uma linha só, copia a de cima,
+    // como no Excel. Pula as células calculadas como a colagem.
     if (cmd && e.key.toLowerCase() === 'd') {
       e.preventDefault();
+      const source = bounds.r0 === bounds.r1 ? bounds.r0 - 1 : bounds.r0;
+      if (source < 0) return;
       try {
-        const entries = [];
-        for (let row = bounds.r0 + 1; row <= bounds.r1; row++)
-          for (let col = bounds.c0; col <= bounds.c1; col++)
-            entries.push({ id: rows[row].id, key: visibleCols[col].key, text: raw(rows[bounds.r0], visibleCols[col].key) });
-        applyCells(entries);
+        pasteGrid(
+          [visibleCols.slice(bounds.c0, bounds.c1 + 1).map(col => raw(rows[source], col.key))],
+          { ...bounds, r0: source + 1 },
+          true,
+        );
       } catch (err) {
         setError((err as Error).message);
       }
@@ -1952,6 +2214,8 @@ export function Sheet({
   const kbd = 'rounded border border-slate-200 bg-slate-50 px-1 font-mono text-xs text-slate-700';
   const cellClass = (col: Col, summary: boolean) =>
     `${col.startsWith('base') ? 'text-slate-500' : ''} ${columns.find(c => c.key === col)?.right ? 'text-right' : ''} ${summary ? 'font-semibold text-slate-900' : ''}`;
+  // Cópia de outro cronograma do mesmo mês (16/11/2026) leva o nome da origem, para distinguir das cópias do mês anterior.
+  const copiedFrom = plan.copiedFromPlanId ? data.plans.find(p => p.id === plan.copiedFromPlanId) : undefined;
 
   return (
     // Ctrl+Z e Ctrl+Y valem na tela inteira (barra do Gantt, bloco do Planejador, botões), não só na grade.
@@ -1966,8 +2230,8 @@ export function Sheet({
             ) : (
               <p className="text-xs text-slate-500">
                 Horizonte de três meses: {projectDate(win.start)} a {projectDate(win.end)}
-                {plan.copiedFromPlanId
-                  ? ` · copiado de ${monthLabel(data.plans.find(p => p.id === plan.copiedFromPlanId)?.month ?? plan.month)}`
+                {copiedFrom
+                  ? ` · copiado de ${monthLabel(copiedFrom.month)}${copiedFrom.month === plan.month ? ` · ${copiedFrom.name}` : ''}`
                   : ''}
               </p>
             )}
@@ -1999,11 +2263,42 @@ export function Sheet({
             <span role="status" aria-live="polite" className={`text-xs ${dirty ? 'font-semibold text-warning' : 'text-slate-500'}`}>
               {busy ? 'Salvando…' : dirty ? `${changed.length + removed.length} tarefas alteradas · não salvo` : 'Tudo salvo'}
             </span>
-            <button className="button" disabled={!dirty || readOnly || busy || !!editor} onClick={() => setReview(true)}>
+            <button
+              className="button"
+              disabled={!dirty || readOnly || busy || !!editor || !!recovered?.staleHash}
+              title={recovered?.staleHash ? 'O cronograma mudou no sistema depois deste rascunho: veja o aviso abaixo.' : undefined}
+              onClick={() => setReview(true)}
+            >
               Revisar e salvar
             </button>
           </div>
         </div>
+        {recovered && dirty && (
+          <div
+            role="status"
+            data-testid="rascunho-recuperado"
+            className={`callout ${recovered.staleHash ? 'callout-warning' : 'callout-info'} mx-3 my-2 flex flex-wrap items-center gap-x-3 gap-y-2 py-2 text-xs`}
+          >
+            <p className="mr-auto min-w-0 max-w-4xl leading-5">
+              <strong>Rascunho não salvo recuperado</strong>, guardado neste navegador em {formatSavedAt(recovered.savedAt)}. Ele ainda não
+              está no sistema.
+              {recovered.staleHash &&
+                ' O cronograma foi salvo no sistema depois que este rascunho começou (por outra pessoa ou em outro computador), e salvar o rascunho como está gravaria por cima. Descarte-o para ficar com a versão do sistema, ou use-o sobre a versão atual: as alterações passam a ser contadas contra ela, e a revisão mostra o que muda antes de gravar.'}
+            </p>
+            {recovered.staleHash ? (
+              <button type="button" className="button-ghost" disabled={busy || readOnly} onClick={adoptRecoveredDraft}>
+                Usar sobre a versão atual
+              </button>
+            ) : (
+              <button type="button" className="button" disabled={busy || readOnly || !!editor} onClick={() => setReview(true)}>
+                Revisar e salvar
+              </button>
+            )}
+            <button type="button" className="button-ghost" disabled={busy} onClick={() => void discardDraft()}>
+              Descartar rascunho
+            </button>
+          </div>
+        )}
         <div
           className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5"
           role="toolbar"
@@ -2351,6 +2646,7 @@ export function Sheet({
                   className="field w-auto py-1 text-xs"
                   type="date"
                   value={reference}
+                  onClick={openNativePicker}
                   onChange={e => {
                     if (e.target.value) setReference(e.target.value);
                   }}
@@ -2463,17 +2759,11 @@ export function Sheet({
               onPaste={e => {
                 if (editor) return;
                 e.preventDefault();
+                // Área de transferência sem texto (uma imagem, por exemplo) não apaga a célula.
+                const text = e.clipboardData.getData('text/plain');
+                if (!text) return;
                 try {
-                  const matrix = decodeGrid(e.clipboardData.getData('text/plain'));
-                  const entries = matrix.flatMap((line, r) =>
-                    line.map((text, c) => {
-                      const t = rows[selected.row + r],
-                        col = visibleCols[selected.col + c];
-                      if (!t || !col) throw new Error('Colagem ultrapassa a grade.');
-                      return { id: t.id, key: col.key, text };
-                    }),
-                  );
-                  applyCells(entries);
+                  pasteGrid(decodeGrid(text));
                 } catch (err) {
                   setError((err as Error).message);
                 }
@@ -2673,7 +2963,7 @@ export function Sheet({
                                   aria-selected={selectedCell}
                                   aria-readonly={!editable(t, col.key)}
                                   title={`${text}${v.summary && LEAF_ONLY.includes(col.key) ? ' · Resumo calculado das subtarefas' : ''}${modified ? ' · Alteração não salva' : ''}`}
-                                  className={`${cellClass(col.key, v.summary)} ${selectedCell ? 'schedule-selected' : ''} ${modified ? 'schedule-modified' : ''}`}
+                                  className={`group ${cellClass(col.key, v.summary)} ${selectedCell ? 'schedule-selected' : ''} ${modified ? 'schedule-modified' : ''}`}
                                   onClick={e => {
                                     if (editor && !editing && !commit()) return;
                                     setSelected({ row: r, col: c });
@@ -2717,17 +3007,30 @@ export function Sheet({
                                         ))}
                                       </select>
                                     ) : (
-                                      <input
-                                        ref={editRef}
-                                        aria-label={`${col.label} de ${t.name}`}
-                                        aria-invalid={!!error}
-                                        aria-describedby={error ? 'schedule-error' : undefined}
-                                        value={editor.text}
-                                        placeholder={DATE_COLS.includes(col.key) ? 'dd/mm/aa ou vazio' : undefined}
-                                        onChange={e => setEditor({ ...editor, text: e.target.value })}
-                                        onBlur={commit}
-                                        onKeyDown={e => editorKey(e, r, c)}
-                                      />
+                                      <>
+                                        <input
+                                          ref={editRef}
+                                          aria-label={`${col.label} de ${t.name}`}
+                                          aria-invalid={!!error}
+                                          aria-describedby={error ? 'schedule-error' : undefined}
+                                          value={editor.text}
+                                          placeholder={DATE_COLS.includes(col.key) ? 'dd/mm/aa ou vazio' : undefined}
+                                          onChange={e => setEditor({ ...editor, text: e.target.value })}
+                                          onBlur={commit}
+                                          onKeyDown={e => editorKey(e, r, c)}
+                                        />
+                                        {editor.calendar && (
+                                          <DatePopover
+                                            anchor={editRef}
+                                            value={typedDate(editor.text)}
+                                            today={today}
+                                            calendar={draft.calendar}
+                                            clearable={DATE_COLS.includes(col.key)}
+                                            label={`Calendário de ${col.label} de ${t.name}`}
+                                            onPick={date => pickDate(date, r, c)}
+                                          />
+                                        )}
+                                      </>
                                     )
                                   ) : col.key === 'name' ? (
                                     <div className="flex items-center gap-1 truncate" style={{ paddingLeft: t.level * 16 }}>
@@ -2766,6 +3069,29 @@ export function Sheet({
                                       notes={!!t.notes}
                                       lob={!!t.lobServiceId}
                                     />
+                                  ) : CALENDAR_COLS.includes(col.key) && editable(t, col.key) ? (
+                                    // O ícone aparece ao passar o mouse e na célula ativa; um clique nele abre o calendário.
+                                    <span className="relative block">
+                                      {text}
+                                      <button
+                                        type="button"
+                                        tabIndex={-1}
+                                        aria-label={`Abrir calendário de ${col.label} de ${t.name}`}
+                                        title="Abrir calendário"
+                                        // -right-1.5 ocupa o recuo da célula, para não cobrir o fim de "Qua 25/11/26" na largura padrão.
+                                        className={`absolute -right-1.5 top-1/2 grid -translate-y-1/2 place-items-center rounded-sm bg-white p-px text-slate-500 hover:text-primary ${selected.row === r && selected.col === c ? '' : 'opacity-0 group-hover:opacity-100'}`}
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          if (editor && !commit()) return;
+                                          setSelected({ row: r, col: c });
+                                          setAnchor({ row: r, col: c });
+                                          begin(t, col.key);
+                                        }}
+                                        onDoubleClick={e => e.stopPropagation()}
+                                      >
+                                        <CalendarDays size={12} aria-hidden />
+                                      </button>
+                                    </span>
                                   ) : (
                                     <span className={col.key === 'id' ? 'text-slate-400' : ''}>{text}</span>
                                   )}
@@ -3185,27 +3511,7 @@ export function Sheet({
           </>
         )}
         {dirty && (
-          <button
-            data-tour="medio-descartar"
-            className="button-ghost"
-            disabled={busy}
-            onClick={async () => {
-              if (
-                await confirm({
-                  title: 'Descartar todas as alterações não salvas?',
-                  description: `${changed.length + removed.length} ${changed.length + removed.length === 1 ? 'tarefa volta' : 'tarefas voltam'} ao que está gravado.`,
-                  confirmLabel: 'Descartar',
-                  cancelLabel: 'Manter rascunho',
-                  tone: 'danger',
-                })
-              ) {
-                setDraft(original);
-                setPast([]);
-                setFuture([]);
-                setEditor(null);
-              }
-            }}
-          >
+          <button data-tour="medio-descartar" className="button-ghost" disabled={busy} onClick={() => void discardDraft()}>
             Descartar rascunho
           </button>
         )}

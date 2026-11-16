@@ -270,7 +270,7 @@ O usuário pediu que a aba 3 ficasse mais parecida com o MS Project, que é onde
 | O que mais faz falta | Tabela e Gantt lado a lado; datas que se recalculam. Caminho crítico e arrastar barras **não** foram pedidos. |
 | Reprogramação | Automática, como o Project. Data digitada = "Não iniciar antes de". |
 | Origem do plano | Digitado direto no sistema (sem importar XML do Project). |
-| Período | **Um cronograma por mês**, cada um com **horizonte de três meses**. O usuário chegou a responder "janela móvel" e se corrigiu. |
+| Período | **Um cronograma por mês**, cada um com **horizonte de três meses**. O usuário chegou a responder "janela móvel" e se corrigiu. Revisto em 16/11/2026: o mesmo mês pode ter mais de um cronograma (seção daquela data). |
 | Mês seguinte | Nasce como **cópia do mês anterior**. |
 | Linha de base | Quando o usuário clicar, como no Project. |
 | Datas reais | Como no Project: % > 0 preenche o início real, 100% preenche o término real, e a data real prende a tarefa. |
@@ -1336,3 +1336,179 @@ Sem migração e sem mudança de dado: as larguras continuam só no estado da te
   - **Com o código antigo:** a tela caiu no aviso "Esta tela não pôde ser exibida", com `Cannot read properties of null (reading 'dataset')` dentro de `Sheet`. Este é o erro do print.
   - **Com a correção:** a coluna passou de 300 para 420 px, sem erro no console.
 - **Não validado:** uso logado no servidor da ATR depois da publicação.
+
+## Médio prazo: mais de um cronograma no mesmo mês (16/11/2026)
+
+### Pedido
+
+"Permita que seja criado mais de um cronograma de médio prazo para o mesmo mês." Até aqui valia a decisão de 25/09/2026: um cronograma vivo por mês por obra. Ao escolher um mês que já tinha cronograma, "Novo cronograma do mês" recusava com "Esta obra já tem um plano para este mês.". A importação do Project tinha a mesma trava. Assim não dava, por exemplo, para importar uma versão corrigida do .xml de novembro sem apagar a anterior, e a tela não tem botão de excluir.
+
+### Comportamento entregue
+
+- **`create_plan` e `import_plan`** (`commands.ts`) aceitam um mês que já tem cronograma. A trava existia só no código. O banco nunca teve índice único em `(work_id, month)`, então **não há migração**.
+- **Nome:** um nome repetido no mesmo mês ganha " (2)", " (3)"… (`uniquePlanName` em `src/domain/legalization.ts`), sem diferença de maiúsculas e espaços. Vale para o nome digitado, para o padrão "Plano de AAAA-MM" e para o título do arquivo do Project. Linha de base, Gantt de legalização e cronogramas de outro mês ou de outra obra não ocupam nome.
+- **Cópia:** "Partir de" pode ser outro cronograma do mesmo mês. A recusa passou a ser "O plano de origem deve ser do mesmo mês ou de um mês anterior ao novo plano.". Copiar de um mês posterior continua recusado. O subtítulo da cópia do mesmo mês diz de qual: "copiado de Nov/26 · Novembro".
+- **Gaveta "Novo cronograma do mês":** quando o mês escolhido já tem cronograma, ela avisa antes de criar, com o nome que será gravado ("Nov/26 já tem o cronograma “Novembro”. O novo entra ao lado, como “Novembro (2)”…"). A descrição da gaveta passou a ser "Cada cronograma cobre um mês, com horizonte de três meses. O mesmo mês pode ter mais de um.".
+- **Qual cronograma aparece onde só cabe um:** a ordem única `newestPlanFirst` põe o mês mais recente primeiro e, no mesmo mês, o criado por último. Antes, o empate dependia da ordem em que o banco devolvia as linhas. Usam essa ordem:
+  - o seletor "Mês" e a abertura da tela, que vai para o criado por último no mês corrente;
+  - os seletores das seções Linha de base e Cobertura;
+  - o quadro do médio prazo no Dashboard e no Dashboard geral (`pickPlan`);
+  - o resumo da obra e as ferramentas da Claudia;
+  - o plano oferecido ao ligar uma pendência da aba 2 (`linkablePlan`, agora com `created_at` lido em `pending-repository.ts`).
+- **Recursos e carga das equipes** (`weeklyTeamLoad`) não mudaram. Eles já somavam todos os cronogramas vivos da obra, inclusive as cópias de meses vizinhos que se sobrepõem. Dois cronogramas do mesmo mês com as mesmas tarefas contam em dobro, como as cópias já contavam.
+- **Pendência ligada a tarefa do médio prazo:** o card segue a tarefa só para meses seguintes, como antes. A cópia feita dentro do mesmo mês não leva o card junto. No caminho por nomes, o "plano do mês seguinte" é o criado por último naquele mês.
+- Textos atualizados: descrição e "Como funciona" da aba, tour (passo "Mês do cronograma"), manual da Claudia (`geral.ts` e `medio-prazo.ts`, com as palavras-chave "dois cronogramas no mesmo mês" e "mais de um cronograma"), comentário de `MediumTermPlan` e o README.
+
+### Validação (16/11/2026)
+
+- Testes:
+  - os dois testes que exigiam a recusa agora exigem a aceitação com nome numerado: `legalization.test.ts` e `plan-import-command.test.ts`;
+  - novos em `plan-monthly.test.ts`: cópia do mesmo mês, numeração (padrão, maiúsculas e espaços, outro mês, linha de base e outra obra) e a ordem de `newestPlanFirst`;
+  - novo em `dashboard-medium-term.test.ts`: `pickPlan` com dois cronogramas no mês escolhe o criado por último, qualquer que seja a ordem dos dados.
+
+### Pendências
+
+- **Não há botão para excluir cronograma na tela.** O comando `delete_plan` existe, mas sem interface. Com mais de um por mês, um cronograma criado por engano fica no seletor até alguém excluí-lo por SQL.
+- **Não validado:** uso logado no servidor da ATR.
+
+## Médio prazo: rascunho automático no navegador (16/11/2026)
+
+### Pedido
+
+"O sistema não salva rascunho, caso o usuário feche sem salvar? Importante implantar." Até aqui o rascunho do cronograma existia só na memória da tela. Havia o aviso do navegador ao fechar a aba e a pergunta ao clicar num link. Mesmo assim, fechar, a queda do navegador, o computador dormir, a sessão expirar ou a tela cair (como no defeito da largura da coluna, corrigido no mesmo dia) perdiam tudo o que não tinha passado por "Revisar e salvar".
+
+### Comportamento entregue
+
+- **Gravação contínua no `localStorage` deste navegador**, por pessoa e por cronograma: chave `obra360.medio-prazo.rascunho.v1.<actorId>.<planId>`, guardada 400 ms depois da última mudança e na hora em `pagehide`, ao ocultar a aba e ao desmontar a tela. Guarda `{v, actorId, planId, savedAt, baseHash, draft}`. O `baseHash` é uma impressão digital (cyrb53) do retrato (`planSnapshot`) de quando a edição começou. O original e o retrato não são guardados, porque o banco os devolve iguais enquanto o hash bate, e isso evita dobrar o espaço usado. A célula em digitação ainda não confirmada e a pilha do Ctrl+Z não vão.
+- **Ao reabrir**, o rascunho guardado que difere do que está gravado volta, com o aviso "Rascunho não salvo recuperado, guardado neste navegador em 16/11 às 09:52. Ele ainda não está no sistema.", com "Revisar e salvar" e "Descartar rascunho" (pede confirmação). A leitura é feita no estado inicial do `Sheet`, e não num efeito, para não disputar com o efeito que recarrega o cronograma quando não há rascunho. É seguro porque o `Sheet` só monta no navegador, depois de o planejamento carregar.
+- **Cronograma salvo no sistema depois que o rascunho começou** (outra pessoa ou outro computador): o hash não bate, o aviso fica âmbar e "Revisar e salvar" fica barrado, no botão e dentro do `save()`. A pessoa escolhe entre duas saídas:
+  - "Descartar rascunho" fica com a versão do sistema;
+  - "Usar sobre a versão atual" passa a contar as alterações contra a versão gravada agora e libera o salvar, e a revisão mostra o que muda antes de gravar por cima.
+
+  Sem isso, o rascunho ficaria preso, porque `save_plan_revision` recusa quando o retrato esperado difere. É também o caminho depois de "Outra pessoa alterou o cronograma. Atualize a página…": recarregar não perde mais o rascunho.
+- **A chave sai** ao salvar com sucesso, ao descartar e quando o rascunho volta a ficar igual ao gravado. Rascunho corrompido, de outro formato, de outra pessoa ou de outro plano é ignorado e apagado. Espaço cheio ou bloqueado mostra um aviso só ("Rascunho não guardado neste navegador").
+- Perfil consulta, linha de base e plano congelado não guardam rascunho. Vale também no Gantt de legalização da aba 1, que usa o mesmo `Sheet`; a chave por plano separa os dois.
+- A pergunta ao sair por link virou "Sair sem salvar no sistema?" e explica que o rascunho fica guardado só neste navegador e volta ao reabrir. O aviso do navegador ao fechar a aba continua.
+- Código:
+  - `src/modules/medio-prazo/draft-storage.ts`: funções puras `draftKey`, `hashText`, `serializeDraft`, `parseDraft`, `decideRecovery` e `formatSavedAt`;
+  - integração em `schedule-sheet.tsx`;
+  - manual da Claudia (`medio-prazo.ts`, seção de rascunho, com as palavras-chave "rascunho automático", "fechei sem salvar", "perdi as alterações" e "rascunho recuperado").
+
+Sem migração: nada vai ao servidor.
+
+### Validação (16/11/2026)
+
+- `tests/plan-draft-storage.test.ts` (7 testes): chave, ida e volta, rascunho inválido, de outra pessoa ou de outro plano, decisão de restaurar e de marcar como desatualizado.
+- Navegador: prévia temporária com o `Sheet` real, `next dev` e Playwright. 20 de 20 casos passaram, entre eles:
+  - editar e recarregar traz o rascunho com o aviso;
+  - recarregar antes dos 400 ms também guarda;
+  - descartar apaga e não volta;
+  - salvar envia `save_plan_revision` e apaga a chave;
+  - rascunho corrompido abre a tela normal;
+  - rascunho desatualizado mostra o aviso âmbar com o salvar barrado, e "Usar sobre a versão atual" libera;
+  - a pergunta de saída fala do navegador.
+- **Não validado:** uso logado no servidor da ATR.
+
+### Limites
+
+- Só neste navegador e computador; outro aparelho não vê o rascunho.
+- Com duas abas no mesmo cronograma, vale a última que gravou.
+- Rascunho abandonado fica no navegador até ser salvo ou descartado; não há limpeza por idade.
+- Ao reabrir, a grade continua começando bloqueada (cadeado). Salvar e descartar não precisam de "Liberar edição".
+
+## Médio prazo: calendário nos campos de data (16/11/2026)
+
+### Pedido
+
+"No médio prazo, ao clicar em campos tipo data, abra o calendário para permitir que o usuário possa selecionar uma data com mais facilidade." Até aqui as datas da grade se digitavam ("dd/mm/aa", "Seg 24/08/26"). Os campos nativos de data só abriam o calendário pelo ícone pequeno no canto.
+
+### Comportamento entregue
+
+- **Grade do cronograma.** As colunas Início real, Término real, Início, Término, Data da restrição e Prazo final abrem um calendário sob a célula:
+  - ao passar o mouse, e sempre na célula ativa, a célula editável mostra um ícone de calendário; **um clique nele** seleciona a célula e abre o calendário;
+  - duplo clique, F2 ou Enter abrem o editor da célula já com o calendário;
+  - quem começa digitando não vê o calendário, para não atrapalhar quem digita; **Alt+↓** abre e fecha, como a lista suspensa do Project.
+- **O calendário:**
+  - mostra o mês da data da célula, com o dia marcado em azul, o dia de hoje contornado e os dias sem trabalho do calendário do cronograma (fins de semana e feriados) esmaecidos, mas escolhíveis. Os dias dos meses vizinhos completam seis semanas, para a altura não mudar;
+  - tem as setas de mês anterior e próximo e o botão "Hoje". "Limpar" só aparece nas colunas que aceitam vazio (Início real, Término real, Data da restrição, Prazo final);
+  - escolher um dia grava na hora, pelo mesmo caminho do texto digitado (as mesmas regras e o mesmo reagendamento), e devolve o foco à célula. O resultado é idêntico ao de digitar a data;
+  - o foco fica no campo de texto da célula: digitar continua valendo, e uma data válida digitada leva o calendário ao mês dela. Esc cancela, clicar fora grava o texto, e data inválida mostra a faixa vermelha com o editor aberto, como antes;
+  - abre embaixo da célula ou, sem espaço, em cima, e acompanha a rolagem.
+- O calendário não aparece em resumos, colunas calculadas e na grade bloqueada, porque nesses casos nada se edita.
+- **Campos nativos de data.** O clique em qualquer ponto do campo abre o calendário do navegador (`showPicker`), não só o ícone. Vale para:
+  - Início, Término, Prazo final e Data da restrição nas Informações da tarefa;
+  - "Referência do % alvo";
+  - o "Mês" do novo cronograma;
+  - a "Data de término" da pendência criada a partir do cronograma (diálogo do módulo de pendências, o mesmo usado pelas outras telas).
+
+  Navegador sem `showPicker` segue como era.
+- Código:
+  - `src/modules/medio-prazo/date-picker.tsx`: o calendário, em portal no `body`;
+  - `src/modules/medio-prazo/month-grid.ts`: as seis semanas do mês e a troca de mês;
+  - `src/shared/native-picker.ts`: o clique que abre o calendário nativo;
+  - integração em `schedule-sheet.tsx` (`CALENDAR_COLS`, `pickDate`, ícone na célula), `task-info-dialog.tsx`, `new-plan-drawer.tsx` e `create-pending-dialog.tsx`;
+  - manual da Claudia e tour do médio prazo.
+
+Sem migração e sem mudança de dado.
+
+### Validação (16/11/2026)
+
+- `tests/date-picker.test.ts` (2 testes): seis semanas de domingo a sábado, mês que começa no domingo e no sábado, fevereiro bissexto e a troca de mês na virada do ano.
+- Navegador: prévia temporária com o `Sheet` real e três tarefas (apagada depois), `next dev` na 3102 e Playwright. Casos conferidos:
+  - o ícone fica invisível fora da célula e aparece no hover;
+  - o clique no ícone abre o calendário em "Novembro de 2026", com 3/11 marcado e 16/11 como hoje, e sem "Limpar" no Início;
+  - as setas trocam o mês com o foco no campo;
+  - escolher 10/11 grava "Ter 10/11/26", reagenda o Término, marca a célula como alterada, fecha o calendário e devolve o foco à célula;
+  - escolher 12/11 no Reboco deu "Qui 12/11/26 → Dom 15/11/26", igual a digitar 12/11/26;
+  - Início real: com "Limpar", digitar 05/01/27 leva o calendário a janeiro de 2027, e Esc fecha sem gravar;
+  - começar digitando não abre o calendário, e Alt+↓ abre;
+  - "Hoje" grava 16/11 e "Limpar" volta a ND;
+  - clicar fora grava o texto válido e fecha; texto inválido mostra "Data inválida." com o editor aberto;
+  - com a grade bloqueada não há ícone;
+  - perto do pé da tela, o calendário abre para cima;
+  - nas Informações da tarefa (Shift+F2), o clique no Início chama `showPicker`;
+  - sem erro de console do calendário.
+- Ícone medido na largura padrão da coluna (104 px): não cobre a data em seis dos sete dias da semana. Em "Dom", o mais largo, encosta 2 px.
+- **Não validado:** uso logado no servidor da ATR; Safari e Firefox (o calendário da grade é próprio, igual nos navegadores; o nativo depende do navegador).
+
+## Médio prazo: copiar e colar em todas as células (16/11/2026)
+
+### Pedido
+
+"No médio prazo permita que todas as células aceitem copiar e colar." A grade já tinha Ctrl+C e Ctrl+V, mas a colagem era tudo ou nada. Bastava o intervalo pegar uma célula calculada (Id, Indicadores, folgas, linha de base…), uma célula de resumo, ou o início de uma tarefa já iniciada, para nada ser colado, com "O intervalo contém uma célula bloqueada ou calculada.". Copiar uma linha inteira e colar em outra sempre caía nisso, porque a linha começa pelo Id. Colar além da última linha também era recusado ("Colagem ultrapassa a grade."), e uma célula copiada não preenchia uma seleção maior.
+
+### Comportamento entregue
+
+A colagem passou a seguir o Excel e o Project (`pasteGrid` em `schedule-sheet.tsx`):
+
+- **Onde cai:** a partir da célula de cima à esquerda da seleção. Se a seleção for múltipla exata do bloco copiado, ele se repete até cobri-la; uma célula copiada preenche qualquer seleção (`pasteTargets` em `clipboard.ts`). O intervalo colado fica selecionado.
+- **Célula que não recebe valor fica como estava, sem barrar as outras.** São três grupos:
+  - as calculadas: Id, Indicadores, Início e Término tardios, folgas, Crítica, linha de base, Decorrido, % alvo, Desvio e Variação;
+  - as de resumo que vêm das subtarefas (`LEAF_ONLY`);
+  - as presas ao andamento real (`pasteable`): o Início de tarefa já iniciada e o Término e a Duração de tarefa concluída, que se corrigem pelas datas reais. A conferência é feita no rascunho em montagem, então colar o Início real e o Início na mesma linha respeita a ordem das colunas.
+
+  Um aviso "Colagem aplicada" diz quantas células ficaram como estavam. Se nenhuma recebe valor: "Nada foi colado: a célula de destino é calculada…".
+- **Célula que já mostra o mesmo texto não é regravada.** Colar de volta a mesma data no Início não cria a restrição "Não iniciar antes de", e colar uma linha sobre ela mesma não muda nada.
+- **Passou da última linha: vira tarefa nova no fim**, no nível e na data da última linha visível, como o "Inserir tarefa" nela, com o reagendamento uma vez só. Com filtro ligado isso é recusado ("Limpe o filtro…"), como o próprio "Inserir tarefa". O que passa da última coluna visível fica de fora, e o aviso conta.
+- **Valor inválido cancela a colagem inteira e diz onde está**, por exemplo "Linha 3 · Duração: Use duração como…". O número da linha é o Id.
+- Com a grade bloqueada: "Libere a edição da grade para colar.". Área de transferência sem texto (uma imagem) não apaga a célula.
+- **Ctrl+D** usa as mesmas regras. Com uma linha só selecionada, copia a de cima, como no Excel (antes não fazia nada e deixava um passo vazio no desfazer).
+- A colagem inteira é um passo só do Ctrl+Z. O limite de 1000 células por operação continua. As calculadas são contadas antes de entrar no limite, então uma coluna inteira preenchida com uma célula cabe.
+- O editor de uma célula aberto continua com a colagem do próprio campo de texto.
+- Manual da Claudia (`medio-prazo.ts`, seção "Editar uma célula") reescrito com essas regras.
+
+Sem migração e sem mudança de dado.
+
+### Validação (16/11/2026)
+
+- `tests/plan-clipboard.test.ts`: dois testes novos para `pasteTargets` (repetição pela seleção e bloco que não divide a seleção).
+- Navegador: `next dev` na 3102 com Supabase falso e Playwright, cronograma de cinco tarefas (um resumo, uma iniciada, uma concluída). Casos conferidos:
+  - grade bloqueada: "Libere a edição da grade para colar.";
+  - copiar Id…Duração de "Formas" e colar no Id de "Pintura": % concluída, nome e duração colados, e o aviso "2 células calculadas… ficaram como estavam";
+  - "7 dias" numa seleção de Duração de cinco linhas: o resumo e a concluída ficaram, as outras três mudaram;
+  - três nomes colados na última linha: duas tarefas novas no fim, com o aviso;
+  - "4 dias / abc": "Linha 3 · Duração: …", sem alterar nada;
+  - colar só no Id: "Nada foi colado…";
+  - Ctrl+D numa linha: copiou o nome da linha de cima;
+  - área de transferência vazia: nada mudou.
+- **Não validado:** uso logado no servidor da ATR; os atalhos de teclado nativos de copiar e colar no Safari e no Firefox. No teste, os eventos de copiar e colar foram disparados diretamente.

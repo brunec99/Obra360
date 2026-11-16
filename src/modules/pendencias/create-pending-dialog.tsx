@@ -15,6 +15,7 @@ import { usePlanning } from '@/modules/planejamento/planning-provider';
 import { Callout } from '@/modules/planejamento/ui';
 import { useToast } from '@/modules/layout/toast';
 import { formatDate } from '@/shared/format';
+import { openNativePicker } from '@/shared/native-picker';
 import { errorText, fetchPending, fetchPendingSources, sendPendingCommand } from './api';
 import { Modal, pendingPath } from './parts';
 import { sortPeople } from './pending-view';
@@ -396,7 +397,14 @@ function CreateForm({
                   </div>
                 ) : (
                   <Field label="Data de término">
-                    <input className="field" type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} required />
+                    <input
+                      className="field"
+                      type="date"
+                      value={dueDate}
+                      onClick={openNativePicker}
+                      onChange={event => setDueDate(event.target.value)}
+                      required
+                    />
                   </Field>
                 )}
                 <Field label={picking || source ? 'Lead time (dias úteis)' : 'Tempo de execução (dias úteis)'}>

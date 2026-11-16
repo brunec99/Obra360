@@ -33,6 +33,33 @@ export const isMonthlyPlan = (plan: Pick<MediumTermPlan, 'kind'>): boolean => !i
 /** Os ids dos cronogramas de legalização (vivos e linhas de base), para quem filtra tarefas sem passar pelos planos. */
 export const legalizationPlanIds = (plans: readonly MediumTermPlan[]): Set<Id> => new Set(plans.filter(isLegalizationPlan).map(p => p.id));
 
+/** Ordem dos cronogramas do mês, do mais novo ao mais antigo: mês mais recente primeiro e, no mesmo mês
+ * (16/11/2026: a obra pode ter mais de um cronograma por mês), o criado por último primeiro. É a ordem
+ * dos seletores e a que decide o cronograma "do mês" onde só um aparece (tela, painel, Claudia). */
+export const newestPlanFirst = (
+  a: Pick<MediumTermPlan, 'id' | 'month'> & { createdAt?: string },
+  b: Pick<MediumTermPlan, 'id' | 'month'> & { createdAt?: string },
+): number => b.month.localeCompare(a.month) || (b.createdAt ?? '').localeCompare(a.createdAt ?? '') || b.id.localeCompare(a.id);
+
+/** O nome com que um cronograma novo entra no mês: o pedido (ou "Plano de AAAA-MM") e, se outro
+ * cronograma vivo da obra no mesmo mês já usa esse nome, " (2)", " (3)"… para os dois se distinguirem
+ * nos seletores. */
+export function uniquePlanName(
+  plans: readonly Pick<MediumTermPlan, 'workId' | 'month' | 'name' | 'baselineOf' | 'kind'>[],
+  workId: Id,
+  month: string,
+  wanted?: string,
+): string {
+  const name = wanted?.trim() || `Plano de ${month}`;
+  const taken = new Set(
+    plans
+      .filter(p => p.workId === workId && p.month === month && !p.baselineOf && isMonthlyPlan(p))
+      .map(p => p.name.trim().toLocaleLowerCase('pt-BR')),
+  );
+  if (!taken.has(name.toLocaleLowerCase('pt-BR'))) return name;
+  for (let n = 2; ; n++) if (!taken.has(`${name} (${n})`.toLocaleLowerCase('pt-BR'))) return `${name} (${n})`;
+}
+
 /** A mesma data `months` meses antes ou depois; no dia 31 de um mês curto, o último dia dele. */
 function addMonths(date: LocalDate, months: number): LocalDate {
   const [y, m, d] = date.split('-').map(Number);

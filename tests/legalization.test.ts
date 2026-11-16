@@ -698,7 +698,12 @@ test('create_plan: o mês da janela do Gantt continua livre e o Gantt (nem a lin
   const gantt = run(data, create());
   const october = run(data, { type: 'create_plan', workId: 'obra-1', month: '2026-10' });
   assert.equal(data.plans.find(p => p.id === october)!.kind, undefined);
-  assert.throws(() => run(data, { type: 'create_plan', workId: 'obra-1', month: '2026-10' }), /já tem um plano para este mês/);
+  // Desde 16/11/2026 o mês aceita outro cronograma; o nome repetido ganha número.
+  const second = run(data, { type: 'create_plan', workId: 'obra-1', month: '2026-10' });
+  assert.deepEqual(
+    [data.plans.find(p => p.id === october)!.name, data.plans.find(p => p.id === second)!.name],
+    ['Plano de 2026-10', 'Plano de 2026-10 (2)'],
+  );
   const before = structuredClone(data);
   assert.throws(
     () => run(data, { type: 'create_plan', workId: 'obra-1', month: '2026-11', copyFrom: gantt }),

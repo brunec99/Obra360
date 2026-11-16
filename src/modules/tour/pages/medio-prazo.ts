@@ -6,7 +6,7 @@ import type { TourStep } from '../tours';
 export const steps: TourStep[] = [
   {
     title: 'Aba 1.2 · Cronograma de médio prazo',
-    body: 'Um cronograma por mês, com horizonte de três meses, no layout do MS Project, e seções de apoio à reunião de médio prazo. O tour mostra os botões e campos da seção aberta: troque de seção e refaça o tour para ver os das outras.',
+    body: 'Cronogramas do mês (o mesmo mês pode ter mais de um), com horizonte de três meses, no layout do MS Project, e seções de apoio à reunião de médio prazo. O tour mostra os botões e campos da seção aberta: troque de seção e refaça o tour para ver os das outras.',
   },
   {
     target: 'tab-header',
@@ -38,7 +38,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-mes',
     title: 'Mês do cronograma',
-    body: 'Troca o cronograma aberto entre os meses criados; a tela abre no mês corrente. À esquerda ficam o horizonte de três meses e de qual mês o plano foi copiado. Com alteração não salva, a troca fica travada: salve ou descarte antes.',
+    body: 'Troca o cronograma aberto entre os criados, mostrados como "mês · nome": o mesmo mês pode ter mais de um, e a tela abre no criado por último do mês corrente. À esquerda ficam o horizonte de três meses e de qual mês o plano foi copiado. Com alteração não salva, a troca fica travada: salve ou descarte antes.',
   },
   {
     target: 'medio-salvar',
@@ -158,7 +158,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-tabela',
     title: 'Editar na grade',
-    body: 'Funciona como planilha: clique para selecionar, Shift+setas para um intervalo, duplo clique, F2 ou digitar direto para editar, Esc cancela. Duplo clique numa célula calculada, ou com a grade bloqueada, abre as Informações da tarefa. Dá para colar do Excel ou do Project.',
+    body: 'Funciona como planilha: clique para selecionar, Shift+setas para um intervalo, duplo clique, F2 ou digitar direto para editar, Esc cancela. Nas datas, o ícone de calendário da célula (ou Alt+↓ na edição) abre o calendário para escolher o dia. Duplo clique numa célula calculada, ou com a grade bloqueada, abre as Informações da tarefa. Dá para colar do Excel ou do Project.',
   },
   {
     target: 'medio-linha-resumo',

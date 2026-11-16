@@ -30,7 +30,7 @@ export const sections: ManualSection[] = [
     screen: 'medio-prazo',
     body: `## Para que serve
 
-A aba 1.2, "Cronograma de médio prazo" (aba 3 até 12/11/2026; grupo "1 · Prazo" do menu; endereço /obras/<obra>/medio-prazo), é o cronograma do mês da obra no padrão do MS Project: tabela à esquerda, Gantt à direita e datas calculadas pela rede de predecessoras. Há **um cronograma por mês**, cada um com **horizonte de três meses** (do dia 1 do mês ao último dia do segundo mês seguinte). O primeiro nasce em branco; cada mês seguinte nasce como cópia do anterior, que fica guardado como estava. Em volta dele ficam seções de apoio à reunião de médio prazo.
+A aba 1.2, "Cronograma de médio prazo" (aba 3 até 12/11/2026; grupo "1 · Prazo" do menu; endereço /obras/<obra>/medio-prazo), é o cronograma do mês da obra no padrão do MS Project: tabela à esquerda, Gantt à direita e datas calculadas pela rede de predecessoras. Cada cronograma é de um mês, com **horizonte de três meses** (do dia 1 do mês ao último dia do segundo mês seguinte). Desde 16/11/2026 o **mesmo mês pode ter mais de um cronograma** (por exemplo, uma nova versão importada do Project): todos aparecem no seletor "Mês" como "Mmm/aa · nome", e a tela abre no criado por último do mês corrente. O primeiro nasce em branco; cada mês seguinte nasce como cópia do anterior, que fica guardado como estava. Em volta dele ficam seções de apoio à reunião de médio prazo.
 
 O "Gantt de legalização" (os 12 meses até a entrega da obra) usa este mesmo cronograma, com tabela, Gantt, cálculo, linha de base e exportação, mas fica na aba 1.1 (longo prazo): não aparece na lista de cronogramas do mês nem nas seções desta aba.
 
@@ -69,6 +69,8 @@ A barra de seções fica no cabeçalho da aba. A seção vai no endereço da pá
     keywords: [
       'criar cronograma',
       'novo cronograma do mês',
+      'dois cronogramas no mesmo mês',
+      'mais de um cronograma',
       'copiar mês anterior',
       'em branco',
       'importar do project',
@@ -79,6 +81,10 @@ A barra de seções fica no cabeçalho da aba. A seção vai no endereço da pá
       'cadeado',
       'bloqueado',
       'rascunho',
+      'rascunho automático',
+      'fechei sem salvar',
+      'perdi as alterações',
+      'rascunho recuperado',
       'revisar e salvar',
       'motivo',
       'não salvo',
@@ -92,8 +98,9 @@ A barra de seções fica no cabeçalho da aba. A seção vai no endereço da pá
 
 - Sem nenhum cronograma, a seção "Cronograma" mostra só o botão "Novo cronograma do mês". Depois, ele fica no rodapé, para planejador, gestor e admin, e só sem alteração pendente.
 - Campos: "Mês" (vem sugerido o mês seguinte ao último criado), "Partir de" ("Cópia de Mmm/aa · nome", "Em branco" ou "Importar do MS Project (.xml)") e "Nome (opcional)" (sem nome, fica "Plano de AAAA-MM"). "Criar cronograma" grava na hora e abre o mês novo.
+- **Mais de um cronograma no mesmo mês** (16/11/2026): escolher um mês que já tem cronograma é permitido. A gaveta avisa ("Nov/26 já tem o cronograma “…”. O novo entra ao lado, como “…”") e o nome repetido no mesmo mês ganha " (2)", " (3)"… para os dois se distinguirem no seletor. A cópia pode partir de outro cronograma do mesmo mês. Onde só um cronograma aparece (abertura da tela, quadro do médio prazo no Dashboard, resumo da Claudia, cobertura e pendências), vale o criado por último no mês; a seção Recursos e a carga das equipes somam todos os cronogramas vivos, como já faziam.
 - A **cópia** leva tarefas, vínculos, recursos, anotações, % concluída, datas reais e o calendário. Ficam de fora as tarefas 100% concluídas que terminaram antes do novo horizonte e os resumos que ficaram sem subitens. Tarefa que perdeu a predecessora ganha "Não iniciar antes de" na data em que estava, para não pular. O mês de origem não muda.
-- Recusas: "Esta obra já tem um plano para este mês." (um plano vivo por mês), "O plano de origem deve ser de um mês anterior ao novo plano." e "Copie de um plano vivo, não de uma linha de base."
+- Recusas: "O plano de origem deve ser do mesmo mês ou de um mês anterior ao novo plano." e "Copie de um plano vivo, não de uma linha de base." Até 16/11/2026 havia também "Esta obra já tem um plano para este mês.", que deixou de existir.
 - Não há botão para excluir um cronograma na tela.
 
 ## Importar do MS Project
@@ -119,13 +126,14 @@ A grade abre com cadeado, contra alteração acidental em reunião. "Liberar edi
 - Toda edição (célula, Gantt, Planejador, Informações da tarefa, calendário, Linha do Tempo, exclusão) fica em **rascunho** no navegador. Nada vai ao banco antes de salvar. O contador diz "N tarefas alteradas · não salvo" ou "Tudo salvo"; as células alteradas ficam marcadas, e o filtro "Alteradas no rascunho" lista as linhas.
 - "Revisar e salvar" abre "Revisar atualização": tarefas alteradas e excluídas, cada campo de antes para depois (inclusive "Predecessoras" e "Calendário alterado nesta revisão") e o campo obrigatório "Motivo da atualização". "Salvar alterações" grava tudo numa revisão só; "Voltar ao rascunho" fecha sem gravar. Sucesso: "Cronograma salvo".
 - O motivo fica no "Histórico da tarefa" (painel de detalhes; abra para carregar), com data, autor e cada campo de antes para depois.
-- **Se outra pessoa salvou antes:** "Outra pessoa alterou o cronograma. Atualize a página antes de salvar novamente; nenhuma alteração foi gravada." Recarregue a página (o rascunho se perde) e refaça as mudanças sobre a versão nova.
+- **Se outra pessoa salvou antes:** "Outra pessoa alterou o cronograma. Atualize a página antes de salvar novamente; nenhuma alteração foi gravada." Recarregue a página: desde 16/11/2026 o rascunho volta (veja "Rascunho automático") com o aviso âmbar, e a pessoa escolhe entre "Usar sobre a versão atual" e "Descartar rascunho".
+- **Rascunho automático (16/11/2026):** o que foi editado e ainda não passou por "Revisar e salvar" fica guardado **só no navegador em que foi feito**, por pessoa e por cronograma, menos de meio segundo depois de cada alteração (e na hora ao fechar ou trocar de aba). Fechar a aba, o navegador cair, o computador desligar ou a sessão expirar não perde mais o trabalho. Ao reabrir o cronograma nesse navegador, o rascunho volta com o aviso "Rascunho não salvo recuperado, guardado neste navegador em dd/mm às hh:mm. Ele ainda não está no sistema.", com "Revisar e salvar" e "Descartar rascunho" (pede confirmação). Se alguém salvou o cronograma no sistema depois que o rascunho começou, o aviso fica âmbar e o "Revisar e salvar" fica barrado: a pessoa descarta e fica com a versão do sistema, ou usa "Usar sobre a versão atual", que passa a contar as alterações contra a versão atual e mostra na revisão o que muda antes de gravar por cima. Salvar ou descartar apaga o rascunho guardado. Limites: em outro computador ou navegador o rascunho não aparece (não fica no sistema); a pilha do Ctrl+Z não volta; a célula que estava sendo digitada e não foi confirmada não é guardada; com duas abas no mesmo cronograma, vale a última que gravou. Perfil consulta e linha de base não guardam rascunho. Se o navegador não deixar guardar (espaço cheio ou bloqueado), aparece uma vez "Rascunho não guardado neste navegador".
 - Outras recusas do servidor: "Datas divergentes do cálculo. Revise o rascunho antes de salvar." (recarregue e tente de novo); "Revisão excede o limite de 3000 tarefas ou 10000 vínculos."; "Linha N: tarefa-resumo não recebe restrição nem prazo final; informe nas subtarefas."
 - Aviso azul ao abrir ("N tarefas foram ajustadas à regra do Project ao abrir"): um plano antigo foi acertado às regras atuais; o ajuste vai ao banco no próximo "Revisar e salvar".
 
 ## Descartar e sair
 
-"Descartar rascunho" (aparece com alteração não salva) pergunta "Descartar todas as alterações não salvas?" e devolve as tarefas ao que está gravado ("Descartar" ou "Manter rascunho"). Clicar em um link com rascunho aberto pergunta "Sair e perder as alterações não salvas?" ("Sair sem salvar" ou "Continuar editando"); fechar a aba do navegador também avisa.
+"Descartar rascunho" (aparece com alteração não salva) pergunta "Descartar todas as alterações não salvas?" e devolve as tarefas ao que está gravado ("Descartar" ou "Manter rascunho"). Clicar em um link com rascunho aberto pergunta "Sair sem salvar no sistema?", explicando que o rascunho fica guardado só neste navegador e volta ao reabrir o cronograma aqui ("Sair sem salvar" ou "Continuar editando"); fechar a aba do navegador também avisa.
 
 ## Exportar para o Project
 
@@ -222,7 +230,17 @@ A primeira linha resume o plano inteiro, como a tarefa de resumo do projeto no P
 
 Com a edição liberada ("Liberar edição"), a grade funciona como planilha: clique seleciona; Shift+setas ou Shift+clique seleciona um intervalo; duplo clique, F2, Enter ou digitar direto começa a edição; Esc cancela; Tab anda de célula. Enter grava e desce uma linha; **na última linha, Enter grava e já cria a tarefa seguinte**, para digitar uma atrás da outra. "Nomes dos recursos" e "Tipo de restrição" abrem uma lista. Erro na célula aparece na faixa vermelha acima da grade, e o cursor fica na célula para corrigir.
 
-Ctrl+C e Ctrl+V copiam e colam um bloco (dá para colar do Excel e do Project); Ctrl+D preenche as células de baixo com a de cima; Ctrl+Home e Ctrl+End vão à primeira e à última linha; Ctrl+Z e Ctrl+Y desfazem e refazem. Até 1000 células por operação. Recusas: "Colagem ultrapassa a grade." e "O intervalo contém uma célula bloqueada ou calculada."
+**Calendário nas datas** (16/11/2026): Início real, Término real, Início, Término, Data da restrição e Prazo final mostram um ícone de calendário ao passar o mouse (e na célula ativa); um clique nele abre o calendário sob a célula. Duplo clique, F2 ou Enter numa dessas células também abrem o editor já com o calendário; quem começa digitando não vê o calendário, e Alt+↓ abre e fecha. O calendário marca a data da célula, contorna o dia de hoje e esmaece fins de semana e feriados do calendário do cronograma, mas deixa escolhê-los. Tem as setas de mês, "Hoje" e, nas colunas que aceitam vazio (Início real, Término real, Data da restrição, Prazo final), "Limpar". Escolher um dia grava na hora, com as mesmas regras de digitar a data. Digitar continua valendo com o calendário aberto, e Esc cancela. Nos campos de data das Informações da tarefa, em "Referência do % alvo" e no "Mês" do novo cronograma, clicar em qualquer ponto do campo abre o calendário do navegador.
+
+**Copiar e colar** (Ctrl+C e Ctrl+V, revisto em 16/11/2026): toda célula copia, inclusive as calculadas, e todo intervalo aceita colar — do próprio cronograma, do Excel ou do Project. Como se cola:
+- O bloco entra a partir da célula de cima à esquerda da seleção. Se a seleção for múltipla exata do bloco, ele se repete até cobri-la: copiar uma célula e colar numa coluna selecionada preenche a coluna inteira.
+- **Célula que não recebe valor fica como estava, sem barrar as outras**: as calculadas (Id, Indicadores, tardias, folgas, Crítica, linha de base, Decorrido, % alvo, Desvio, Variação), as de resumo que vêm das subtarefas (Duração, datas, %, Predecessoras, restrição, Prazo final) e as presas ao andamento real (Início de tarefa já iniciada; Término e Duração de tarefa concluída — corrija pelas datas reais). Um aviso "Colagem aplicada" diz quantas ficaram. Se nenhuma recebe: "Nada foi colado: a célula de destino é calculada…".
+- Célula que já mostra o mesmo texto não é regravada — colar a mesma data no Início não cria restrição.
+- **Passou da última linha: vira tarefa nova no fim**, no nível e na data da última linha visível (com filtro ligado, isso é recusado: limpe o filtro). O que passa da última coluna visível fica de fora, e o aviso conta.
+- Valor inválido cancela a colagem inteira e diz onde está, por exemplo "Linha 3 · Duração: Use duração como…".
+- Com a grade bloqueada: "Libere a edição da grade para colar." Área de transferência sem texto (uma imagem) não apaga nada.
+
+Ctrl+D copia a primeira linha da seleção para as de baixo, com as mesmas regras (com uma linha só, copia a de cima, como no Excel); Ctrl+Home e Ctrl+End vão à primeira e à última linha; Ctrl+Z e Ctrl+Y desfazem e refazem (a colagem inteira é um passo só). Até 1000 células por operação.
 
 ## Inserir tarefa
 

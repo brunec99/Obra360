@@ -20,7 +20,7 @@ const SECTIONS = [
     id: 'cronograma',
     label: 'Cronograma',
     description:
-      'Um cronograma por mês, com horizonte de três meses, no layout do MS Project: tabela e Gantt lado a lado, datas reais e linha de base.',
+      'Cronogramas do mês, com horizonte de três meses, no layout do MS Project: tabela e Gantt lado a lado, datas reais e linha de base.',
   },
   {
     id: 'janela',
@@ -82,8 +82,9 @@ export default async function Page({
         help={
           <>
             <p>
-              <strong>Um cronograma por mês.</strong> Cada plano cobre o mês dele com horizonte de três meses à frente, e o plano novo nasce
-              como cópia do anterior: o que não terminou segue, o que terminou sai.
+              <strong>Cronogramas do mês.</strong> Cada plano cobre o mês dele com horizonte de três meses à frente, e o plano novo nasce
+              como cópia do anterior: o que não terminou segue, o que terminou sai. O mesmo mês pode ter mais de um cronograma; a tela abre
+              no criado por último.
             </p>
             <p>
               <strong>Agendamento automático.</strong> As datas vêm da rede de predecessoras e das durações, no calendário do plano; mudar

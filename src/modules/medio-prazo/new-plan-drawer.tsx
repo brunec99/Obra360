@@ -4,6 +4,7 @@ import { FileUp, Plus } from 'lucide-react';
 import type { MediumTermPlan } from '@/domain/entities';
 import { buildPlanImport, parseMspdi, type MspdiProject, type PlanImportDraft } from '@/domain/mspdi-import';
 import { planWindow } from '@/domain/plan-schedule';
+import { uniquePlanName } from '@/domain/legalization';
 import {
   compareWithProject,
   suggestResourceChoices,
@@ -16,9 +17,11 @@ import { Field } from '@/modules/planejamento/forms';
 import { Callout } from '@/modules/planejamento/ui';
 import { Drawer } from '@/modules/layout/drawer';
 import { useToast } from '@/modules/layout/toast';
+import { openNativePicker } from '@/shared/native-picker';
 
-/** Gaveta "Novo cronograma do mês" (08/11/2026): o mês nasce como cópia de um mês anterior, em branco
- * ou importado de um arquivo do MS Project. A importação lê o XML no navegador, mostra a conferência
+/** Gaveta "Novo cronograma do mês" (08/11/2026): o mês nasce como cópia de um cronograma anterior (ou de
+ * outro do mesmo mês: desde 16/11/2026 o mês pode ter mais de um), em branco ou importado de um arquivo
+ * do MS Project. A importação lê o XML no navegador, mostra a conferência
  * (o que foi lido, avisos, recursos → equipes e as datas que o sistema calcula diferente do Project)
  * e só grava ao confirmar, pelo comando `import_plan`. Regras no modelo aprovado e em
  * docs/planejamento-tres-niveis.md, seção de 08/11/2026. */
@@ -180,6 +183,11 @@ export function NewPlanDrawer({
   const originValue = origin.kind === 'copy' ? `copy:${origin.planId}` : origin.kind;
   const importing = origin.kind === 'import';
   const horizon = planWindow(/^\d{4}-\d{2}$/.test(month) ? month : today.slice(0, 7));
+  // O mês escolhido já tem cronograma: o novo entra ao lado, e o nome repetido ganha " (2)" (o mesmo
+  // `uniquePlanName` que o comando usa, para o aviso dizer o nome que vai ser gravado).
+  const sameMonth = plans.filter(p => p.month === month);
+  const finalName = uniquePlanName(plans, workId, month, name);
+  const renamed = !!name.trim() && finalName !== name.trim();
 
   return (
     <>
@@ -201,7 +209,7 @@ export function NewPlanDrawer({
           if (!busy) setOpen(false);
         }}
         title="Novo cronograma do mês"
-        description="Cada mês tem o seu cronograma, com horizonte de três meses."
+        description="Cada cronograma cobre um mês, com horizonte de três meses. O mesmo mês pode ter mais de um."
         width={importing && draft ? 'lg' : 'md'}
       >
         <form
@@ -213,8 +221,23 @@ export function NewPlanDrawer({
         >
           <fieldset disabled={busy} className="min-w-0 space-y-4">
             <Field label="Mês">
-              <input id={ids.month} className="field" type="month" required value={month} onChange={e => setMonth(e.target.value)} />
+              <input
+                id={ids.month}
+                className="field"
+                type="month"
+                required
+                value={month}
+                onClick={openNativePicker}
+                onChange={e => setMonth(e.target.value)}
+              />
             </Field>
+            {sameMonth.length > 0 && (
+              <Callout tone="info">
+                {monthLabel(month)} já tem {sameMonth.length === 1 ? 'o cronograma' : `${sameMonth.length} cronogramas:`}{' '}
+                {sameMonth.map(p => `“${p.name}”`).join(', ')}. O novo entra ao lado, como “{finalName}”, e os dois aparecem no seletor do
+                mês.{renamed ? ' O nome ganhou um número porque já existe no mês.' : ''}
+              </Callout>
+            )}
             <Field label="Partir de">
               <select
                 id={ids.origin}
