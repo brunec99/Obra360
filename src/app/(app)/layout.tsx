@@ -16,6 +16,7 @@ import { TourOverlay } from '@/modules/tour/tour-overlay';
 import { HelpButton } from '@/modules/tour/help-button';
 import { AgentButton } from '@/modules/agente/agent-panel';
 import { ClaudiaButton, ClaudiaProvider, ClaudiaWindow } from '@/modules/agente/claudia-window';
+import { AccessTracker } from '@/modules/acessos/access-tracker';
 import { signOut } from '../login/actions';
 import { roleLabels } from '@/shared/format';
 
@@ -149,6 +150,8 @@ export default async function AppLayout({ children }: Readonly<{ children: React
       </div>
       <TourOverlay />
       {claudiaGeral && <ClaudiaWindow />}
+      {/* 15/11/2026: conta o tempo ativo de cada tela para a aba "Acessos" do Dashboard geral (só admin vê). */}
+      <AccessTracker />
     </div>
   );
   return (

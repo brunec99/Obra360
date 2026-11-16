@@ -16,6 +16,7 @@ import type { PortfolioReady, PortfolioRow, PortfolioWork } from './types';
 import { usePortfolio } from './use-portfolio-data';
 import { PORTFOLIO_STYLE } from './portfolio-styles';
 import { WeeklySummaryButton } from '../weekly/send-button';
+import { DashboardTabs } from '../dashboard-tabs';
 import {
   CardOwnersList,
   ChecklistRows,
@@ -65,7 +66,9 @@ import {
  * de Restrições entram junto dos demais módulos de prazo; histograma e produtividade lado a lado ("Controles de
  * obra"); o checklist de equipamentos depois da segurança. Até nove cartões, em duas linhas. Esses quadros não
  * seguem o recorte de empreiteiro, e o subtítulo de cada um diz isso. O botão do resumo semanal por e-mail fica ao
- * lado de "Gerar PDF" (ele mesmo se esconde para quem não é admin). */
+ * lado de "Gerar PDF" (ele mesmo se esconde para quem não é admin).
+ * Abas (15/11/2026, modelo "Aba Acessos no Dashboard geral"): para admin, "Obras" (esta tela) e "Acessos" logo
+ * abaixo do cabeçalho, também enquanto carrega e no erro; `tabs` vem da página, que sabe o papel. */
 
 const HELP = (
   <>
@@ -105,7 +108,7 @@ const HELP = (
   </>
 );
 
-export function PortfolioOverview({ initial }: { initial: PortfolioParams }) {
+export function PortfolioOverview({ initial, tabs = false }: { initial: PortfolioParams; tabs?: boolean }) {
   const [params, setParams] = useState<PortfolioParams>(initial);
   const [sort, setSort] = useState<ComparisonSort>(DEFAULT_SORT);
   const state = usePortfolio({
@@ -121,21 +124,31 @@ export function PortfolioOverview({ initial }: { initial: PortfolioParams }) {
     window.history.replaceState(null, '', portfolioPath(next));
   };
 
-  if (state.status === 'loading') return <LoadState />;
+  const tabBar = tabs ? <DashboardTabs active="obras" /> : null;
+  if (state.status === 'loading')
+    return (
+      <>
+        {tabBar}
+        <LoadState />
+      </>
+    );
   if (state.status === 'error')
     return (
-      <div className="panel p-6">
-        <p role="alert" className="text-sm font-semibold text-slate-800">
-          Não foi possível carregar o Dashboard geral.
-        </p>
-        <p className="mt-1 text-sm text-slate-500">{state.message || 'Verifique a conexão e tente de novo.'}</p>
-        <button type="button" className="button-ghost mt-4" onClick={state.retry}>
-          <RefreshCw size={15} aria-hidden />
-          Tentar de novo
-        </button>
-      </div>
+      <>
+        {tabBar}
+        <div className="panel p-6">
+          <p role="alert" className="text-sm font-semibold text-slate-800">
+            Não foi possível carregar o Dashboard geral.
+          </p>
+          <p className="mt-1 text-sm text-slate-500">{state.message || 'Verifique a conexão e tente de novo.'}</p>
+          <button type="button" className="button-ghost mt-4" onClick={state.retry}>
+            <RefreshCw size={15} aria-hidden />
+            Tentar de novo
+          </button>
+        </div>
+      </>
     );
-  return <Ready state={state} params={params} update={update} sort={sort} onSort={setSort} />;
+  return <Ready state={state} params={params} update={update} sort={sort} onSort={setSort} tabBar={tabBar} />;
 }
 
 /** O nome de cada obra no seletor; nomes repetidos levam o código, para a escolha voltar ao id certo. */
@@ -191,12 +204,14 @@ function Ready({
   update,
   sort,
   onSort,
+  tabBar,
 }: {
   state: PortfolioReady;
   params: PortfolioParams;
   update: (next: PortfolioParams) => void;
   sort: ComparisonSort;
   onSort: (sort: ComparisonSort) => void;
+  tabBar: ReactNode;
 }) {
   const router = useRouter();
   const { data, works, access, periodContext } = state;
@@ -311,6 +326,7 @@ function Ready({
           </button>
         </div>
       </header>
+      {tabBar}
 
       <div
         data-tour="geral-filtros"

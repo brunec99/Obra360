@@ -183,8 +183,59 @@ try {
   await assert.rejects(commit(9, missingLocal));
   await db.exec("delete from lob_locals where id = 'loc1'");
   assert.equal((await snapshot()).weekly_commitments.find(c => c.id === 'c2').local_id, null);
+  // Acessos (0051): sessão nova depois de 30 min sem uso, nunca mais que o relógio (duas abas), leitura numa ida só,
+  // guarda de 13 meses e funções só para a chave de serviço.
+  const person = '00000000-0000-4000-8000-000000000051';
+  await db.query('insert into auth.users (id) values ($1)', [person]);
+  await db.query("insert into profiles (id, name, role) values ($1, 'Pessoa', 'viewer')", [person]);
+  const record = (at, seconds, screen = 'curto-prazo', work = 'w', field = false, device = 'desktop') =>
+    db.query('select record_access($1, $2, $3, $4, $5, $6, $7::timestamptz)', [person, work, screen, field, device, seconds, at]);
+  const sessionsOf = async () =>
+    (await db.query('select seconds, started_at from access_sessions where profile_id = $1 order by started_at', [person])).rows;
+  const usageSeconds = async screen =>
+    (await db.query('select coalesce(sum(seconds), 0)::int n from access_usage where profile_id = $1 and screen = $2', [person, screen]))
+      .rows[0].n;
+  await record('2026-11-13T12:00:00Z', 60);
+  await record('2026-11-13T12:01:00Z', 60);
+  await record('2026-11-13T12:01:01Z', 60, 'dashboard'); // segunda aba: só o segundo que passou (+2 de folga)
+  await record('2026-11-13T12:02:01Z', 0); // nada a somar, e não conta como registro
+  await record('2026-11-13T12:02:30Z', 500); // teto de 300 s, depois o relógio desde 12:01:01 (89 + 2)
+  assert.equal(await usageSeconds('curto-prazo'), 211);
+  assert.equal(await usageSeconds('dashboard'), 3);
+  assert.equal((await sessionsOf()).length, 1);
+  await record('2026-11-13T12:40:00Z', 500, 'seguranca', null, true, 'mobile'); // 37 min depois: sessão nova, até 120 s
+  const sessions = await sessionsOf();
+  assert.deepEqual(
+    sessions.map(s => s.seconds),
+    [214, 120],
+  );
+  assert.equal(
+    (await db.query("select count(*)::int n from access_usage where work_id is null and field and device = 'mobile'")).rows[0].n,
+    1,
+  );
+  // 21:30 de Brasília ainda é dia 13 (00:30 UTC do dia 14).
+  await record('2026-11-14T00:30:00Z', 30, 'obras', null);
+  assert.equal((await db.query("select day::text from access_usage where screen = 'obras'")).rows[0].day, '2026-11-13');
+  const report = (await db.query("select access_report('2026-11-13', '2026-11-13') r")).rows[0].r;
+  assert.equal(report.usage.length, 4);
+  assert.equal(report.sessions.length, 3);
+  assert.equal(report.last.length, 1);
+  assert.equal(report.last[0][3], 'obras');
+  assert.equal(report.since, '2026-11-13');
+  assert.equal((await db.query("select access_report('2026-10-01', '2026-10-02') r")).rows[0].r.usage.length, 0);
+  await record('2027-12-20T12:00:00Z', 10); // 13 meses depois: o histórico antigo sai
+  assert.equal((await sessionsOf()).length, 1);
+  await db.exec('set role authenticated');
+  await assert.rejects(record('2027-12-20T12:01:00Z', 10), /permission denied/);
+  await assert.rejects(db.query("select access_report('2026-11-13', '2026-11-13')"), /permission denied/);
+  await db.exec('reset role');
+  // No Supabase a chave de serviço passa por cima da RLS; aqui o papel precisa ganhar isso.
+  await db.exec('alter role service_role bypassrls; set role service_role');
+  await record('2027-12-20T12:01:00Z', 10);
+  assert.equal((await db.query("select access_report('2027-12-20', '2027-12-20') r")).rows[0].r.usage.length, 1);
+  await db.exec('reset role');
   console.log(
-    'PostgreSQL isolado: migrações, metadados, conflito de versão, rollback, base imutável, histórico append-only, exclusão autorizada, snapshot por obra (0027), gravação parcial (só o que mudou), ordem da planilha (0036), local da linha (0039) e RPCs sem acesso público: OK',
+    'PostgreSQL isolado: migrações, metadados, conflito de versão, rollback, base imutável, histórico append-only, exclusão autorizada, snapshot por obra (0027), gravação parcial (só o que mudou), ordem da planilha (0036), local da linha (0039), acessos (0051) e RPCs sem acesso público: OK',
   );
 } finally {
   await db.close();

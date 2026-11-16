@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { FieldSafety } from '@/modules/seguranca/field-app';
+import { AccessTracker } from '@/modules/acessos/access-tracker';
 
 export const metadata: Metadata = { title: 'Segurança em campo' };
 export const viewport: Viewport = { themeColor: '#0a364d', width: 'device-width', initialScale: 1, viewportFit: 'cover' };
@@ -10,6 +11,13 @@ export const viewport: Viewport = { themeColor: '#0a364d', width: 'device-width'
 // deixa `/campo/` passar sem sessão por isso.
 export const dynamic = 'force-static';
 
+// 15/11/2026: o tempo ativo no modo de campo conta no módulo, marcado "campo" (aba "Acessos" do Dashboard geral).
+// O registro só sai com sinal; sem sinal, o minuto se perde (regra 17).
 export default function FieldSafetyPage() {
-  return <FieldSafety />;
+  return (
+    <>
+      <FieldSafety />
+      <AccessTracker />
+    </>
+  );
 }

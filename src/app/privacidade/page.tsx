@@ -3,6 +3,7 @@ import Link from 'next/link';
 // Página pública (fora do login, ver o matcher de src/proxy.ts). O Google exige uma política de
 // privacidade num domínio autorizado para publicar o app "Sistemas ATR" da tela de consentimento,
 // que serve ao Obra 360, ao Takt Hub e ao BI da ATR. Texto factual sobre o login; revisão jurídica pendente.
+// 15/11/2026: seção do registro de uso do Obra 360 (aba Acessos do Dashboard geral, só admin).
 export const metadata = { title: 'Política de privacidade' };
 
 const CONTACT = 'bruno.engenharia@atrincorporadora.com.br';
@@ -11,12 +12,12 @@ export default function PrivacyPage() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-10 font-sans text-slate-700">
       <h1 className="text-2xl font-bold text-slate-900">Política de privacidade</h1>
-      <p className="mt-1 text-sm text-slate-500">Sistemas ATR · login com Google · atualizada em 08/10/2026</p>
+      <p className="mt-1 text-sm text-slate-500">Sistemas ATR · login com Google · atualizada em 15/11/2026</p>
 
       <section className="mt-6 space-y-3 text-sm leading-relaxed">
         <p>
           Os sistemas internos da ATR Incorporadora (Obra 360, Takt Hub e BI da ATR) permitem entrar com uma conta Google. Esta página
-          explica o que o Google compartilha nesse login e como esses dados são usados.
+          explica o que o Google compartilha nesse login, como esses dados são usados e o que o Obra 360 registra sobre o uso do sistema.
         </p>
 
         <h2 className="pt-2 text-base font-semibold text-slate-900">O que recebemos do Google</h2>
@@ -29,6 +30,14 @@ export default function PrivacyPage() {
         <p>
           Para identificar quem está entrando, conferir se a pessoa tem acesso cadastrado e registrar a autoria das alterações feitas nos
           sistemas. Os dados não são vendidos nem compartilhados com terceiros para outros fins.
+        </p>
+
+        <h2 className="pt-2 text-base font-semibold text-slate-900">Registro de uso do Obra 360</h2>
+        <p>
+          Para gestão interna, o Obra 360 registra o tempo de uso por tela: quem usou, em que dia, em qual obra e tela, quantos segundos de
+          uso ativo (com a aba do sistema na frente e alguém mexendo nela), o início e o fim de cada sessão e se foi pelo computador ou pelo
+          celular. Só os administradores do sistema veem esses dados. Não gravamos o endereço IP, a localização nem o que foi digitado ou
+          visto na tela. O registro fica guardado por 13 meses e depois é apagado.
         </p>
 
         <h2 className="pt-2 text-base font-semibold text-slate-900">Onde ficam</h2>

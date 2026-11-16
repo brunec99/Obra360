@@ -577,3 +577,7 @@ Seis quadros novos, os mesmos nas duas telas (o geral já tinha a segurança), n
 - Conferir os números com as abas de origem numa obra real (histograma e produtividade têm histórico importado em seis obras).
 - "Responsáveis com mais cards vencidos" no geral usa os cinco com mais cards abertos de cada obra; pode deixar alguém de fora.
 - Meta de produtividade por serviço não existe; a tabela "Serviços medidos em mais de uma obra" não tem cor de bom ou ruim.
+
+# Aba "Acessos" no Dashboard geral (15/11/2026)
+
+O Dashboard geral passou a ter duas abas para admin: "Obras" (tudo o que está acima, sem mudança) e "Acessos" (`/dashboard/acessos`), com quem entrou no Obra 360, em quais módulos e por quanto tempo. As abas ficam logo abaixo do cabeçalho, também enquanto a aba Obras carrega e no erro; para quem não é admin a tela segue sem abas. Regras, arquitetura, migração 0051 e pendências em [Acessos ao Obra 360](acessos.md).

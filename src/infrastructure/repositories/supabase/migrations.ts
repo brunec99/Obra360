@@ -317,6 +317,14 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
       'O resumo de sábado não é enviado a ninguém e a chave em Configurações → Usuários não grava; o envio avulso pelo botão segue funcionando.',
     critical: false,
   },
+  {
+    migration: '0051_access_usage',
+    label: 'Acessos: tempo de uso por pessoa, tela e obra',
+    probe: { kind: 'table', table: 'access_usage' },
+    effect:
+      'O tempo de uso não é registrado (em silêncio) e a aba "Acessos" do Dashboard geral avisa que a contagem não começou; o resto do sistema segue normal.',
+    critical: false,
+  },
 ];
 
 export type MigrationStatus = { migration: string; label: string; effect: string; critical: boolean; applied: boolean; detail?: string };

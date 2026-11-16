@@ -7,6 +7,8 @@ import type { TourStep } from '../tours';
  * Desde 12/11/2026 (modelo "Dashboards completos e resumo semanal"): Linha de Balanço e Quadro de Restrições
  * entram em `geral-modulos`; histograma e produtividade têm o alvo `geral-controles` e o checklist de
  * equipamentos, `geral-checklist`.
+ * Desde 15/11/2026 o admin vê duas abas no topo, Obras (esta página) e Acessos (tour próprio, `pages/acessos.ts`);
+ * o alvo `acessos-abas` é o mesmo nos dois tours e, para quem não é admin, não existe e o passo é pulado.
  * A página só lê: nenhum passo descreve edição. Passo cujo alvo não está na tela (quadro escondido, módulo sem
  * acesso, celular) é pulado sozinho. A assistente de IA não abre aqui, então o passo comum dela é pulado. */
 export const steps: TourStep[] = [
@@ -18,6 +20,11 @@ export const steps: TourStep[] = [
     target: 'geral-cabecalho',
     title: 'Cabeçalho',
     body: 'O título e uma linha do que a página responde. Ela fica fora das obras, no menu em Empreendimentos, logo abaixo de Obras, e também abre pelo botão “Comparar obras” da lista de obras. Aparece para quem tem duas obras ou mais, e sempre para admin e desenvolvedor.',
+  },
+  {
+    target: 'acessos-abas',
+    title: 'Obras e Acessos',
+    body: 'Só para administradores, duas abas no topo. “Obras” é esta comparação das obras. “Acessos” mostra quem entrou no Obra 360, em quais módulos e por quanto tempo. Para os demais, as abas não aparecem e a página é só a comparação das obras.',
   },
   {
     target: 'geral-ajuda',

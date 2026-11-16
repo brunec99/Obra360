@@ -5,6 +5,7 @@ import { sections as acessoConfiguracoes } from './acesso-configuracoes';
 import { sections as dashboard } from './dashboard';
 import { sections as dashboardGeral } from './dashboard-geral';
 import { sections as resumoSemanal } from './resumo-semanal';
+import { sections as acessos } from './acessos';
 import { sections as longoPrazo } from './longo-prazo';
 import { sections as vagoes } from './vagoes';
 import { sections as medioPrazo } from './medio-prazo';
@@ -30,6 +31,7 @@ export const MANUAL_SECTIONS: readonly ManualSection[] = [
   ...dashboard,
   ...dashboardGeral,
   ...resumoSemanal,
+  ...acessos,
   ...longoPrazo,
   ...vagoes,
   ...medioPrazo,
@@ -182,7 +184,17 @@ const index = (): Indexed[] =>
  * aba de longo prazo") é forte indício, mesmo que as palavras em si sejam comuns demais para pontuar. */
 const SCREEN_NAMES: Readonly<Record<string, readonly string[]>> = {
   dashboard: ['dashboard', 'aba 0', 'painel da obra', 'visao geral da obra'],
-  'dashboard-geral': ['dashboard geral', 'comparar obras', 'todas as obras', 'comparativo das obras'],
+  // 15/11/2026: a aba Acessos (quem entrou, onde e por quanto tempo) fica no Dashboard geral.
+  'dashboard-geral': [
+    'dashboard geral',
+    'comparar obras',
+    'todas as obras',
+    'comparativo das obras',
+    'aba acessos',
+    'quem acessou',
+    'tempo de uso',
+    'uso do sistema',
+  ],
   // Só os números novos (12/11/2026): "aba 1" sozinho casaria com "aba 1.2" e "aba 2" com "aba 2.1". Quem
   // perguntar pelo número antigo é atendido pela tabela de correspondência do manual geral.
   'longo-prazo': ['longo prazo', 'aba 1.1'],

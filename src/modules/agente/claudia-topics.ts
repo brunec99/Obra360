@@ -153,7 +153,8 @@ export function screenFromPath(pathname: string | null | undefined): string | un
   const section = /^\/obras\/[^/?#]+\/([^/?#]+)/.exec(path)?.[1];
   if (section !== undefined) return WORK_SECTIONS.has(section) ? section : undefined;
   if (/^\/obras\/?$/.test(path)) return 'obras';
-  if (/^\/dashboard\/?$/.test(path)) return 'dashboard-geral';
+  // As duas abas do Dashboard geral (Obras e, desde 15/11/2026, Acessos) são a mesma tela do manual.
+  if (/^\/dashboard(?:\/acessos)?\/?$/.test(path)) return 'dashboard-geral';
   if (/^\/configuracoes(?:\/|$)/.test(path)) return 'configuracoes-gerais';
   return undefined;
 }

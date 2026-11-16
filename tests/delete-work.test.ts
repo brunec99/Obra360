@@ -241,6 +241,20 @@ async function setup() {
     MANAGER,
     [gone, kept],
   ]);
+  // 0051: o uso do sistema por obra. Pede perfil e sessão, por isso entra depois dos perfis; o `work_id` não tem chave
+  // estrangeira de propósito e a linha fica depois da exclusão, como o custo da IA.
+  for (const workId of [gone, kept]) {
+    const session = (
+      await db.query<{ id: string }>(
+        'insert into access_sessions (profile_id, started_at, last_at, seconds) values ($1, $2, $2, 60) returning id',
+        [ADMIN, STAMP],
+      )
+    ).rows[0].id;
+    await db.query(
+      "insert into access_usage (session_id, profile_id, day, work_id, screen, device, seconds, first_at, last_at) values ($1, $2, '2026-10-05', $3, 'curto-prazo', 'desktop', 60, $4, $4)",
+      [session, ADMIN, workId, STAMP],
+    );
+  }
   const tables = (
     await db.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
@@ -299,13 +313,15 @@ test('delete_work apaga a obra e tudo o que é dela, sem tocar a outra obra', as
 
     const after = await footprint('del', gone);
     for (const [table, count] of Object.entries(after)) {
-      // Ficam de propósito: o histórico (append-only) e o livro-razão do custo da IA (o teto do mês).
-      if (table === 'history_events' || table === 'agent_usage') continue;
+      // Ficam de propósito: o histórico (append-only), o livro-razão do custo da IA (o teto do mês) e o uso do
+      // sistema (0051, a aba "Acessos" mostra "Obra excluída").
+      if (table === 'history_events' || table === 'agent_usage' || table === 'access_usage') continue;
       assert.equal(count, 0, `${table} ainda tem linha da obra excluída`);
     }
     assert.deepEqual([before.lob_cost_items, after.lob_cost_items], [2, 0], 'os itens de custo (0044) saem com a obra');
     assert.equal(after.agent_usage, 1, 'o custo da IA continua contando no mês');
     assert.equal(after.history_events, 1, 'o histórico da obra fica');
+    assert.equal(after.access_usage, 1, 'o uso do sistema na obra fica (0051)');
     assert.deepEqual(await footprint('keep', kept), keptBefore, 'a outra obra fica como estava');
 
     const event = (

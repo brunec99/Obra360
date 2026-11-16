@@ -1,4 +1,5 @@
 import { AGENT } from '../agente/agent-identity';
+import { steps as acessos } from './pages/acessos';
 import { steps as agenteAdmin } from './pages/agente-admin';
 import { steps as campo } from './pages/campo';
 import { steps as configuracoes } from './pages/configuracoes';
@@ -37,6 +38,7 @@ export type TourKey =
   | 'obras'
   | 'dashboard'
   | 'dashboardGeral'
+  | 'acessos'
   | 'longoPrazo'
   | 'medioPrazo'
   | 'curtoPrazo'
@@ -77,6 +79,7 @@ const pages: Record<TourKey, TourStep[]> = {
   obras,
   dashboard,
   dashboardGeral,
+  acessos,
   longoPrazo,
   medioPrazo,
   curtoPrazo,
@@ -104,6 +107,8 @@ export const tours = Object.fromEntries(Object.entries(pages).map(([key, steps])
 
 export function resolveTourKey(pathname: string): TourKey | null {
   if (pathname === '/obras') return 'obras';
+  // 15/11/2026: aba Acessos do Dashboard geral (só admin).
+  if (pathname === '/dashboard/acessos') return 'acessos';
   if (pathname === '/dashboard') return 'dashboardGeral';
   if (/^\/obras\/[^/]+\/dashboard$/.test(pathname)) return 'dashboard';
   if (/^\/obras\/[^/]+\/longo-prazo$/.test(pathname)) return 'longoPrazo';
