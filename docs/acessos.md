@@ -61,7 +61,7 @@ Dados, privacidade e subida
 
 `supabase/migrations/0051_access_usage.sql`: tabelas `access_sessions` e `access_usage` (RLS ligada sem política, grant para `service_role`), funções `record_access` e `access_report` (sem acesso para `public`, `anon` e `authenticated`; execução só para `service_role`). `access_usage.work_id` não tem chave estrangeira de propósito: excluir uma obra não apaga o histórico de uso, e a tela mostra "Obra excluída". Pode ser rodada de novo.
 
-**Estado: criada em 15/11/2026, não aplicada.** Até ser aplicada no `takt-hub`, a aba mostra o aviso e só o último login de cada pessoa.
+**Estado: aplicada no `takt-hub` em 16/11/2026**, a pedido do usuário, numa transação pelo pooler. Conferido logo depois: as duas tabelas com RLS ligada e grant para `service_role`; `record_access` e `access_report` executáveis só por `service_role` (negadas a `anon` e `authenticated`); `access_report` respondendo 200 pela API com a chave de serviço; leitura de `access_usage` com a chave anônima recusada (42501). Tabelas vazias até o primeiro registro.
 
 ## Diferenças em relação ao modelo
 
@@ -86,6 +86,6 @@ Pequenas, todas da implementação; nenhuma regra mudou.
 
 ## Pendências
 
-- Aplicar a 0051 no `takt-hub` (pedido explícito do usuário) e publicar.
+- Publicação: push de 16/11/2026 para o `main` (workflow Imagem); conferir que o servidor da ATR puxou a imagem nova.
 - Conferir logado: registro chegando (Configurações → Banco de dados mostra a 0051), aba com dados no dia seguinte, aviso some.
 - Fora desta entrega, citadas no modelo: coluna "Último acesso" em Configurações → Usuários; PDF da aba; guardar no aparelho o tempo do campo sem sinal; dar à Claudia geral uma consulta aos dados de uso (hoje o manual diz que ela não lê esses números).
