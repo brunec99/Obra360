@@ -1,7 +1,10 @@
 'use client';
 import { encodeGrid, decodeGrid, pasteTargets, type GridRange } from './clipboard';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal, flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { PRINT_LOGOS, PrintSchedule, type PrintRow } from './print-schedule';
+import { monthName, printFileName } from './print-layout';
 import {
   BookUser,
   CalendarClock,
@@ -12,6 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Columns2,
   Download,
   Flag,
   GalleryHorizontalEnd,
@@ -27,6 +31,7 @@ import {
   Minus,
   PanelLeft,
   Plus,
+  Printer,
   Redo2,
   SquareChartGantt,
   StickyNote,
@@ -223,6 +228,8 @@ type Col =
   | 'gap'
   | 'variance';
 type Presentation = 'split' | 'table' | 'chart';
+/** Largura da divisória entre a tabela e o Gantt (`w-1.5`). */
+const SPLIT_SEPARATOR = 6;
 const columns: { key: Col; label: string; width: number; editable?: boolean; right?: boolean }[] = [
   { key: 'id', label: 'Id', width: 40, right: true },
   { key: 'ind', label: 'Indicadores', width: 58 },
@@ -434,6 +441,20 @@ const INFO_TAB: Partial<Record<Col, TaskInfoTab>> = {
 };
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+/** Filtro de status da barra de ferramentas; a impressão escreve o rótulo do filtro ativo no cabeçalho. */
+const statusOptions = (legalization: boolean): [string, string][] => [
+  ['all', 'Todas as tarefas'],
+  ['zero', 'Não iniciadas'],
+  ['ongoing', 'Em andamento'],
+  ['done', 'Concluídas'],
+  ['late', 'Atrasadas'],
+  ['critical', 'Críticas'],
+  ['conflict', 'Com vínculo desrespeitado'],
+  ['deadline', 'Prazo final perdido'],
+  ['window', legalization ? 'Fora da janela' : 'Fora do horizonte'],
+  ['changed', 'Alteradas no rascunho'],
+  ['notes', 'Com anotações'],
+];
 /** Data no formato que a equipe lê no Project: "Seg 24/08/26". */
 const projectDate = (d?: string) =>
   d ? `${WEEKDAYS[new Date(d + 'T00:00:00Z').getUTCDay()]} ${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}` : 'ND';
@@ -678,7 +699,9 @@ export function Sheet({
   // A área de trabalho (barras, Linha do Tempo, visão e barra de status) cabe na janela; a visão é a
   // parte flexível. `fit` é a altura medida; `viewArea` fica de fora da soma do que é fixo.
   const workspaceRef = useRef<HTMLDivElement>(null),
-    viewArea = useRef<HTMLDivElement>(null);
+    viewArea = useRef<HTMLDivElement>(null),
+    // A faixa da tabela + divisória + Gantt: "Dividir ao meio" mede a largura dela.
+    splitArea = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<number | null>(null);
   useEffect(() => {
     staged.current = null;
@@ -701,6 +724,10 @@ export function Sheet({
   // O histórico só é pedido ao servidor com o painel aberto: trocar de linha com as setas não pode virar uma consulta por tecla.
   const [historyOpen, setHistoryOpen] = useState(false);
   const [offDaysOpen, setOffDaysOpen] = useState(false);
+  // Impressão (16/11/2026): as folhas existem só enquanto `printing`. `printAsked` diferencia o botão e o
+  // Ctrl+P (que chamam a impressão depois de montar as folhas) da impressão pelo menu do navegador.
+  const [printing, setPrinting] = useState(false);
+  const printAsked = useRef(false);
   const confirm = useConfirm();
   const { toast } = useToast();
   const router = useRouter();
@@ -1510,6 +1537,27 @@ export function Sheet({
       editRef.current?.focus();
     }
   }
+  /** "Dividir ao meio" (16/11/2026): volta para tabela e Gantt lado a lado, com a tabela na metade
+   * esquerda e o Gantt na direita. Com colunas que não enchem a metade, o "Nome da tarefa" alarga até
+   * caber (no máximo 600 px, o limite que as preferências guardam). */
+  function splitInHalf() {
+    setPresentation('split');
+    const area = splitArea.current?.clientWidth;
+    if (!area) return;
+    const half = Math.max(240, Math.min(2400, Math.round((area - SPLIT_SEPARATOR) / 2)));
+    setTableWidth(half);
+    const missing = half - (tableTotal + 2);
+    if (missing > 0) setWidths(w => ({ ...w, name: Math.min(600, (w.name ?? COLUMN.name.width) + missing) }));
+  }
+  /** "Imprimir" (botão e Ctrl+P): fecha a célula em digitação, como o salvar, e monta as folhas. A
+   * impressão do navegador abre quando as folhas e os logos estão prontos (`useLayoutEffect` abaixo). */
+  function openPrint() {
+    if (editor && !commit()) return;
+    // Navegador que não avisou o fim da impressão anterior: as folhas ainda estão montadas.
+    if (printing) return window.print();
+    printAsked.current = true;
+    setPrinting(true);
+  }
   /** XML do Project (MSPDI) com o rascunho como está, inclusive folgas e caminho crítico. */
   function exportXml() {
     try {
@@ -2298,6 +2346,149 @@ export function Sheet({
       setError((e as Error).message);
     }
   }
+  // ——— Impressão (16/11/2026, modelo aprovado em A3) ———
+  // As folhas saem do que está na tela: as linhas do Gantt (com a linha 0, filtro e grupos recolhidos),
+  // os textos das células, a linha de base escolhida, "Caminho crítico" e "Nomes dos recursos".
+  const work = data.works.find(w => w.id === plan.workId);
+  const printFile = printFileName({
+    code: work?.code,
+    month: plan.month,
+    planName: plan.name,
+    sameMonthPlans: plans.filter(p => p.month === plan.month).length,
+    variantTitle: variant?.title,
+  });
+  const printingNow = useRef(false);
+  useLayoutEffect(() => {
+    if (!printing) return;
+    printingNow.current = true;
+    const previous = document.title;
+    // O título da aba vira o nome sugerido do PDF (regra 10).
+    document.title = printFile;
+    let cancelled = false;
+    if (printAsked.current) {
+      printAsked.current = false;
+      const images = Array.from(document.querySelectorAll<HTMLImageElement>('.mp-print-root img'));
+      void Promise.all(images.map(img => img.decode().catch(() => undefined))).then(() => {
+        if (!cancelled) window.print();
+      });
+    }
+    return () => {
+      cancelled = true;
+      printingNow.current = false;
+      document.title = previous;
+    };
+  }, [printing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Logos em cache desde a abertura: a impressão pelo menu do navegador não espera imagem carregar.
+  useEffect(() => {
+    for (const src of PRINT_LOGOS) new Image().src = src;
+  }, []);
+  const openPrintRef = useRef(openPrint);
+  useEffect(() => {
+    openPrintRef.current = openPrint;
+  });
+  useEffect(() => {
+    // Imprimir pelo menu do navegador: as folhas entram antes do retrato da página.
+    const before = () => {
+      if (!printingNow.current) flushSync(() => setPrinting(true));
+    };
+    const after = () => {
+      printAsked.current = false;
+      setPrinting(false);
+    };
+    // Ctrl+P (Cmd+P no Mac) na tela do cronograma abre a mesma impressão (regra 1).
+    const key = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        openPrintRef.current();
+      }
+    };
+    window.addEventListener('beforeprint', before);
+    window.addEventListener('afterprint', after);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      window.removeEventListener('beforeprint', before);
+      window.removeEventListener('afterprint', after);
+      window.removeEventListener('keydown', key, true);
+    };
+  }, []);
+  const printSheets = (() => {
+    if (!printing) return null;
+    const byId = new Map(draft.tasks.map((t, i) => [t.id, { t, n: i + 1 }]));
+    const changedIds = new Set(changed.map(t => t.id));
+    const printRows: PrintRow[] = ganttRows.map(r => {
+      if (r.id === PLAN_ROW)
+        return {
+          key: r.id,
+          level: -1,
+          cells: {
+            id: '0',
+            name: plan.name,
+            duration: planRaw('duration'),
+            start: planRaw('start'),
+            end: planRaw('end'),
+            progress: planRaw('progress'),
+            resource: '',
+          },
+          bar: r,
+        };
+      const { t, n } = byId.get(r.id)!;
+      return {
+        key: t.id,
+        level: t.level,
+        changed: changedIds.has(t.id),
+        cells: {
+          id: String(n),
+          name: t.name,
+          duration: raw(t, 'duration'),
+          start: raw(t, 'start'),
+          end: raw(t, 'end'),
+          progress: raw(t, 'progress'),
+          resource: resourceName(t.teamId) ?? '',
+        },
+        bar: r,
+      };
+    });
+    const baseline = baselines.find(b => b.id === baseId);
+    const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+    const statusLabel = statusOptions(!!variant).find(([v]) => v === status)?.[1];
+    const filters = [
+      status !== 'all' ? statusLabel : '',
+      team ? teamLabel(team) : '',
+      query.trim() ? `busca “${query.trim()}”` : '',
+    ].filter(Boolean);
+    const foldedCount = folded.filter(id => roll.get(id)?.summary).length;
+    const now = new Date();
+    const clock = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+    const day = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(now);
+    return createPortal(
+      <PrintSchedule
+        title={`${variant ? variant.title : 'Planejamento de médio prazo'}${work ? ` · ${work.name}${work.code ? ` (${work.code})` : ''}` : ''}`}
+        subtitle={[
+          variant ? variant.windowLabel.replace(/^./, c => c.toUpperCase()) : `Cronograma “${plan.name}” de ${monthName(plan.month)}`,
+          `janela de ${formatDate(win.start)} a ${formatDate(win.end)}`,
+          baseline ? `linha de base “${baseline.name}”` : 'sem linha de base',
+        ].join(' · ')}
+        printedAt={`Impresso em ${day} às ${clock}`}
+        printedBy={data.users.find(u => u.id === actorId)?.name}
+        summary={
+          planRow
+            ? `${count(draft.tasks.length, 'tarefa', 'tarefas')} · avanço do plano ${Math.round(planRow.progress)}% · ${count(criticalCount, 'crítica', 'críticas')} · início ${formatDate(planRow.start)} · término ${formatDate(planRow.end)}`
+            : 'Cronograma sem tarefas'
+        }
+        filter={`Filtro: ${filters.join(' · ') || 'nenhum'}${filtering ? '' : ` · ${foldedCount ? count(foldedCount, 'grupo recolhido', 'grupos recolhidos') : 'todos os grupos abertos'}`}`}
+        draftCount={dirty ? changed.length + removed.length : 0}
+        footer={`Obra 360 · ${variant ? variant.title : 'Médio prazo'}`}
+        rows={printRows}
+        window={win}
+        today={today}
+        calendar={draft.calendar}
+        showCritical={showCritical}
+        showBaseline={!!baseId}
+        showResources={showResourceNames}
+      />,
+      document.body,
+    );
+  })();
   const api: SheetApi = {
     tasks: draft.tasks,
     links: draft.links,
@@ -2704,19 +2895,7 @@ export function Sheet({
                     setSelected({ row: 0, col: selected.col });
                   }}
                 >
-                  {[
-                    ['all', 'Todas as tarefas'],
-                    ['zero', 'Não iniciadas'],
-                    ['ongoing', 'Em andamento'],
-                    ['done', 'Concluídas'],
-                    ['late', 'Atrasadas'],
-                    ['critical', 'Críticas'],
-                    ['conflict', 'Com vínculo desrespeitado'],
-                    ['deadline', 'Prazo final perdido'],
-                    ['window', variant ? 'Fora da janela' : 'Fora do horizonte'],
-                    ['changed', 'Alteradas no rascunho'],
-                    ['notes', 'Com anotações'],
-                  ].map(([v, l]) => (
+                  {statusOptions(!!variant).map(([v, l]) => (
                     <option key={v} value={v}>
                       {l}
                     </option>
@@ -2851,6 +3030,7 @@ export function Sheet({
           <SideLabel>{VIEWS.find(v => v.id === view)!.label}</SideLabel>
           {view === 'gantt' ? (
             <div
+              ref={splitArea}
               className="flex min-w-0 flex-1"
               onCopy={e => {
                 if (editor) return;
@@ -3223,7 +3403,9 @@ export function Sheet({
                   aria-valuemin={240}
                   aria-valuemax={2400}
                   tabIndex={0}
+                  title="Arraste para mudar a divisão; duplo clique divide a tela ao meio"
                   className="w-1.5 shrink-0 cursor-col-resize bg-slate-200 hover:bg-primary-ring focus:bg-primary focus:outline-none"
+                  onDoubleClick={splitInHalf}
                   onKeyDown={e => {
                     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                       e.preventDefault();
@@ -3383,6 +3565,16 @@ export function Sheet({
                     <m.Icon size={15} aria-hidden />
                   </button>
                 ))}
+                <button
+                  type="button"
+                  data-testid="dividir-ao-meio"
+                  className="flex h-7 w-8 items-center justify-center rounded hover:bg-white/70"
+                  aria-label="Dividir ao meio: tabela à esquerda e Gantt à direita"
+                  title="Dividir ao meio: tabela à esquerda e Gantt à direita"
+                  onClick={splitInHalf}
+                >
+                  <Columns2 size={15} aria-hidden />
+                </button>
               </span>
             )}
             {((view === 'gantt' && presentation !== 'table') || view === 'team' || view === 'usage') && (
@@ -3588,6 +3780,16 @@ export function Sheet({
         >
           <Download size={14} aria-hidden /> Exportar para o Project (.xml)
         </button>
+        <button
+          type="button"
+          data-tour="medio-imprimir"
+          data-testid="imprimir-cronograma"
+          className="button-ghost inline-flex items-center gap-1.5"
+          onClick={openPrint}
+          title="Imprime a tabela e o Gantt como estão na tela, em A3 deitada (Ctrl+P)"
+        >
+          <Printer size={14} aria-hidden /> Imprimir
+        </button>
         {!readOnly && !dirty && !editor && (
           <>
             <span data-tour="medio-definir-base" className="inline-flex">
@@ -3767,6 +3969,7 @@ export function Sheet({
         />
       )}
       {pending && <CreatePendingDialog workId={plan.workId} source={pending} open onClose={() => setPending(null)} />}
+      {printSheets}
     </div>
   );
 }

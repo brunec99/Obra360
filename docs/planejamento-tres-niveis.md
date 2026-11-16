@@ -1685,3 +1685,83 @@ Nada muda no banco: o vínculo continua sendo uma linha de `plan_dependencies`, 
     - a folga livre das subtarefas;
     - as mensagens das três recusas.
 - **Não validado:** uso logado no servidor da ATR.
+
+## Médio prazo: dividir a tela ao meio (16/11/2026)
+
+### Pedido
+
+"Crie um botão para recentralizar metade da tela com o Gantt (direita) e a outra metade com as infos."
+
+### Comportamento entregue
+
+- Botão **"Dividir ao meio"** (ícone de duas colunas) na barra de status, logo depois de "Tabela e Gantt", "Somente tabela" e "Somente Gantt". **Duplo clique na faixa** entre a tabela e o Gantt faz o mesmo.
+- Ele volta para tabela e Gantt lado a lado, se a tela estiver em outro modo, e mede a largura da área: a tabela fica com metade, à esquerda, e o Gantt com a outra metade, à direita (`splitInHalf` em `schedule-sheet.tsx`).
+- Quando as colunas visíveis não enchem a metade, o "Nome da tarefa" alarga até encher. O limite é 600 px, o máximo que as preferências guardam. Se ainda faltar, a tabela fica mais estreita e o Gantt ocupa o resto, porque a tabela nunca passa da soma das colunas.
+- A divisão e a largura do nome ficam salvas nas preferências do cronograma, como já acontecia ao arrastar a faixa.
+- Vale também no Gantt de legalização da aba 1, que usa a mesma tela. Passo "Tabela e Gantt" do tour e manual da Claudia atualizados. **Sem migração.**
+
+### Validação (16/11/2026)
+
+- `tsc` e `eslint` sem erros novos.
+- Navegador, com `next dev` na 3102, Supabase falso e Playwright, cronograma de seis linhas. Larguras medidas (área / tabela / Gantt):
+  - tela de 1600 px: faixa arrastada para 417 px de tabela, e o botão levou a 624 / 624 numa área de 1254;
+  - em "Somente Gantt", o botão voltou para lado a lado com 624 / 624;
+  - faixa movida pelo teclado para 960 px, e o duplo clique na faixa voltou para 624 / 624;
+  - tela de 2560 px (área de 1510): 752 / 752;
+  - só Id e Nome visíveis, com a tabela em 400: o botão levou a 624 / 624, com o Nome alargado de 300 para 470. Depois de recarregar, a divisão e o Nome continuaram assim;
+  - sem erro de console.
+- **Não validado:** uso logado no servidor da ATR.
+
+## Médio prazo: imprimir o cronograma em A3 (16/11/2026)
+
+### Pedido e modelo
+
+"Crie um botão de imprimir planejamento." Antes do código, foi publicado um modelo da folha (A4 deitada com dados de exemplo e 11 regras numeradas, como no PDF do fechamento). Resposta do usuário: "pode seguir assim, plote em A3 ao invés de A4". As 11 regras ficaram como no modelo, só com o papel trocado.
+
+### Comportamento entregue
+
+- **Botão "Imprimir"** no rodapé, ao lado de "Exportar para o Project (.xml)". **Ctrl+P** (Cmd+P) na tela do cronograma abre a mesma impressão (regra 1). A impressão pelo menu do navegador também sai igual: o evento `beforeprint` monta as folhas antes do retrato da página.
+- **Papel A3 deitado**, margem de 7 mm (`@page`). Na tela de impressão do navegador, "Salvar como PDF" gera o arquivo.
+- **Cabeçalho de cada folha:**
+  - faixa azul com os logos da ATR e da Takt;
+  - "Planejamento de médio prazo · obra (código)";
+  - cronograma, mês, janela e linha de base escolhida;
+  - "Impresso em dd/mm/aaaa às hh:mm por (nome)".
+
+  Embaixo vem uma linha com tarefas, avanço do plano, críticas, início e término, e à direita o filtro ativo e os grupos recolhidos.
+- **Tabela com colunas fixas** (regra 3): Id, Nome da tarefa, Duração, Início, Término, % concluída e Recursos. Ela ocupa 690 px dos 1534 px da folha, cerca de 45% (regra 4). Os textos são os mesmos da grade (`raw`/`planRaw`), com a linha 0 do cronograma inteiro. O recurso é o nome curto que o Gantt escreve ao lado da barra.
+- **Gantt dos três meses do cronograma** na largura da folha (regra 5): meses em cima e semanas embaixo.
+  - Desenha as faixas dos dias sem trabalho pelo calendário do cronograma, as barras com avanço, o resumo em colchete, os marcos com a data e a linha de hoje.
+  - A crítica sai em vermelho só com "Caminho crítico" ligado. A linha de base sai em cinza sob a barra quando há uma escolhida, e o nome da equipe sai ao lado da barra só com "Nomes dos recursos" ligado (regra 8).
+  - Barra que passa da janela é cortada na borda. O nome que não cabe à direita vai para a esquerda da barra.
+  - Não saem as setas dos vínculos, a folga, o prazo final nem o caminho da tarefa, que também não estavam no modelo aprovado.
+- **Quais linhas** (regra 6): as mesmas linhas do Gantt da tela (`ganttRows`). Filtro, busca e grupos recolhidos valem, e o cabeçalho escreve o filtro ("Filtro: Críticas · busca “laje”") ou "Filtro: nenhum · todos os grupos abertos".
+- **Rascunho** (regra 7): sai o que está na tela. Uma faixa amarela avisa quantas tarefas ainda não estão no sistema, e as linhas alteradas ganham uma faixa amarela à esquerda. A célula em digitação é confirmada antes, como no salvar.
+- **Várias folhas** (regra 9): 41 linhas por folha, ou 40 com a faixa do rascunho. A conta é fixa, porque cada faixa tem altura fixa (`print-layout.ts`). Cada folha repete o cabeçalho, os títulos da tabela e a régua do Gantt; nenhuma linha é cortada, e o rodapé traz a legenda e "Folha n de m".
+- **Nome do arquivo** (regra 10): o título da aba vira o nome sugerido do PDF durante a impressão, por exemplo "Médio prazo ATM - Novembro 2026". Com mais de um cronograma no mês, o nome do cronograma vai junto. O título da aba volta ao normal depois.
+- **Gantt de legalização** (regra 11): mesmo botão, com o título dele e a janela de 12 meses. A régua passa a anos e meses quando as semanas não cabem.
+- **Como funciona:** `print-schedule.tsx` desenha as folhas (tabela em HTML, Gantt em SVG) e `schedule-sheet.tsx` as põe direto no `<body>` (portal) só enquanto imprime. Na impressão, o resto da página some e a casca do sistema deixa de prender a altura da tela; na tela, as folhas nunca aparecem. Os logos ficam em cache desde a abertura do cronograma. Tour (passo "Imprimir") e manual da Claudia (seção "Imprimir") atualizados. **Sem migração.**
+
+### Validação (16/11/2026)
+
+- `tests/print-schedule.test.ts` (8 testes):
+  - medidas da folha A3;
+  - colunas que somam a tabela;
+  - linhas por folha e paginação (95 linhas viram 41 + 41 + 13);
+  - régua de 3 meses (meses, semanas a partir da segunda e última semana cortada) e de 12 meses (anos e meses);
+  - dias sem trabalho com feriado;
+  - barra com as bordas do dia e cortada na janela;
+  - lado do nome;
+  - cores e nome do arquivo.
+- Navegador, com `next dev` na 3102, Supabase falso e Playwright. Cronograma de exemplo com 7 grupos (56 tarefas), equipes, linha de base 2 dias antes e uma tarefa renomeada no rascunho. Resultados:
+  - o botão montou 2 folhas (40 + 17 linhas), chamou a impressão com o título "Médio prazo RH-01 - Novembro 2026" e o título voltou depois;
+  - a faixa do rascunho apareceu e 1 linha saiu marcada. As folhas ficaram escondidas na tela;
+  - Ctrl+P montou e chamou de novo;
+  - com o filtro "Críticas", o evento `beforeprint` montou 1 folha com "Filtro: Críticas";
+  - o PDF gerado pelo Chromium (`page.pdf` com o tamanho do CSS) saiu em 420 × 297 mm, conferido visualmente, inclusive o PDF gerado sem clicar em nada, que é o caminho do menu do navegador;
+  - sem erro de console.
+- **Não validado:**
+  - impressão real numa impressora A3;
+  - Safari e Firefox;
+  - o Gantt de legalização no navegador (a régua de 12 meses está coberta só pelo teste);
+  - uso logado no servidor da ATR.

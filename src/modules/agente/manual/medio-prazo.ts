@@ -143,8 +143,15 @@ A grade abre com cadeado, contra alteração acidental em reunião. "Liberar edi
     id: 'medio-prazo-colunas-indicadores-gantt',
     title: 'Colunas da tabela, indicadores e o Gantt',
     summary:
-      'O que cada coluna mostra, como mostrar, ocultar e arrastar colunas, a linha 0, os ícones de indicadores e a legenda do Gantt.',
+      'O que cada coluna mostra, como mostrar, ocultar e arrastar colunas, a linha 0, os indicadores, a legenda do Gantt e a impressão.',
     keywords: [
+      'imprimir',
+      'imprimir cronograma',
+      'impressão',
+      'pdf do cronograma',
+      'salvar como pdf',
+      'a3',
+      'ctrl+p',
       'colunas',
       'ocultar coluna',
       'mostrar coluna',
@@ -195,13 +202,22 @@ A primeira linha resume o plano inteiro, como a tarefa de resumo do projeto no P
 - Borda tracejada é vínculo desrespeitado; traço vertical na barra é o início real; tarefa interrompida aparece em dois trechos ligados por pontilhado; a seta no topo da linha é o prazo final (verde cumprido, vermelha perdido).
 - "Folga" desenha uma linha fina depois da barra até o término tardio. "Recursos nas barras" escreve a equipe ao lado. Passe o mouse na barra para ler tudo em texto.
 - Clique na barra para selecionar a linha. "Rolar até a tarefa" (Ctrl+Shift+F5) leva o Gantt até a barra selecionada.
-- Na barra de status: "Tabela e Gantt", "Somente tabela" (indicado no celular) ou "Somente Gantt"; arraste a faixa entre tabela e Gantt para dividir o espaço; o zoom "Meses", "Semanas" e "Dias" vale também para o Planejador de Equipe e o Uso dos Recursos.
+- Na barra de status: "Tabela e Gantt", "Somente tabela" (indicado no celular) ou "Somente Gantt"; arraste a faixa entre tabela e Gantt para dividir o espaço; o botão "Dividir ao meio" (ao lado dos três modos) ou um duplo clique na faixa volta para tabela e Gantt lado a lado, cada um com metade da tela (tabela à esquerda, Gantt à direita); o zoom "Meses", "Semanas" e "Dias" vale também para o Planejador de Equipe e o Uso dos Recursos.
 
 ## Buscar, filtrar e detalhes
 
 - A busca procura no nome, no recurso e nas anotações. Filtros por situação: "Não iniciadas", "Em andamento", "Concluídas", "Atrasadas", "Críticas", "Com vínculo desrespeitado", "Prazo final perdido", "Fora do horizonte", "Alteradas no rascunho", "Com anotações"; e por recurso. Com filtro ativo, cada resultado aparece com os resumos acima dele, e inserir, recuar, vincular e excluir ficam desligados. "Expandir" e "Recolher" abrem ou fecham todos os resumos.
 - Abaixo da grade, **Detalhes da tarefa** resume a linha selecionada (datas, duração, avanço, predecessoras, tardias, folgas, restrição, prazo final e "Predecessoras determinantes"), com "Detalhes em tela cheia", "Anotações e encaminhamentos" (editável com a edição liberada; "Transformar linhas em tópicos") e "Histórico da tarefa". O "Modo reunião" do cronograma acrescenta "Anterior", "Próxima" e "Revisado nesta reunião" (marca só desta tela; some ao recarregar).
-- **Linha do Tempo** (faixa acima da visão): as tarefas marcadas, com "Início" e "Término" do projeto nas pontas e os marcos embaixo. A moldura é o trecho que o Gantt mostra: arraste-a para rolar o Gantt. Clique numa tarefa para selecioná-la; duplo clique rola até ela; botão direito ou Delete a tira da faixa.`,
+- **Linha do Tempo** (faixa acima da visão): as tarefas marcadas, com "Início" e "Término" do projeto nas pontas e os marcos embaixo. A moldura é o trecho que o Gantt mostra: arraste-a para rolar o Gantt. Clique numa tarefa para selecioná-la; duplo clique rola até ela; botão direito ou Delete a tira da faixa.
+
+## Imprimir
+
+"Imprimir" (rodapé, ao lado do .xml) ou **Ctrl+P** (Cmd+P no Mac) na tela do cronograma abre a impressão do navegador com folhas **A3 deitadas**; para PDF, escolha "Salvar como PDF" (o nome sugerido é "Médio prazo ATM - Novembro 2026"; com dois cronogramas no mês, o nome do cronograma vai junto). Imprimir pelo menu do navegador sai igual. Cada folha traz:
+- faixa com os logos da ATR e da Takt, a obra, o cronograma, a janela de três meses, a linha de base escolhida e "Impresso em dd/mm/aaaa às hh:mm por (nome)";
+- uma linha com tarefas, avanço do plano, críticas, início e término, e à direita o filtro ativo e os grupos recolhidos;
+- a tabela com colunas fixas (Id, Nome da tarefa, Duração, Início, Término, % concluída e Recursos), em 45% da largura, e o Gantt dos três meses (meses em cima, semanas embaixo) nos outros 55%;
+- rodapé com a legenda e "Folha n de m".
+Regras: sai o que está na tela — filtro, busca e grupos recolhidos valem, a linha de base é a escolhida, a crítica sai em vermelho só com "Caminho crítico" ligado e o nome da equipe ao lado da barra só com "Nomes dos recursos" ligado. Com rascunho não salvo, uma faixa amarela avisa quantas tarefas ainda não estão no sistema e as linhas alteradas ganham uma faixa amarela à esquerda. Cabem cerca de 40 linhas por folha; as seguintes repetem cabeçalho, títulos da tabela e régua de datas, sem cortar linha. Barras fora da janela de três meses são cortadas na borda. Não saem as setas dos vínculos, folgas, prazo final nem o caminho da tarefa. No Gantt de legalização da aba 1 o botão é o mesmo, com os 12 meses em escala de meses.`,
   },
   {
     id: 'medio-prazo-editar-grade-teclado',

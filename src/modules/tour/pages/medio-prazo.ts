@@ -288,7 +288,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-apresentacao',
     title: 'Tabela e Gantt',
-    body: 'No Gráfico de Gantt, alterna tabela e Gantt lado a lado, só a tabela ou só o Gantt. Arraste a faixa entre os dois para dividir o espaço.',
+    body: 'No Gráfico de Gantt, alterna tabela e Gantt lado a lado, só a tabela ou só o Gantt. Arraste a faixa entre os dois para dividir o espaço; o último botão (ou duplo clique na faixa) divide a tela ao meio, com a tabela à esquerda e o Gantt à direita.',
   },
   {
     target: 'medio-zoom',
@@ -324,6 +324,11 @@ export const steps: TourStep[] = [
     target: 'medio-exportar',
     title: 'Exportar para o Project',
     body: 'Baixa o cronograma como .xml do MS Project do jeito que está na tela, inclusive o rascunho não salvo, com restrições, prazos, folgas, caminho crítico e a linha de base exibida.',
+  },
+  {
+    target: 'medio-imprimir',
+    title: 'Imprimir',
+    body: 'Imprime a tabela e o Gantt como estão na tela, em folhas A3 deitadas, com os logos, o filtro ativo e "Folha n de m". Ctrl+P também abre; para PDF, escolha "Salvar como PDF". Alteração não salva sai marcada em amarelo.',
   },
   {
     target: 'medio-definir-base',
