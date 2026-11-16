@@ -179,6 +179,8 @@ A ordem da planilha é salva e vale para todos: sem ninguém ter mexido, é a de
       'gravando',
       'enter desce',
       'limpar apontamento',
+      'status em branco',
+      'voltar status para vazio',
       'levar para a próxima semana',
       'linha rosa',
       'não gravou',
@@ -187,11 +189,12 @@ A ordem da planilha é salva e vale para todos: sem ninguém ter mexido, é a de
     screen: 'curto-prazo',
     body: `## Status: Sim ou Não
 
-Ao encerrar a semana, registre em cada linha se o compromisso foi cumprido. "Status" é uma lista com "Sim" (verde) e "Não" (vermelho).
+Ao encerrar a semana, registre em cada linha se o compromisso foi cumprido. "Status" é uma lista com "Sim" (verde) e "Não" (vermelho), e uma opção em branco no topo.
 
 - **"Sim"** grava na hora; uma justificativa já escrita sobe junto.
 - **"Não"** só é gravado depois que a causa é escolhida. Até lá a linha fica em rosa, a célula "Causas" mostra "Escolha a causa" com contorno vermelho e, acima da planilha, aparece "N linhas marcadas como Não aguardam a causa". Recarregar a página antes de escolher a causa perde a marca.
 - Para trocar um "Sim" gravado por "Não", escolha "Não" e a causa; a linha fica marcada do mesmo jeito até a causa entrar.
+- **Em branco** (desde 16/11/2026): a opção vazia do topo da lista, ou a tecla Delete (ou Backspace) com a célula em foco, faz o mesmo que o botão "Limpar": a linha volta a ficar sem Status. Com o apontamento já gravado, pergunta antes "Limpar o apontamento de “…”?".
 
 ## Causa do não cumprimento
 
@@ -221,7 +224,7 @@ Status, causa, justificativa e "Limpar" ficam abertos em qualquer semana, inclus
 
 ## Como corrigir um apontamento errado
 
-Troque a célula: escolha o outro Status (e a causa, se for "Não"), ou use "Limpar". Não exclua a linha: excluir apaga o compromisso e o tira da série do PPC e do Pareto. Se acabou de gravar, "Desfazer" (ou Ctrl+Z) volta a última gravação.`,
+Troque a célula: escolha o outro Status (e a causa, se for "Não"); para deixar sem Status, escolha a opção em branco da lista, tecle Delete na célula ou use "Limpar". Não exclua a linha: excluir apaga o compromisso e o tira da série do PPC e do Pareto. Se acabou de gravar, "Desfazer" (ou Ctrl+Z) volta a última gravação.`,
   },
   {
     id: 'curto-prazo-lote-alca-desfazer',

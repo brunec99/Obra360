@@ -1280,3 +1280,35 @@ Nenhum custo foi gravado.
 - Cadastrar os custos do Atmos. O Obra Prima conectado ao Claude é de outra empresa e não tem as obras da ATR, então a fonte é a planilha do orçamento, colada na tela.
 - Próxima etapa (regra 12): levar o avanço físico e o IDP da Linha de Balanço para o Dashboard da obra e o Dashboard geral.
 - Depois: IDC (desempenho de custo, precisa do custo realizado), curva S físico-financeira e importação do orçamento.
+
+## Curto prazo: Status em branco pela própria célula (16/11/2026)
+
+### Pedido
+
+"Se o planejador preencher o Status sem querer, não tem como colocar em branco?" Havia como, mas fora da célula: o botão "Limpar" da coluna Apontamento (11/10/2026) e o "Desfazer". A lista do Status só tinha "Sim" e "Não", e a coluna Apontamento fica no fim da linha. Na conferência a 1680 px, ela ficou fora da área visível, à direita de Justificativas. O planejador procurava o vazio na própria lista.
+
+### Comportamento entregue
+
+- A lista do Status tem sempre uma **opção em branco no topo**, inclusive na linha com Sim ou Não gravado. Escolhê-la faz exatamente o que o "Limpar" faz (`clearFulfillment` em `commitments-overview.tsx`, comando `clear_fulfillment`): tira Status, causa e justificativa, e a linha continua.
+- **Delete ou Backspace** com a célula do Status em foco fazem o mesmo, como apagar a célula no Sheets. Em linha sem Status, a tecla não faz nada.
+- Com o apontamento já gravado, pergunta antes ("Limpar o apontamento de “…”?"). Cancelar mantém o Status e não grava nada. Um "Não" ainda aguardando a causa sai na hora, sem pergunta e sem ida ao servidor.
+- O aviso traz "Desfazer", e a limpeza entra na pilha do Ctrl+Z, como no botão.
+- Com Status preenchido, o `title` da célula explica: "Para deixar sem Status, escolha a opção em branco ou tecle Delete."
+- Vale na tabela e no cartão do celular, que usam o mesmo seletor. O perfil de consulta continua sem apontar. O botão "Limpar" da coluna Apontamento foi mantido.
+- Atualizados o texto de "Como preencher" e o manual da Claudia (`src/modules/agente/manual/curto-prazo.ts`, seção de apontamento, palavras-chave "status em branco" e "voltar status para vazio").
+
+Sem migração e sem comando novo. A barra de linhas marcadas continua sem "limpar em lote".
+
+### Validação (16/11/2026)
+
+- `npm run typecheck`, `lint` (nenhum aviso nos arquivos alterados), `format:check` e `npm test` (1.464 testes) passaram.
+- Navegador sem banco (Supabase falso, `next dev` na 3102 e Playwright respondendo `/api/*` com `applyCommand` real), a 1680 e 390 px. Casos conferidos:
+  - lista com `['', 'Sim', 'Não']`;
+  - branco com confirmação grava `clear_fulfillment`;
+  - cancelar mantém o Sim;
+  - Delete limpa um Não com causa e justificativa;
+  - Delete em linha vazia não abre nada;
+  - Não pendente sai sem pergunta;
+  - Enter continua descendo na coluna;
+  - o cartão do celular tem a opção em branco.
+- **Não validado:** uso logado com dados reais.

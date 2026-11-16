@@ -667,6 +667,9 @@ function Sheet({
   /** A justificativa que vai junto do apontamento: a gravada ou a escrita antes do Status. */
   const justificationOf = (row: WeeklyCommitment) => row.justification ?? drafts[row.id];
   const setStatus = async (row: WeeklyCommitment, value: string) => {
+    // A opção em branco é o mesmo "Limpar" da coluna Apontamento: lá no fim da linha o planejador não o
+    // achava, e procurava o vazio na própria lista do Status (pedido da obra, 16/11/2026).
+    if (value === '') return clearFulfillment(row);
     if (value === 'Sim') {
       // Sim já gravado: desistir do Não pendente não precisa de ida ao servidor.
       if (row.fulfilled === true) return settled(row);
@@ -1087,7 +1090,7 @@ function Sheet({
               Ao encerrar a semana, registre Sim ou Não em cada linha. O Não só é gravado depois que a causa é escolhida na lista: é dela
               que saem o PPC e o Pareto. Do não cumprido, leve a linha para a próxima semana
               {developer ? ' ou gere uma restrição no longo prazo' : ''}; a linha original fica como registro do que aconteceu. Marcou por
-              engano? "Limpar apontamento" devolve a linha ao estado sem Status.
+              engano? Escolha a opção em branco do Status (ou tecle Delete na célula) ou use "Limpar": a linha volta a ficar sem Status.
             </p>
             <p>
               A semana fica aberta até a terça-feira seguinte. Depois disso ela é encerrada: incluir, editar ou excluir linhas, só
@@ -1810,12 +1813,23 @@ function rowControls({
         // Realizado, causa e justificativa ficam abertos mesmo na semana encerrada (09/10/2026).
         disabled={viewer}
         ariaLabel={`Status da linha ${line}`}
+        title={status ? 'Para deixar sem Status, escolha a opção em branco ou tecle Delete.' : undefined}
+        // `placeholder` vazio deixa a opção em branco sempre na lista, e não só na linha ainda sem Status.
+        placeholder=""
         options={[
           { value: 'Sim', label: 'Sim' },
           { value: 'Não', label: 'Não' },
         ]}
         dataCol="status"
-        onKeyDown={keys(false)}
+        onKeyDown={event => {
+          // Delete ou Backspace na célula esvazia o Status, como apagar a célula no Sheets.
+          if ((event.key === 'Delete' || event.key === 'Backspace') && clearable) {
+            event.preventDefault();
+            actions.clearFulfillment(row);
+            return;
+          }
+          keys(false)(event);
+        }}
         onChange={value => actions.setStatus(row, value)}
       />
     ),
