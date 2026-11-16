@@ -1,4 +1,4 @@
-import { planSafetyCommand, SAFETY_TABLES, type SafetyMutation } from '@/application/use-cases/safety-commands';
+import { assertResolveOnlyCommand, planSafetyCommand, SAFETY_TABLES, type SafetyMutation } from '@/application/use-cases/safety-commands';
 import {
   SAFETY_TST_ONLY_MESSAGE,
   safetyPhotoPaths,
@@ -12,7 +12,8 @@ import {
  * tests/safety-offline.test.ts. O mesmo desenho do modo de campo da terminalidade (aba 5): o dono do
  * rascunho é o aparelho. A tela mostra o pacote baixado do servidor com a fila local aplicada por cima,
  * pelas mesmas regras do servidor (`planSafetyCommand`), e a fila sobe quando houver rede. A diferença é
- * quem grava: só TST (`canEdit` do pacote); para os demais a tela é só consulta e nada entra na fila. */
+ * quem grava: só TST (`canEdit` do pacote); quem tem a liberação "Concluir apontamentos" (`canResolve`) põe na
+ * fila só a foto da correção e a finalização; para os demais a tela é só consulta e nada entra na fila. */
 
 export interface FieldActor {
   id: string;
@@ -20,6 +21,8 @@ export interface FieldActor {
   role: string;
   /** Marcado como técnico de segurança do trabalho (`profiles.tst`). */
   tst: boolean;
+  /** Pode finalizar: TST, admin ou a liberação "Concluir apontamentos" (15/11/2026). Ausente em pacote antigo. */
+  canResolve?: boolean;
 }
 export interface FieldWork {
   id: string;
@@ -33,6 +36,9 @@ export interface FieldPackage {
   /** Quem baixou é TST: só então a tela mostra os botões e o aparelho aceita lançamentos. O servidor
    * confere de novo ao receber. */
   canEdit: boolean;
+  /** Quem baixou finaliza apontamento em aberto sem ser TST (liberação "Concluir apontamentos"): o aparelho
+   * aceita só a foto da correção e a finalização. Ausente em pacote guardado antes de 15/11/2026. */
+  canResolve?: boolean;
   /** TSTs com acesso à obra, para quem só consulta saber a quem pedir. */
   inspectors: SafetyInspector[];
   data: SafetyData;
@@ -142,10 +148,12 @@ export function localView(pkg: FieldPackage, queue: QueuedOperation[], now = new
  * aparelho recusa o que o servidor recusaria (quem não é TST, finalizar sem foto da correção, data no
  * futuro, mais de 10 fotos...). Lança a mensagem pronta para o usuário. */
 export function checkOperation(pkg: FieldPackage, queue: QueuedOperation[], operation: FieldOperation, now = new Date()): void {
-  if (!pkg.canEdit) throw new Error(SAFETY_TST_ONLY_MESSAGE);
+  if (!pkg.canEdit && !pkg.canResolve) throw new Error(SAFETY_TST_ONLY_MESSAGE);
   if (operation.kind === 'command' && operation.command.type === 'create_item' && operation.command.workId !== pkg.work.id)
     throw new Error('O apontamento não é desta obra.');
   const view = localView(pkg, queue, now);
+  // Só a liberação de concluir: a mesma conferência da rota, sobre a vista local.
+  if (!pkg.canEdit) assertResolveOnlyCommand(view.data, operationCommand(pkg.work.id, operation));
   planSafetyCommand(view.data, operationCommand(pkg.work.id, operation), contextOf(pkg, now));
 }
 

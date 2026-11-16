@@ -77,6 +77,7 @@ Reaproveitado da aba 5, sem cópia: compressão das fotos (`compress-image.ts`),
 
 - **Servidor:** toda rota de gravação confere `canWriteSafety(profile)` (`profile.tst === true` ou `profile.role === 'admin'`) antes de qualquer coisa e responde 403 com "Só técnicos de segurança (TST) e administradores lançam e finalizam apontamentos." Vale para comandos, envio de foto e lista de tipos. Ler exige só a obra liberada no perfil.
 - **Tela:** o GET devolve `canEdit` (a pessoa é TST ou admin) e `inspectors` (os TSTs com a obra liberada, por nome). A tela só esconde os botões; quem decide é o servidor.
+- **Desde 15/11/2026:** quem tem a liberação "Concluir apontamentos" finaliza apontamentos em aberto sem ser TST (`canResolveSafety`, `canResolve` no GET); ver "15/11/2026 — Liberação "Concluir apontamentos"".
 - **Dar o papel TST:** o seletor "Papel" da grade chama `set_role` e `POST /api/seguranca/tst` `{ userId, enabled }`, só para admin ("Só administradores marcam quem é TST."), e recarrega o planejamento.
 
 ### Comandos e regras (`planSafetyCommand`)
@@ -272,6 +273,47 @@ Divergências achadas ao escrever o manual, deixadas como estão de propósito:
 - Fotos da correção não têm botão de excluir, como na aba 5; por isso a recusa "Reabra o apontamento antes de apagar a última foto da correção." não aparece pela tela.
 - Edição em lote limpa o tipo, mas só troca o local (não deixa vazio).
 - Modo de campo: sem filtro de probabilidade, uma escolha por filtro e sem classificação; "Reabrir" sem confirmação. A marca de TST vai junto com o pacote baixado: quem acabou de virar TST precisa baixar a obra de novo para ver os botões, e quem perdeu a marca continua guardando no aparelho até o servidor recusar no envio.
+
+## 15/11/2026 — Liberação "Concluir apontamentos"
+
+Pedido do usuário: há obras que não têm TST o tempo todo, e o engenheiro precisa de autonomia para concluir apontamentos; criar, nas liberações, uma liberação de concluir apontamentos que os admins marcam.
+
+### Comportamento entregue (implementado)
+
+1. Em Configurações → Usuários → visão **Módulos** há a coluna **"Concluir apontamentos"**, logo depois de "Segurança do trabalho". O admin marca por célula ou no lote (a barra de seleção também lista a liberação). Só admin marca (`set_module_access` / `set_access_batch`, que já exigiam admin).
+2. Quem tem a liberação, o módulo "Segurança do trabalho" e a obra **finaliza apontamentos em aberto**: data de correção, "Como foi corrigido" e a foto da correção (obrigatória, como para o TST). Vale no computador (botão verde "Finalizar" na tabela, no cartão do celular e no diálogo do apontamento) e no **modo de campo** (`/campo/seguranca`, inclusive sem sinal).
+3. A pessoa **não** lança, edita, edita em lote, reabre nem exclui apontamento, não junta foto do apontamento, não exclui foto e não mexe nos tipos. Foto da correção só entra em apontamento em aberto.
+4. Quem finalizou fica em `safety_items.resolved_by`, como já era.
+5. TST e admin seguem iguais (admin aparece marcado em cinza na coluna, como nos módulos).
+6. O topo da aba mostra a quem tem só a liberação o aviso de que ela finaliza e o resto fica com TST e admin; a ajuda da aba e o rodapé da grade de usuários explicam a liberação.
+
+### Decisões
+
+- **Sem migração.** A liberação é a chave `seguranca-concluir` (`SAFETY_RESOLVE_PERMISSION`) na mesma lista de liberações da pessoa, `profiles.module_access` (texto livre desde a 0031; o `commit_planning` grava a lista como vem). Nada a aplicar no banco.
+- **Permissão, não módulo.** No catálogo (`MODULES` em `module-access.ts`) ela tem `permission: true`: aparece na grade e é gravável (`grantableSection`, `normalizeModules`), mas **não** entra em `RESTRICTED_SECTIONS` (menu, proxy, páginas, manual por tela).
+- **Não dá o módulo.** A liberação sozinha não abre a aba: o proxy continua exigindo `seguranca` para `/api/seguranca`. Escolha nossa, para a liberação não virar um segundo jeito de abrir a tela.
+- **"Módulo de auditoria interna" = Vistoria de segurança (aba 3.1).** Leitura nossa do pedido, pela menção ao TST; na terminalidade (2.1) quem tem o módulo já resolve pendência.
+- **Só concluir.** Reabrir e excluir foto ficaram de fora (não pedidos). Uma foto de correção enviada por engano sai pelo TST ou pelo admin.
+
+### Arquitetura
+
+- `src/domain/safety.ts`: `SAFETY_RESOLVE_PERMISSION`, `SAFETY_RESOLVE_ONLY_MESSAGE`, `canResolve` em `SafetyResponse`.
+- `src/application/use-cases/safety-commands.ts`: `canResolveSafety(profile)` (TST, admin ou a chave em `modules`) e `assertResolveOnlyCommand(data, command)`, pura: só `resolve_item` e `add_photo` com `kind: 'correction'` em apontamento aberto.
+- Rotas: `POST /api/seguranca/commands` aceita quem passa em `canResolveSafety` e, para quem não grava, confere `assertResolveOnlyCommand` (403 com a mensagem pronta); `upload-url` aceita `canResolveSafety` (o arquivo só vira foto pelo `add_photo`, que é conferido); `GET /api/seguranca` e `/api/seguranca/campo` devolvem `canResolve`.
+- Tela: `safety-overview.tsx` (`canResolve`), `item-dialog.tsx` (rodapé só com "Finalizar apontamento" em consulta), `api.ts`.
+- Campo: `offline-model.ts` (`FieldPackage.canResolve`, `checkOperation` com a mesma conferência do servidor), `offline-store.ts`, `field-app.tsx`.
+- Grade: `users-table.tsx` (a coluna sai do catálogo), `module-access.ts`.
+
+### Validação (15/11/2026)
+
+- Sequência do CI local, toda verde: `typecheck`, `lint` (0 erros), `format:check`, `npm test` (1.424 testes), `validate:migrations`, `build` e `test:e2e` (10 de fumaça). A tela **não** foi conferida no navegador, nem simulado.
+- Testes novos: `tests/safety-commands.test.ts` (quem finaliza; o que a liberação pode e não pode), `tests/safety-offline.test.ts` (fila do aparelho) e `tests/module-access.test.ts` (catálogo, gravação por célula e em lote).
+
+### Pendências
+
+- **Não testado logado em produção** nem em celular real: marcar a liberação para um engenheiro e finalizar um apontamento de verdade.
+- Um pacote do modo de campo baixado antes desta versão não traz `canResolve`: a pessoa precisa atualizar a obra no aparelho, com sinal, depois de receber a liberação.
+- Envio de foto abandonado por quem só conclui também vira arquivo órfão no bucket (herdado).
 
 ## Pendências
 

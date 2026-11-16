@@ -83,7 +83,7 @@ export const steps: TourStep[] = [
   {
     target: 'config-user-modules',
     title: 'Módulos liberados',
-    body: 'Na visão Módulos, cada célula libera ou bloqueia um módulo para a pessoa: longo prazo, vagões, médio prazo, curto prazo, Quadro de Restrições, terminalidade, vistoria de segurança, checklist de equipamentos e, no Apoio, modelo federado, arquivos IFC, dívidas e integrações. Sem o módulo, a aba some e o endereço leva ao Dashboard da obra. O Dashboard da obra e as configurações da obra são abertos a todos e não aparecem, como diz a nota abaixo da grade. Admin vê todos: as células dele ficam marcadas em cinza, sem clique.',
+    body: 'Na visão Módulos, cada célula libera ou bloqueia um módulo para a pessoa: longo prazo, vagões, médio prazo, curto prazo, Quadro de Restrições, terminalidade, vistoria de segurança, checklist de equipamentos e, no Apoio, modelo federado, arquivos IFC, dívidas e integrações. Sem o módulo, a aba some e o endereço leva ao Dashboard da obra. O Dashboard da obra e as configurações da obra são abertos a todos e não aparecem, como diz a nota abaixo da grade. Admin vê todos: as células dele ficam marcadas em cinza, sem clique. A coluna “Concluir apontamentos”, ao lado da segurança, não é uma tela: deixa a pessoa finalizar apontamentos de segurança em aberto, com a foto da correção, sem ser TST.',
   },
   {
     target: 'config-user-delete',

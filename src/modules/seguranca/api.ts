@@ -21,6 +21,8 @@ import type { PendingPhoto } from '@/modules/terminalidade/photo-input';
 export interface SafetyView extends SafetyData {
   /** Quem está logado é TST: só então a tela mostra os botões de gravar. O servidor confere de novo. */
   canEdit: boolean;
+  /** Pode finalizar apontamento em aberto: TST, admin ou quem tem a liberação "Concluir apontamentos". */
+  canResolve: boolean;
   /** TSTs com acesso à obra (para dizer quem pode lançar). */
   inspectors: SafetyInspector[];
 }
@@ -181,7 +183,10 @@ export function useSafety(workId: string) {
     if (!response.available) setState({ status: 'unavailable' });
     else {
       const { types, items, photos, canEdit, inspectors } = response;
-      setState({ status: 'ready', data: { types, items, photos, canEdit, inspectors } });
+      setState({
+        status: 'ready',
+        data: { types, items, photos, canEdit, canResolve: canEdit || response.canResolve === true, inspectors },
+      });
     }
   }, []);
   const reload = useCallback(async () => {

@@ -39,6 +39,8 @@ const pkg = (d = data(), canEdit = true): FieldPackage => ({
   data: d,
   savedAt: '2026-11-05T10:00:00Z',
 });
+/** Os dados do servidor depois de a fila subir (para montar um pacote já com o apontamento). */
+const applyQueue = (p: FieldPackage, queue: QueuedOperation[]) => localView({ ...p, canEdit: true }, queue, now).data;
 let n = 0;
 const queued = (operation: QueuedOperation['operation']): QueuedOperation => ({
   id: `q${++n}`,
@@ -131,6 +133,21 @@ test('sem sinal, o aparelho recusa o que o servidor recusaria', () => {
     /anterior/i,
   );
   assert.doesNotThrow(() => checkOperation(pkg(), [createItem, correction], resolve.operation, now));
+});
+
+test('liberação "Concluir apontamentos": no aparelho, só a foto da correção e a finalização', () => {
+  const base = pkg(data(), false);
+  const resolver: FieldPackage = { ...base, canResolve: true, data: applyQueue(base, [createItem]) };
+  assert.doesNotThrow(() => checkOperation(resolver, [], correction.operation, now));
+  assert.doesNotThrow(() => checkOperation(resolver, [correction], resolve.operation, now));
+  // Sem a foto da correção continua valendo a regra de todos.
+  assert.throws(() => checkOperation(resolver, [], resolve.operation, now), /foto da correção/i);
+  assert.throws(() => checkOperation(resolver, [], issue.operation, now), /só para concluir/);
+  assert.throws(() => checkOperation({ ...resolver, data: data() }, [], createItem.operation, now), /só para concluir/);
+  assert.throws(
+    () => checkOperation(resolver, [correction, resolve], { kind: 'command', command: { type: 'reopen_item', itemId: ITEM } }, now),
+    /só para concluir/,
+  );
 });
 
 test('quem não é TST não põe nada na fila, nem com o apontamento válido', () => {

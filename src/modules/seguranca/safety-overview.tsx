@@ -98,7 +98,7 @@ import {
 /** Aba 6, Segurança do trabalho (05/11/2026): a planilha "SST - Controle geral" dentro do sistema, no
  * desenho da terminalidade (aba 5) — cartões, roscas, quadro mês a mês por tipo, filtros e a lista com
  * classificação por coluna. Só o TST e o admin gravam (`canEdit`, decidido pelo servidor); os demais
- * consultam.
+ * consultam. Desde 15/11/2026, quem tem a liberação "Concluir apontamentos" (`canResolve`) finaliza os abertos.
  *
  * Ajustes da equipe de SST (10/11/2026, documento "Ajustes portal de apontamentos"): período com escala e
  * setas, como no Dashboard da obra; cartão "Risco de morte em aberto" no lugar de "Finalizados"; a lista
@@ -170,6 +170,8 @@ export function SafetyOverview({ workId }: { workId: string }) {
   const today = planning.today;
   const ready = state.status === 'ready' ? state.data : undefined;
   const canEdit = !!ready?.canEdit;
+  // Finaliza quem grava (TST, admin) e quem tem a liberação "Concluir apontamentos" (15/11/2026).
+  const canResolve = canEdit || !!ready?.canResolve;
 
   const header = (
     <div data-tour="safety-header">
@@ -187,6 +189,10 @@ export function SafetyOverview({ workId }: { workId: string }) {
             <p>
               Só os técnicos de segurança (TST) e os administradores lançam, editam, finalizam, reabrem e excluem apontamentos. Os demais
               com acesso à obra consultam a lista, as fotos e o PDF.
+            </p>
+            <p>
+              Obra sem TST o tempo todo: o administrador pode dar a alguém a liberação “Concluir apontamentos” (Configurações → Usuários →
+              Módulos). Essa pessoa finaliza os apontamentos em aberto, com a foto da correção, e nada além disso.
             </p>
             <p>
               O apontamento só é finalizado com a foto da correção e a data. “Dias para resolver” conta do apontamento até a correção; nos
@@ -447,7 +453,15 @@ export function SafetyOverview({ workId }: { workId: string }) {
     <>
       {header}
 
-      {!canEdit && (
+      {!canEdit && canResolve && (
+        <div data-tour="safety-readonly" className="mb-4">
+          <Callout tone="info" role="status">
+            Você tem a liberação “Concluir apontamentos”: finalize os apontamentos em aberto com a data e a foto da correção, pelo botão
+            “Finalizar”. Lançar, editar, reabrir e excluir continuam com os técnicos de segurança (TST) e os administradores.
+          </Callout>
+        </div>
+      )}
+      {!canResolve && (
         <div data-tour="safety-readonly" className="mb-4">
           <Callout tone="info" role="status">
             Consulta: só os técnicos de segurança (TST) e os administradores lançam e finalizam apontamentos.{' '}
@@ -695,7 +709,7 @@ export function SafetyOverview({ workId }: { workId: string }) {
                   <SortHeader column="correctionPhotos" sort={sort} onSort={sortBy} className="w-24" />
                   <SortHeader column="days" sort={sort} onSort={sortBy} className="w-24" />
                   <SortHeader column="situation" sort={sort} onSort={sortBy} className="w-24" center />
-                  {canEdit && (
+                  {canResolve && (
                     <th scope="col" className={`w-32 bg-slate-50 px-2 py-2 text-right ${STICKY_ACTIONS}`}>
                       Ações
                     </th>
@@ -773,7 +787,7 @@ export function SafetyOverview({ workId }: { workId: string }) {
                         <SituationChip resolved={item.status === 'resolved'} />
                         {item.resolutionNote && <span className="sr-only">. Como foi corrigido: {item.resolutionNote}</span>}
                       </td>
-                      {canEdit && (
+                      {canResolve && (
                         <td className={`${stickyBg} px-2 py-1 ${STICKY_ACTIONS}`} onClick={stop}>
                           <RowActions tourId="safety-row-actions" on={rowIndex === 0}>
                             {item.status === 'open' ? (
@@ -787,7 +801,7 @@ export function SafetyOverview({ workId }: { workId: string }) {
                               >
                                 Finalizar
                               </button>
-                            ) : (
+                            ) : !canEdit ? null : (
                               <button
                                 type="button"
                                 className="button-ghost px-2 py-1 text-xs"
@@ -931,7 +945,7 @@ export function SafetyOverview({ workId }: { workId: string }) {
                     </div>
                   </div>
                   <div className="mt-3 flex gap-2">
-                    {canEdit && !resolved && (
+                    {canResolve && !resolved && (
                       <button
                         type="button"
                         className={`${RESOLVE_BUTTON} min-h-10 flex-1 px-3 text-sm`}
@@ -1041,10 +1055,10 @@ export function SafetyOverview({ workId }: { workId: string }) {
           locationSuggestions={suggestions}
           execute={guardedExecute}
           onClose={closeDialog}
-          onResolve={canEdit ? () => setDialog({ kind: 'resolve', itemId: editing.id }) : undefined}
+          onResolve={canResolve ? () => setDialog({ kind: 'resolve', itemId: editing.id }) : undefined}
         />
       )}
-      {dialog?.kind === 'resolve' && editing && canEdit && (
+      {dialog?.kind === 'resolve' && editing && canResolve && (
         <SafetyResolveDialog
           workId={workId}
           item={editing}

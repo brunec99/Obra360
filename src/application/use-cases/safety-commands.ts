@@ -1,4 +1,6 @@
 import {
+  SAFETY_RESOLVE_ONLY_MESSAGE,
+  SAFETY_RESOLVE_PERMISSION,
   isSafetyConsequence,
   isSafetyProbability,
   SAFETY_LIMITS,
@@ -14,8 +16,8 @@ import {
 
 /** Regras da aba 6 (Segurança do trabalho), sem banco: recebe os tipos (todos, a lista é única) e os
  * apontamentos de UMA obra e devolve o que gravar. O processo é o da terminalidade
- * (`terminality-commands.ts`); quem pode gravar (TST ou admin) não é assunto daqui: a rota confere antes,
- * com `canWriteSafety`. Toda recusa de regra sai como erro com mensagem pronta para o usuário. */
+ * (`terminality-commands.ts`); quem pode gravar (TST ou admin; só concluir, quem tem a liberação) não é assunto
+ * do planejador: a rota confere antes, com `canWriteSafety`, `canResolveSafety` e `assertResolveOnlyCommand`. Toda recusa de regra sai como erro com mensagem pronta para o usuário. */
 
 export type SafetyTable = 'types' | 'items' | 'photos';
 export const SAFETY_TABLES: readonly SafetyTable[] = ['types', 'items', 'photos'];
@@ -74,6 +76,21 @@ export const SAFETY_COMMAND_TYPES = [
  * rotas, e pela tela só para esconder botões. */
 export const canWriteSafety = (profile: { tst?: boolean; role?: string } | null | undefined): boolean =>
   profile?.tst === true || profile?.role === 'admin';
+
+/** Finaliza apontamento quem grava na aba (TST, admin) e, desde 15/11/2026, quem recebeu do admin a liberação
+ * "Concluir apontamentos" (`SAFETY_RESOLVE_PERMISSION` em `modules`): há obra sem TST o tempo todo. */
+export const canResolveSafety = (profile: { tst?: boolean; role?: string; modules?: readonly string[] } | null | undefined): boolean =>
+  canWriteSafety(profile) || (Array.isArray(profile?.modules) && profile.modules.includes(SAFETY_RESOLVE_PERMISSION));
+
+/** O que cabe a quem tem só a liberação de concluir: a foto da correção e a finalização, em apontamento em
+ * aberto. Lança a recusa pronta para o usuário; apontamento que não existe fica para o planejador recusar.
+ * Pura: a rota e o modo de campo (sem sinal) usam a mesma conferência. */
+export function assertResolveOnlyCommand(data: Pick<SafetyData, 'items'>, command: SafetyCommand): void {
+  const allowed = command.type === 'resolve_item' || (command.type === 'add_photo' && command.kind === 'correction');
+  if (!allowed) fail(SAFETY_RESOLVE_ONLY_MESSAGE);
+  const item = data.items.find(i => i.id === (command as { itemId?: unknown }).itemId);
+  if (item && item.status !== 'open' && command.type === 'add_photo') fail(SAFETY_RESOLVE_ONLY_MESSAGE);
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_IMAGE_SIDE = 20_000;

@@ -121,7 +121,7 @@ function ModuleCell({ user, module }: { user: User; module: ModuleInfo }) {
       label={`${module.label} para ${user.name}`}
       title={
         admin
-          ? `${module.label}: administradores veem todos os módulos.`
+          ? `${module.label}: administradores ${module.permission ? 'têm todas as liberações' : 'veem todos os módulos'}.`
           : `${user.name} · ${module.label} (${module.hint}): ${granted ? 'liberado. Clique para bloquear.' : 'bloqueado. Clique para liberar.'}`
       }
       onClick={() => run({ type: 'set_module_access', userId: user.id, section: module.section, enabled: !granted })}
@@ -781,7 +781,9 @@ export function UsersTable({
 
       <p className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500">
         O papel TST (técnico de segurança do trabalho) lança e finaliza apontamentos na aba 6, Segurança do trabalho, nas obras liberadas
-        para a pessoa, e consulta o resto do sistema; o admin também lança na aba 6.{' '}
+        para a pessoa, e consulta o resto do sistema; o admin também lança na aba 6. Para obra sem TST o tempo todo, a liberação “Concluir
+        apontamentos” (visão Módulos, ao lado de Segurança do trabalho) deixa a pessoa finalizar os apontamentos em aberto com a foto da
+        correção, sem lançar, editar, reabrir nem excluir; ela precisa também do módulo Segurança do trabalho.{' '}
         {view === 'obras'
           ? 'Clique na célula para liberar ou revogar a obra; vale na hora, sem botão de salvar. Quem não tem a obra liberada não a vê na lista de obras. O número no cabeçalho é quantos dos usuários listados têm a obra.'
           : `${OPEN_MODULES.map(m => m.label).join(', ')} são abertos a todos e não aparecem aqui. Administradores veem todos os módulos, por isso as células deles ficam marcadas em cinza, sem clique. O número no cabeçalho é quantos dos usuários listados têm o módulo.`}{' '}

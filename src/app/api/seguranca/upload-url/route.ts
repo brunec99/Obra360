@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getRouteProfile } from '@/infrastructure/auth/supabase-server';
-import { canWriteSafety } from '@/application/use-cases/safety-commands';
+import { canResolveSafety } from '@/application/use-cases/safety-commands';
 import { SAFETY_LIMITS, SAFETY_TST_ONLY_MESSAGE, safetyPhotoPaths } from '@/domain/safety';
 import {
   createPhotoUploadUrls,
@@ -23,8 +23,9 @@ type Upload = { workId: string; itemId: string; photoId: string };
 async function parseUpload(request: Request): Promise<{ profile: { id: string }; upload: Upload } | NextResponse> {
   const profile = await getRouteProfile().catch(() => null);
   if (!profile) return responseError('Perfil não provisionado. Contate o gestor.', 403);
-  // Mesma regra dos comandos: só TST envia foto, qualquer que seja o papel.
-  if (!canWriteSafety(profile)) return responseError(SAFETY_TST_ONLY_MESSAGE, 403);
+  // Mesma porta dos comandos: TST, admin ou quem tem a liberação "Concluir apontamentos" (que só consegue
+  // registrar a foto como foto da correção de apontamento em aberto: quem barra o resto é o `add_photo`).
+  if (!canResolveSafety(profile)) return responseError(SAFETY_TST_ONLY_MESSAGE, 403);
 
   let body: { workId?: unknown; itemId?: unknown; photoId?: unknown };
   try {

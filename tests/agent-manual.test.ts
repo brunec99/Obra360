@@ -58,7 +58,8 @@ test('o texto é para quem usa a tela: sem caminhos de código, rotas de API nem
 });
 
 test('toda tela do sistema tem ao menos uma seção do manual, e o índice lista todas', () => {
-  const screens = [...MODULES.map(m => m.section), 'obras', 'configuracoes-gerais', 'geral', 'agente'];
+  // Permissão dentro de módulo (ex.: "Concluir apontamentos") não é tela: o manual a explica na tela do módulo.
+  const screens = [...MODULES.filter(m => !m.permission).map(m => m.section), 'obras', 'configuracoes-gerais', 'geral', 'agente'];
   for (const screen of screens)
     assert.ok(
       MANUAL_SECTIONS.some(s => s.screen === screen),

@@ -94,7 +94,8 @@ export interface SafetyData {
 /** Resposta de GET /api/seguranca e de POST /api/seguranca/commands. `available: false` = migração 0040
  * ainda não aplicada. `canEdit` = quem pediu é TST (só o servidor decide; a tela apenas esconde os botões).
  * `inspectors` = os TSTs com acesso à obra, para a tela dizer quem pode lançar. */
-export type SafetyResponse = ({ available: true; canEdit: boolean; inspectors: SafetyInspector[] } & SafetyData) | { available: false };
+export type SafetyResponse =
+  ({ available: true; canEdit: boolean; canResolve?: boolean; inspectors: SafetyInspector[] } & SafetyData) | { available: false };
 
 /** Limites conferidos no servidor; o navegador comprime as fotos antes de enviar (mesma escada da aba 5). */
 export const SAFETY_LIMITS = {
@@ -110,6 +111,15 @@ export const SAFETY_LIMITS = {
 
 /** Mensagem única de recusa para quem não é TST, no servidor e na tela. */
 export const SAFETY_TST_ONLY_MESSAGE = 'Só técnicos de segurança (TST) e administradores lançam e finalizam apontamentos.';
+
+/** Liberação "Concluir apontamentos" (15/11/2026): há obra sem TST o tempo todo, e o engenheiro precisa de
+ * autonomia para finalizar. É uma chave na lista de liberações da pessoa (`profiles.module_access`), marcada
+ * pelo admin em Configurações → Usuários → Módulos. Quem a tem finaliza apontamento em aberto, com a foto da
+ * correção; lançar, editar, reabrir e excluir continuam com TST e admin. */
+export const SAFETY_RESOLVE_PERMISSION = 'seguranca-concluir';
+/** Recusa para quem tem só a liberação de concluir e tenta outra coisa. */
+export const SAFETY_RESOLVE_ONLY_MESSAGE =
+  'Sua liberação é só para concluir apontamentos em aberto, com a foto da correção. Lançar, editar, reabrir e excluir ficam com os TSTs e os administradores.';
 
 /** Comandos de POST /api/seguranca/commands. Ids de apontamento e de foto vêm do navegador (UUID), para a
  * foto subir logo depois de o apontamento nascer, sem ida e volta extra. */

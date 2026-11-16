@@ -1,4 +1,5 @@
 import type { Command } from './use-cases/commands';
+import { SAFETY_RESOLVE_PERMISSION } from '../domain/safety';
 
 /** Acesso aos módulos da obra. Abertos a todos que têm a obra: a lista de obras, o dashboard (aba 0) e as
  * configurações da obra. Os demais — inclusive o curto prazo e a terminalidade desde 08/11/2026 e, desde
@@ -76,6 +77,9 @@ export interface ModuleInfo {
   group: 'Planejamento' | 'Apoio';
   /** Aberto a todos que têm a obra; não depende de liberação. */
   open?: boolean;
+  /** Não é uma tela: é uma permissão dentro de um módulo (15/11/2026), liberada por pessoa na mesma grade e
+   * guardada na mesma lista (`User.modules`). Não entra em `RESTRICTED_SECTIONS`, no menu nem no manual. */
+  permission?: boolean;
 }
 export const MODULES: readonly ModuleInfo[] = [
   // 04/11/2026: a aba 0 é aberta a todos; dentro dela, cada quadro segue o acesso ao módulo de origem.
@@ -95,6 +99,15 @@ export const MODULES: readonly ModuleInfo[] = [
   { section: 'terminalidade', label: 'Terminalidade', hint: 'Pendências por apartamento, com fotos', group: 'Planejamento' },
   // Liberada por pessoa desde 12/11/2026 (antes, aberta a todos); dentro dela só o tipo TST (`User.tst`) e os admins gravam.
   { section: 'seguranca', label: 'Segurança do trabalho', hint: 'Vistorias dos TSTs, com fotos', group: 'Planejamento' },
+  // 15/11/2026: obra sem TST o tempo todo. Quem tem esta permissão (e o módulo acima) finaliza apontamentos em
+  // aberto com a foto da correção, sem virar TST: não lança, não edita, não reabre e não exclui.
+  {
+    section: SAFETY_RESOLVE_PERMISSION,
+    label: 'Concluir apontamentos',
+    hint: 'Segurança do trabalho: finaliza apontamentos com a foto da correção, sem ser TST',
+    group: 'Planejamento',
+    permission: true,
+  },
   // 11/11/2026: aba 7, liberada por pessoa; quem tem o módulo lança, o papel consulta só visualiza.
   { section: 'histograma', label: 'Histograma', hint: 'Efetivo diário por empresa e função', group: 'Planejamento' },
   // 11/11/2026: aba 8, liberada por pessoa; quem tem o módulo lança, o papel consulta só visualiza.
@@ -109,7 +122,10 @@ export const MODULES: readonly ModuleInfo[] = [
 ];
 const RESTRICTED = new Set<string>(RESTRICTED_SECTIONS);
 const isRestrictedSection = (section: string) => RESTRICTED.has(section);
-export const grantableSection = (section: string) => isRestrictedSection(section);
+/** Permissões dentro de módulo (não são telas): hoje, só "Concluir apontamentos" da segurança do trabalho. */
+const PERMISSIONS = new Set<string>(MODULES.filter(m => m.permission).map(m => m.section));
+/** O que o admin libera por pessoa: as seções restritas e as permissões. */
+export const grantableSection = (section: string) => isRestrictedSection(section) || PERMISSIONS.has(section);
 
 /** APIs de cada módulo: quem tem o módulo liberado usa a API dele. */
 const SECTION_APIS: Record<string, readonly string[]> = {
@@ -236,10 +252,10 @@ export function isCommandAllowed(type: unknown, access: ModuleAccess): boolean {
   return access.modules.some(section => SECTION_COMMANDS[section]?.includes(type as Command['type']));
 }
 
-/** Lista de módulos gravável: só seções liberáveis conhecidas, sem repetição, na ordem do catálogo. */
+/** Lista de módulos gravável: só seções e permissões liberáveis conhecidas, sem repetição, na ordem do catálogo. */
 export function normalizeModules(list: unknown): string[] {
   const wanted = new Set(Array.isArray(list) ? list.filter((s): s is string => typeof s === 'string') : []);
-  return MODULES.map(m => m.section).filter(section => wanted.has(section) && isRestrictedSection(section));
+  return MODULES.map(m => m.section).filter(section => wanted.has(section) && grantableSection(section));
 }
 
 /** Acessos em lote (08/11/2026): o que muda numa pessoa quando o admin libera ou revoga as mesmas obras e

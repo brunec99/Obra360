@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getRouteProfile } from '@/infrastructure/auth/supabase-server';
-import { canWriteSafety } from '@/application/use-cases/safety-commands';
+import { canResolveSafety, canWriteSafety } from '@/application/use-cases/safety-commands';
 import { SupabasePlanningRepository } from '@/infrastructure/repositories/supabase/planning-repository';
 import {
   listInspectors,
@@ -22,7 +22,14 @@ const responseError = (error: string, status: number) => NextResponse.json({ err
 export async function GET(request: NextRequest) {
   const profile = await getRouteProfile().catch(() => null);
   if (!profile) return responseError('Perfil não provisionado. Contate o gestor.', 403);
-  const actor = { id: profile.id, name: profile.name, role: profile.role, tst: canWriteSafety(profile) };
+  // `canResolve`: finaliza sem ser TST (liberação "Concluir apontamentos", 15/11/2026).
+  const actor = {
+    id: profile.id,
+    name: profile.name,
+    role: profile.role,
+    tst: canWriteSafety(profile),
+    canResolve: canResolveSafety(profile),
+  };
   const workId = request.nextUrl.searchParams.get('workId');
   try {
     if (!workId) {
@@ -44,6 +51,7 @@ export async function GET(request: NextRequest) {
         work: { id: work.id, name: work.name, code: work.code },
         actor,
         canEdit: canWriteSafety(profile),
+        canResolve: canResolveSafety(profile),
         inspectors,
         data,
       },

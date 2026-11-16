@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getRouteProfile } from '@/infrastructure/auth/supabase-server';
 import {
+  assertResolveOnlyCommand,
+  canResolveSafety,
   canWriteSafety,
   parseSafetyCommand,
   planSafetyCommand,
@@ -28,12 +30,14 @@ const responseError = (error: string, status: number) => NextResponse.json({ err
 
 /** Um comando da aba 6 por requisição. `?workId=` é a obra aberta na tela: é a obra que volta na resposta
  * e, nos comandos de tipo (lista única, sem obra), a que serve de conferência de acesso. Só quem é TST
- * ou admin grava (`canWriteSafety`). Aplica as regras (`planSafetyCommand`) sobre os dados atuais,
+ * ou admin grava (`canWriteSafety`); quem tem a liberação "Concluir apontamentos" (`canResolveSafety`) só
+ * envia a foto da correção e finaliza apontamento em aberto (`assertResolveOnlyCommand`). Aplica as regras (`planSafetyCommand`) sobre os dados atuais,
  * grava e devolve a obra já atualizada, no mesmo formato do GET. */
 export async function POST(request: NextRequest) {
   const profile = await getRouteProfile().catch(() => null);
   if (!profile) return responseError('Perfil não provisionado. Contate o gestor.', 403);
-  if (!canWriteSafety(profile)) return responseError(SAFETY_TST_ONLY_MESSAGE, 403);
+  if (!canResolveSafety(profile)) return responseError(SAFETY_TST_ONLY_MESSAGE, 403);
+  const resolveOnly = !canWriteSafety(profile);
 
   const workId = request.nextUrl.searchParams.get('workId') ?? '';
   let command: SafetyCommand;
@@ -57,6 +61,13 @@ export async function POST(request: NextRequest) {
     }
 
     const current = await loadSafety(workId);
+    if (resolveOnly) {
+      try {
+        assertResolveOnlyCommand(current, command);
+      } catch (error) {
+        return responseError(error instanceof Error ? error.message : SAFETY_TST_ONLY_MESSAGE, 403);
+      }
+    }
     let mutation: SafetyMutation;
     try {
       mutation = planSafetyCommand(current, command, commandContext(profile.id));
@@ -73,7 +84,10 @@ export async function POST(request: NextRequest) {
     }
     await applyMutation(mutation);
     const [fresh, inspectors] = await Promise.all([loadSafety(workId).then(withSignedUrls), listInspectors(workId)]);
-    return NextResponse.json({ available: true, canEdit: canWriteSafety(profile), inspectors, ...fresh }, { headers });
+    return NextResponse.json(
+      { available: true, canEdit: canWriteSafety(profile), canResolve: canResolveSafety(profile), inspectors, ...fresh },
+      { headers },
+    );
   } catch (error) {
     if (error instanceof SafetyUnavailableError) return responseError(error.message, 503);
     if (error instanceof SafetyConflictError) return responseError(error.message, 409);

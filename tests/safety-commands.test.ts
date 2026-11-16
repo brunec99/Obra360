@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  assertResolveOnlyCommand,
+  canResolveSafety,
   canWriteSafety,
   normalizeSafetyName,
   parseSafetyCommand,
@@ -12,6 +14,7 @@ import {
 } from '../src/application/use-cases/safety-commands';
 import {
   SAFETY_LIMITS,
+  SAFETY_RESOLVE_PERMISSION,
   safetyDays,
   safetyPhotoPaths,
   type SafetyCommand,
@@ -126,6 +129,69 @@ test('grava quem é TST ou admin; os demais papéis não', () => {
   assert.equal(canWriteSafety(null), false);
   assert.equal(canWriteSafety(undefined), false);
   assert.equal(canWriteSafety({ tst: 'true' as unknown as boolean }), false);
+});
+
+test('liberação "Concluir apontamentos": finaliza sem ser TST, e só isso', () => {
+  const engineer = { role: 'manager', modules: ['seguranca', SAFETY_RESOLVE_PERMISSION] };
+  assert.equal(SAFETY_RESOLVE_PERMISSION, 'seguranca-concluir');
+  assert.equal(canResolveSafety(engineer), true);
+  assert.equal(canWriteSafety(engineer), false);
+  // Quem grava também finaliza; o módulo sozinho, sem a liberação, não.
+  assert.equal(canResolveSafety({ tst: true }), true);
+  assert.equal(canResolveSafety({ role: 'admin' }), true);
+  assert.equal(canResolveSafety({ role: 'manager', modules: ['seguranca'] }), false);
+  assert.equal(canResolveSafety({ role: 'viewer' }), false);
+  assert.equal(canResolveSafety(null), false);
+  assert.equal(canResolveSafety({ modules: 'seguranca-concluir' as unknown as string[] }), false);
+
+  const d = data();
+  d.items = [item(), item({ id: NEW_ITEM, status: 'resolved', correctedOn: '2026-10-25', resolvedAt: OLD, resolvedBy: 'tst-2' })];
+  const paths = safetyPhotoPaths(W, ITEM, PHOTO(1));
+  const addPhoto = (kind: 'issue' | 'correction', itemId = ITEM): SafetyCommand => ({
+    type: 'add_photo',
+    itemId,
+    photoId: PHOTO(1),
+    kind,
+    ...paths,
+  });
+  assert.doesNotThrow(() => assertResolveOnlyCommand(d, { type: 'resolve_item', itemId: ITEM, correctedOn: '2026-10-20' }));
+  assert.doesNotThrow(() => assertResolveOnlyCommand(d, addPhoto('correction')));
+  // Foto do apontamento, foto em apontamento já finalizado e todo o resto ficam com TST e admin.
+  assert.throws(() => assertResolveOnlyCommand(d, addPhoto('issue')), /só para concluir/);
+  assert.throws(() => assertResolveOnlyCommand(d, addPhoto('correction', NEW_ITEM)), /só para concluir/);
+  const denied: SafetyCommand[] = [
+    { type: 'create_type', name: 'Novo' },
+    { type: 'update_type', typeId: 't1', active: false },
+    { type: 'reorder_types', typeIds: ['t1'] },
+    {
+      type: 'create_item',
+      workId: W,
+      itemId: NEW_ITEM,
+      consequence: 'Leve',
+      probability: 'Possível',
+      description: 'x',
+      location: '',
+      observedOn: '2026-10-20',
+    },
+    {
+      type: 'update_item',
+      itemId: ITEM,
+      consequence: 'Leve',
+      probability: 'Possível',
+      description: 'x',
+      location: '',
+      observedOn: '2026-10-20',
+    },
+    { type: 'update_items', workId: W, itemIds: [ITEM], location: 'Térreo' },
+    { type: 'delete_photo', photoId: PHOTO(1) },
+    { type: 'reopen_item', itemId: NEW_ITEM },
+    { type: 'delete_item', itemId: ITEM },
+  ];
+  for (const command of denied) assert.throws(() => assertResolveOnlyCommand(d, command), /só para concluir/, command.type);
+  // Quem finaliza fica registrado: o planejador grava o engenheiro em `resolvedBy`.
+  d.photos = [photo(2, { kind: 'correction' })];
+  const m = run(d, { type: 'resolve_item', itemId: ITEM, correctedOn: '2026-10-20' }, { actorId: 'eng-1' });
+  assert.equal(m.update.items[0].resolvedBy, 'eng-1');
 });
 
 // ----- Tipos (lista única, sem obra) -----

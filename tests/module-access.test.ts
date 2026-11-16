@@ -6,6 +6,7 @@ import {
   developerEmails,
   hasDeveloperAccess,
   hasApiAccess,
+  grantableSection,
   hasSectionAccess,
   isCommandAllowed,
   isCommandAllowedForNonDeveloper,
@@ -222,11 +223,26 @@ test('Catálogo: os abertos não são liberáveis, e a lista gravada é limpa e 
   );
   assert.ok(!MODULES.some(m => (m.section === 'curto-prazo' || m.section === 'terminalidade') && m.open));
   assert.deepEqual(
-    MODULES.filter(m => !m.open)
+    MODULES.filter(m => !m.open && !m.permission)
       .map(m => m.section)
       .sort(),
     [...RESTRICTED_SECTIONS].sort(),
   );
+  // 15/11/2026: "Concluir apontamentos" é uma permissão dentro da segurança, não uma tela: fica na grade,
+  // logo depois do módulo, e é gravável, mas não entra nas seções restritas (menu, proxy, páginas).
+  assert.deepEqual(
+    MODULES.filter(m => m.permission).map(m => m.section),
+    ['seguranca-concluir'],
+  );
+  assert.equal(
+    MODULES.findIndex(m => m.section === 'seguranca-concluir'),
+    MODULES.findIndex(m => m.section === 'seguranca') + 1,
+  );
+  assert.ok(!(RESTRICTED_SECTIONS as readonly string[]).includes('seguranca-concluir'));
+  assert.equal(grantableSection('seguranca-concluir'), true);
+  assert.equal(grantableSection('dashboard'), false);
+  assert.deepEqual(normalizeModules(['seguranca-concluir', 'checklist', 'seguranca']), ['seguranca', 'seguranca-concluir', 'checklist']);
+  assert.equal(restrictedSectionOf('/obras/obra-1/seguranca-concluir'), null);
   assert.deepEqual(normalizeModules(['ifc', 'configuracoes', 'xyz', 'medio-prazo', 'ifc', 3]), ['medio-prazo', 'ifc']);
   assert.deepEqual(normalizeModules(['terminalidade', 'dashboard', 'curto-prazo']), ['curto-prazo', 'terminalidade']);
   assert.deepEqual(normalizeModules(['checklist', 'seguranca', 'restricoes']), ['restricoes', 'seguranca', 'checklist']);
@@ -258,6 +274,17 @@ test('admin libera e bloqueia módulos; demais papéis e módulos abertos são r
   run(admin.id, { type: 'set_module_access', userId: other.id, section: 'terminalidade', enabled: false });
   assert.deepEqual(other.modules, ['medio-prazo']);
   assert.throws(() => run(admin.id, { type: 'set_module_access', userId: 'x', section: 'ifc', enabled: true }), /não encontrado/);
+  // 15/11/2026: a permissão "Concluir apontamentos" é marcada pelo admin como um módulo, e só por ele.
+  run(admin.id, { type: 'set_module_access', userId: other.id, section: 'seguranca-concluir', enabled: true });
+  assert.deepEqual(other.modules, ['medio-prazo', 'seguranca-concluir']);
+  assert.throws(
+    () => run(other.id, { type: 'set_module_access', userId: other.id, section: 'seguranca-concluir', enabled: true }),
+    /administradores/,
+  );
+  run(admin.id, { type: 'set_access_batch', userIds: [other.id], sections: ['seguranca', 'seguranca-concluir'], enabled: true });
+  assert.deepEqual(other.modules, ['medio-prazo', 'seguranca', 'seguranca-concluir']);
+  run(admin.id, { type: 'set_access_batch', userIds: [other.id], sections: ['seguranca', 'seguranca-concluir'], enabled: false });
+  assert.deepEqual(other.modules, ['medio-prazo']);
   const payload = planningDataToPayload(data) as unknown as Rows;
   const row = payload.profiles.find(r => r.id === other.id)!;
   assert.deepEqual(row.module_access, ['medio-prazo']);

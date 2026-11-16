@@ -118,6 +118,7 @@ export async function preparePackage(workId: string): Promise<FieldPackage> {
     work: body.work,
     actor: body.actor,
     canEdit: body.canEdit === true,
+    canResolve: body.canEdit === true || body.canResolve === true,
     inspectors: body.inspectors ?? [],
     data: body.data,
     savedAt: new Date().toISOString(),

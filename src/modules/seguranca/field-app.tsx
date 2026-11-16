@@ -217,6 +217,8 @@ export function FieldSafety() {
   const failed = queue.filter(q => q.error);
   // Quem não é TST só consulta: o pacote da obra diz (`canEdit`); antes de abrir uma obra, o perfil.
   const readOnly = pkg ? !pkg.canEdit : works ? !works.actor.tst : false;
+  // Liberação "Concluir apontamentos" (15/11/2026): não lança, mas finaliza os abertos com a foto da correção.
+  const resolveOnly = readOnly && (pkg ? pkg.canResolve === true : works?.actor.canResolve === true);
 
   /** Grava no aparelho e, com sinal, já tenta enviar. A fila é relida mesmo na recusa: uma parte do
    * lançamento (as fotos, por exemplo) pode ter entrado antes do erro. */
@@ -255,7 +257,13 @@ export function FieldSafety() {
         </Banner>
       )}
       {failed.length > 0 && <FailedOperations failed={failed} onDiscard={async q => (await discard(q), setQueue(await readQueue()))} />}
-      {loaded && readOnly && (
+      {loaded && resolveOnly && (
+        <Banner tone="info">
+          Você tem a liberação “Concluir apontamentos”: finalize os apontamentos em aberto com a foto da correção. Lançar e reabrir ficam
+          com os TSTs e os administradores.
+        </Banner>
+      )}
+      {loaded && readOnly && !resolveOnly && (
         <Banner tone="info">
           {SAFETY_TST_ONLY_MESSAGE}
           {pkg && pkg.inspectors.length > 0 && (
@@ -487,8 +495,8 @@ function WorkList({
     <div className="space-y-3 p-3">
       <p className="px-1 text-xs text-slate-500">
         {works.actor.name}
-        {works.actor.role === 'admin' ? ' (admin)' : works.actor.tst ? ' (TST)' : ''} · obras liberadas para você. Baixe antes de ir para o
-        canteiro.
+        {works.actor.role === 'admin' ? ' (admin)' : works.actor.tst ? ' (TST)' : works.actor.canResolve ? ' (conclui apontamentos)' : ''} ·
+        obras liberadas para você. Baixe antes de ir para o canteiro.
       </p>
       {works.works.map(work => {
         const pkg = packages[work.id];
@@ -558,6 +566,7 @@ function WorkScreen({
   const [resolving, setResolving] = useState<SafetyItem | null>(null);
   const [adding, setAdding] = useState<SafetyItem | null>(null);
   const canEdit = pkg.canEdit;
+  const canResolve = canEdit || pkg.canResolve === true;
 
   // Os contadores da situação respeitam os outros filtros: "Abertos (3)" é o que o toque vai mostrar.
   const others = useMemo(() => filterItems(data.items, filters, index, ['situation']), [data.items, filters, index]);
@@ -694,6 +703,7 @@ function WorkScreen({
             pending={view.pendingItems.has(item.id)}
             pendingPhotos={view.pendingPhotos}
             canEdit={canEdit}
+            canResolve={canResolve}
             onResolve={() => setResolving(item)}
             onAddPhoto={() => setAdding(item)}
             onReopen={() =>
@@ -772,6 +782,7 @@ function ItemCard({
   pending,
   pendingPhotos,
   canEdit,
+  canResolve,
   onResolve,
   onAddPhoto,
   onReopen,
@@ -783,6 +794,8 @@ function ItemCard({
   pending: boolean;
   pendingPhotos: Set<string>;
   canEdit: boolean;
+  /** Finaliza sem ser TST (liberação "Concluir apontamentos"): só o botão "Finalizar" dos abertos. */
+  canResolve: boolean;
   onResolve: () => void;
   onAddPhoto: () => void;
   onReopen: () => void;
@@ -830,6 +843,13 @@ function ItemCard({
           {photos.map(photo => (
             <Thumb key={photo.id} photo={photo} local={pendingPhotos.has(photo.id)} />
           ))}
+        </div>
+      )}
+      {!canEdit && canResolve && item.status === 'open' && (
+        <div className="mt-3 flex gap-2">
+          <button type="button" onClick={onResolve} className="h-11 flex-1 rounded-xl bg-emerald-700 text-sm font-semibold text-white">
+            Finalizar
+          </button>
         </div>
       )}
       {canEdit && (

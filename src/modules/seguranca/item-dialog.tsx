@@ -126,7 +126,8 @@ function changed(item: SafetyItem, fields: Fields) {
  * Num 409 (outra gravação chegou antes) avisa e fecha, para a lista recarregar.
  * Finalizar (10/11/2026, "igual o do APP"): no apontamento aberto, o TST tem "Finalizar apontamento" no
  * rodapé, que troca este diálogo pela janela de finalizar (`onResolve`). Com alteração não salva, pergunta
- * antes de descartar. */
+ * antes de descartar. Quem tem só a liberação "Concluir apontamentos" abre em `readOnly` com `onResolve`: vê
+ * tudo, não muda nada e tem o mesmo botão no rodapé. */
 export function SafetyItemDialog(props: {
   workId: string;
   data: SafetyView;
@@ -341,7 +342,8 @@ export function SafetyItemDialog(props: {
   };
 
   // Só o apontamento que abriu aberto e continua aberto; o recém-lançado com foto pendente não finaliza daqui.
-  const canResolve = !!onResolve && !readOnly && !!item && live?.status === 'open';
+  // `readOnly` com `onResolve`: a liberação "Concluir apontamentos" (15/11/2026) consulta e finaliza.
+  const canResolve = !!onResolve && !!item && live?.status === 'open';
   const resolveItem = async () => {
     if (!onResolve || busy || preparing) return;
     const dirty = pending.length > 0 || (!!live && !sameForm(form, formOf(live)));
@@ -622,6 +624,20 @@ export function SafetyItemDialog(props: {
             </Callout>
           )}
 
+          {readOnly && canResolve && (
+            <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-2 border-t border-slate-100 bg-white px-5 py-3 sm:-mx-6 sm:px-6">
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:opacity-50"
+                aria-haspopup="dialog"
+                onClick={resolveItem}
+                disabled={busy}
+              >
+                <CircleCheckBig size={16} aria-hidden />
+                Finalizar apontamento
+              </button>
+            </div>
+          )}
           {!readOnly && (
             <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-2 border-t border-slate-100 bg-white px-5 py-3 sm:-mx-6 sm:px-6">
               <button className="button min-h-11" type="submit" data-next="false" disabled={busy || preparing}>
