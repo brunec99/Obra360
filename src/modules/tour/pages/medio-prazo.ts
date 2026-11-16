@@ -68,17 +68,17 @@ export const steps: TourStep[] = [
   {
     target: 'medio-recuo',
     title: 'Recuar e diminuir recuo',
-    body: 'Recuar torna as linhas selecionadas subitens da de cima, que vira resumo: datas e avanço passam a vir dos subitens, e ela perde vínculos, datas reais e restrição. Os subitens acompanham. Atalhos: Alt+Shift+→ e ← (ou Cmd+Alt).',
+    body: 'Recuar torna as linhas selecionadas subitens da de cima, que vira resumo: datas e avanço passam a vir dos subitens, e ela perde datas reais e restrição (os vínculos ficam, menos os que a ligariam aos próprios subitens). Os subitens acompanham. Atalhos: Alt+Shift+→ e ← (ou Cmd+Alt).',
   },
   {
     target: 'medio-vinculos',
     title: 'Vincular e desvincular',
-    body: 'Vincular liga em sequência, Término-Início, as tarefas do intervalo selecionado (Shift+setas); resumos ficam de fora. Desvincular numa tarefa tira todos os vínculos dela; num intervalo, só os vínculos entre as tarefas dele.',
+    body: 'Vincular liga em sequência, Término-Início, as tarefas do intervalo selecionado (Shift+setas); um resumo entra como tarefa quando nenhuma subtarefa dele está na seleção. Desvincular numa tarefa tira todos os vínculos dela; num intervalo, só os vínculos entre as tarefas dele.',
   },
   {
     target: 'medio-excluir',
-    title: 'Excluir tarefa',
-    body: 'Exclui a tarefa selecionada e os subitens dela, depois de confirmar. A exclusão fica no rascunho, dá para desfazer com Ctrl+Z e só vai ao banco em "Revisar e salvar".',
+    title: 'Excluir tarefas',
+    body: 'Exclui a tarefa selecionada e os subitens dela, depois de confirmar. Para excluir várias de uma vez, selecione as linhas com Shift+clique ou Shift+setas. A tecla Delete no Id ou no Nome faz o mesmo. A exclusão fica no rascunho, dá para desfazer com Ctrl+Z e só vai ao banco em "Revisar e salvar".',
   },
   {
     target: 'medio-informacoes',
@@ -193,7 +193,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-col-predecessoras',
     title: 'Predecessoras',
-    body: 'Use o Id da linha, como no Project: 12, 12;14, 27TI+6 dias, 12II+2 dias corridos, 5TT-1 dia. Sem tipo, vale Término-Início; sem unidade, a defasagem é em dias úteis. Vínculo só nas subtarefas, nunca nos resumos.',
+    body: 'Use o Id da linha, como no Project: 12, 12;14, 27TI+6 dias, 12II+2 dias corridos, 5TT-1 dia. Sem tipo, vale Término-Início; sem unidade, a defasagem é em dias úteis. Um resumo também se vincula: como sucessora, todas as subtarefas esperam a predecessora (só Término-Início e Início-Início); como predecessora, vale o término ou o início do grupo inteiro.',
   },
   {
     target: 'medio-col-recursos',

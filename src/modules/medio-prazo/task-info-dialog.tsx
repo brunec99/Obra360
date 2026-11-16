@@ -319,7 +319,11 @@ export function TaskInfoDialog({
           )}
           {tab === 'predecessoras' && (
             <div>
-              {linksLocked && summary && <p className="mb-3 text-xs text-slate-500">Vínculos ficam nas subtarefas, não nos resumos.</p>}
+              {summary && !linksLocked && (
+                <p className="mb-3 text-xs text-slate-500">
+                  Predecessora de um resumo vale para todas as subtarefas dele; só entram Término-Início e Início-Início.
+                </p>
+              )}
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="w-full min-w-[34rem] text-left text-xs">
                   <thead className="bg-slate-50 text-slate-600">

@@ -606,7 +606,7 @@ test('modo do arrasto: sair da linha na vertical vincula, como no Project', () =
   assert.equal(dragModeAt('progress', -5, 1, 30, true), 'progress');
 });
 
-test('alvo do vínculo: barra da linha sob o ponteiro, sem resumo e sem a própria tarefa', () => {
+test('alvo do vínculo: barra da linha sob o ponteiro, inclusive resumo, sem a própria tarefa', () => {
   const list = [
     { id: 'a', summary: false },
     { id: 'r', summary: true },
@@ -621,7 +621,9 @@ test('alvo do vínculo: barra da linha sob o ponteiro, sem resumo e sem a própr
   assert.equal(linkTargetAt({ x: 90, y: 75 }, list, bars, 30, 'a'), 'b');
   assert.equal(linkTargetAt({ x: 172, y: 75 }, list, bars, 30, 'a'), 'b');
   assert.equal(linkTargetAt({ x: 80, y: 75 }, list, bars, 30, 'a'), undefined);
-  assert.equal(linkTargetAt({ x: 20, y: 45 }, list, bars, 30, 'a'), undefined);
+  // Resumo serve de alvo desde 16/11/2026.
+  assert.equal(linkTargetAt({ x: 20, y: 45 }, list, bars, 30, 'a'), 'r');
+  assert.equal(linkTargetAt({ x: 20, y: 45 }, list, bars, 30, 'r'), undefined);
   assert.equal(linkTargetAt({ x: 20, y: 15 }, list, bars, 30, 'a'), undefined);
   assert.equal(linkTargetAt({ x: 20, y: -5 }, list, bars, 30, 'b'), undefined);
   assert.equal(linkTargetAt({ x: 120, y: 95 }, list, bars, 30, 'a'), undefined);
@@ -632,7 +634,8 @@ test('o que cada barra aceita arrastar', () => {
   const all = { canEdit: true, move: true, resize: true, progress: true, link: true };
   const none = { move: false, resize: false, progress: false, link: false };
   assert.deepEqual(barDragAbilities(row(), all), { move: true, resize: true, progress: true, link: true });
-  assert.deepEqual(barDragAbilities(row({ summary: true }), all), none);
+  // Resumo não se move, não se estica nem tem avanço para puxar, mas se vincula.
+  assert.deepEqual(barDragAbilities(row({ summary: true }), all), { ...none, link: true });
   assert.deepEqual(barDragAbilities(row(), { ...all, canEdit: false }), none);
   assert.deepEqual(barDragAbilities(row({ milestone: true }), all), { move: true, resize: false, progress: false, link: true });
   // Iniciada: o início real não se move; concluída: o término real não se estica.

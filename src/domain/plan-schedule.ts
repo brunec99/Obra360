@@ -306,11 +306,36 @@ export function analyzeSchedule(
   const rows = structuredClone(input).sort((a, b) => a.order - b.order);
   const byId = new Map(rows.map(t => [t.id, t]));
   const summary = new Set(rows.filter((t, i) => rows[i + 1]?.level > t.level).map(t => t.id));
+  // Resumos acima de cada linha e as folhas de cada resumo (todos os níveis abaixo dele).
+  const ancestorsOf = new Map<Id, Id[]>();
+  const leavesOf = new Map<Id, Id[]>();
+  {
+    const stack: PlanTask[] = [];
+    for (const task of rows) {
+      while (stack.length && stack.at(-1)!.level >= task.level) stack.pop();
+      ancestorsOf.set(
+        task.id,
+        stack.map(s => s.id),
+      );
+      if (!summary.has(task.id))
+        for (const s of stack) {
+          const list = leavesOf.get(s.id);
+          if (list) list.push(task.id);
+          else leavesOf.set(s.id, [task.id]);
+        }
+      stack.push(task);
+    }
+  }
   const incoming = new Map<string, PlanDependency[]>();
   const outgoing = new Map<string, PlanDependency[]>();
   for (const link of links) {
     if (!byId.has(link.predecessorId) || !byId.has(link.successorId)) throw new Error('Predecessora inexistente.');
-    if (summary.has(link.predecessorId) || summary.has(link.successorId)) throw new Error('Vincule as subtarefas, não as tarefas-resumo.');
+    // Vínculo com resumo vale para as subtarefas dele, como no Project (16/11/2026); com a própria
+    // subtarefa seria ciclo, e o resumo como sucessora só aceita vínculo que chega no início.
+    if (ancestorsOf.get(link.successorId)!.includes(link.predecessorId) || ancestorsOf.get(link.predecessorId)!.includes(link.successorId))
+      throw new Error('Um resumo não se vincula às próprias subtarefas.');
+    if (summary.has(link.successorId) && link.type[1] === 'T')
+      throw new Error('Resumo como sucessora aceita só Término-Início ou Início-Início, como no Project.');
     if (!['TI', 'II', 'TT', 'IT'].includes(link.type) || !Number.isInteger(link.lagDays) || Math.abs(link.lagDays) > 365)
       throw new Error('Vínculo ou defasagem inválidos.');
     const list = incoming.get(link.successorId) ?? [];
@@ -318,13 +343,30 @@ export function analyzeSchedule(
     incoming.set(link.successorId, [...list, link]);
     outgoing.set(link.predecessorId, [...(outgoing.get(link.predecessorId) ?? []), link]);
   }
-  // Kahn evita estouro de pilha em cadeias longas; a fila é a ordem topológica das duas passadas.
-  const remaining = new Map(rows.map(t => [t.id, incoming.get(t.id)?.length ?? 0]));
+  /** Quem recebe o vínculo de fato: a própria tarefa, ou todas as folhas do resumo sucessor. */
+  const targetsOf = (link: PlanDependency) => leavesOf.get(link.successorId) ?? [link.successorId];
+  /** Vínculos que chegam à folha: os dela e os herdados dos resumos acima (o resumo empurra todas as subtarefas). */
+  const incomingOf = (id: Id) => [...(incoming.get(id) ?? []), ...ancestorsOf.get(id)!.flatMap(a => incoming.get(a) ?? [])];
+  /** A folha tem sucessora, própria ou de um resumo acima dela. */
+  const hasSuccessor = (id: Id) => outgoing.has(id) || ancestorsOf.get(id)!.some(a => outgoing.has(a));
+  // Kahn evita estouro de pilha em cadeias longas; a fila é a ordem topológica das duas passadas. O
+  // resumo entra depois de todas as folhas dele (as datas dele saem delas), e o vínculo que chega a um
+  // resumo chega a cada folha dele.
+  const after = new Map<Id, Id[]>();
+  const remaining = new Map(rows.map(t => [t.id, 0]));
+  const edge = (from: Id, to: Id) => {
+    const list = after.get(from);
+    if (list) list.push(to);
+    else after.set(from, [to]);
+    remaining.set(to, remaining.get(to)! + 1);
+  };
+  for (const link of links) for (const target of targetsOf(link)) edge(link.predecessorId, target);
+  for (const [id, list] of leavesOf) for (const leafId of list) edge(leafId, id);
   const order = rows.filter(t => remaining.get(t.id) === 0);
   for (let i = 0; i < order.length; i++)
-    for (const link of outgoing.get(order[i].id) ?? []) {
-      remaining.set(link.successorId, remaining.get(link.successorId)! - 1);
-      if (!remaining.get(link.successorId)) order.push(byId.get(link.successorId)!);
+    for (const id of after.get(order[i].id) ?? []) {
+      remaining.set(id, remaining.get(id)! - 1);
+      if (!remaining.get(id)) order.push(byId.get(id)!);
     }
   if (order.length !== rows.length) throw new Error('Essa ligação criaria um ciclo entre as linhas.');
 
@@ -392,7 +434,7 @@ export function analyzeSchedule(
   // que a exportação grava). TT não puxa nada para antes dele.
   let anchor: At | undefined;
   for (const task of rows)
-    if (leaves.has(task.id) && !incoming.has(task.id)) {
+    if (leaves.has(task.id) && !incomingOf(task.id).length) {
       const day = nextWorking(task.actualStart ?? task.plannedStart, c);
       if (!anchor || day < anchor.day) anchor = atStart(day);
     }
@@ -403,7 +445,7 @@ export function analyzeSchedule(
   const pinned = new Map<Id, At>();
 
   const requirements = (task: PlanTask, shape: LeafShape, floor: boolean): Requirement[] =>
-    (incoming.get(task.id) ?? []).map(link => {
+    incomingOf(task.id).map(link => {
       const p = early.get(link.predecessorId)!;
       const at = lagged(link.type[0] === 'T' ? p.finish : p.start, link, 1, 'early');
       let start = link.type[1] === 'I' ? startOf(at, shape) : placeByFinish(at, shape).start;
@@ -420,7 +462,15 @@ export function analyzeSchedule(
   const forward = () => {
     for (const task of order) {
       const leaf = leaves.get(task.id);
-      if (!leaf) continue;
+      if (!leaf) {
+        // Resumo: o envelope das folhas, que já passaram (vêm antes dele na ordem). É o que a
+        // sucessora de um resumo enxerga: o início mais cedo e o término mais tarde das subtarefas.
+        const list = leavesOf.get(task.id)!;
+        const start = list.map(id => early.get(id)!.start).reduce(earlierAt);
+        const finish = list.map(id => early.get(id)!.finish).reduce(laterAt);
+        early.set(task.id, { start, finish, slackStart: start, slackFinish: finish });
+        continue;
+      }
       let drivenBy: TaskSchedule['drivenBy'] = 'stored',
         driverIds: Id[] = [],
         conflict = false,
@@ -434,7 +484,9 @@ export function analyzeSchedule(
           const finish = !leaf.days ? atStart(task.actualEnd ?? task.actualStart) : atEnd(task.actualEnd!);
           place = { start, finish, slackStart: start, slackFinish: finish };
           // O que já aconteceu não se reprograma: o vínculo que a data real contraria fica desrespeitado.
-          conflict = !!task.actualEnd && reqs.some(r => (r.edge === 'start' ? workDiff(r.start, start) : workDiff(r.at, finish)) < 0);
+          conflict =
+            !!task.actualEnd &&
+            reqs.some(r => r.link.successorId === task.id && (r.edge === 'start' ? workDiff(r.start, start) : workDiff(r.at, finish)) < 0);
         } else {
           const rest = remainingDays(task, leaf),
             done = leaf.days - rest;
@@ -526,8 +578,12 @@ export function analyzeSchedule(
         // restrições (e no OMTP) as predecessoras que fixam a rede continuam listadas.
         else if (drivenBy === 'constraint' && networkStart && (pinned.has(task.id) || ['FNET', 'SNLT', 'FNLT'].includes(constraint.type)))
           driverIds = networkDrivers(reqs, networkStart);
+        // Só os vínculos da própria tarefa: o herdado do resumo, quando desrespeitado, acende no resumo.
         conflict = reqs.some(
-          r => !r.floored && (r.edge === 'start' ? workDiff(r.start, current.start) : workDiff(r.at, current.finish)) < 0,
+          r =>
+            r.link.successorId === task.id &&
+            !r.floored &&
+            (r.edge === 'start' ? workDiff(r.start, current.start) : workDiff(r.at, current.finish)) < 0,
         );
       }
       early.set(task.id, place);
@@ -557,21 +613,28 @@ export function analyzeSchedule(
     projectStart = undefined;
     for (const task of order) {
       const place = early.get(task.id);
-      if (!place) continue;
+      if (!place || !leaves.has(task.id)) continue;
       if (!projectStart || place.start.day < projectStart) projectStart = place.start.day;
       finishAt = finishAt ? laterAt(finishAt, place.finish) : place.finish;
     }
     projectFinish = finishAt?.day;
-    /** Término tardio a partir de `init` (o teto), das sucessoras e das restrições, prazo final e reais. */
+    /** Término tardio que cada resumo com sucessora impõe às subtarefas dele. */
+    const capOf = new Map<Id, At>();
+    /** Término tardio a partir de `init` (o teto), das sucessoras, do resumo acima e das restrições, prazo final e reais. */
     const lateFinishOf = (task: PlanTask, leaf: LeafShape, init: At): At => {
       const outs = outgoing.get(task.id) ?? [];
       let lateFinish = init;
-      for (const link of outs) {
-        const s = late.get(link.successorId)!;
-        // Sucessora em andamento: o vínculo amarra o restante (a retomada), não o início real.
-        const side = link.type[1] === 'I' ? (s.resume ?? s.start) : s.finish;
-        const bound = lagged(side, link, -1, 'late');
-        lateFinish = earlierAt(lateFinish, link.type[0] === 'T' ? bound : finishFrom(bound, leaf, 'late'));
+      for (const link of outs)
+        for (const target of targetsOf(link)) {
+          const s = late.get(target)!;
+          // Sucessora em andamento: o vínculo amarra o restante (a retomada), não o início real.
+          const side = link.type[1] === 'I' ? (s.resume ?? s.start) : s.finish;
+          const bound = lagged(side, link, -1, 'late');
+          lateFinish = earlierAt(lateFinish, link.type[0] === 'T' ? bound : finishFrom(bound, leaf, 'late'));
+        }
+      for (const id of ancestorsOf.get(task.id)!) {
+        const cap = capOf.get(id);
+        if (cap) lateFinish = earlierAt(lateFinish, cap);
       }
       const constraint = constraintOf(task);
       const before = leaf.business || !leaf.days ? previousWorking : (d: LocalDate) => d;
@@ -586,7 +649,7 @@ export function analyzeSchedule(
       if (constraint.type === 'MSO')
         lateFinish = finishFrom(startOf(atStart(constraint.date!), leaf.days ? leaf : { days: 1, business: true }), leaf, 'late');
       if (task.actualEnd) return leaf.days ? atEnd(task.actualEnd) : atStart(task.actualEnd);
-      return leaf.days && leaf.business ? asFinish(lateFinish, !outs.length) : lateFinish;
+      return leaf.days && leaf.business ? asFinish(lateFinish, !hasSuccessor(task.id)) : lateFinish;
     };
     // O teto das tarefas com sucessora é o término tardio do projeto: o maior entre o fim do projeto
     // e o término tardio das tarefas sem sucessora — que o NIDD pode levar além do fim (as tarefas
@@ -594,13 +657,31 @@ export function analyzeSchedule(
     let ceiling = finishAt!;
     for (const task of order) {
       const leaf = leaves.get(task.id);
-      if (leaf && !outgoing.has(task.id)) ceiling = laterAt(ceiling, lateFinishOf(task, leaf, finishAt!));
+      if (leaf && !hasSuccessor(task.id)) ceiling = laterAt(ceiling, lateFinishOf(task, leaf, finishAt!));
     }
     for (let i = order.length - 1; i >= 0; i--) {
       const task = order[i],
         leaf = leaves.get(task.id);
-      if (!leaf) continue;
-      const lateFinish = lateFinishOf(task, leaf, outgoing.has(task.id) ? ceiling : finishAt!);
+      if (!leaf) {
+        // Resumo com sucessora: o limite vale para todas as subtarefas, que vêm depois dele na volta.
+        // Vínculo que sai do início do resumo vira limite de término pela duração do envelope.
+        const outs = outgoing.get(task.id);
+        if (!outs) continue;
+        const envelope = early.get(task.id)!;
+        const span = { days: Math.max(0, workDiff(envelope.start, envelope.finish)), business: true };
+        let cap: At | undefined;
+        for (const link of outs)
+          for (const target of targetsOf(link)) {
+            const s = late.get(target)!;
+            const side = link.type[1] === 'I' ? (s.resume ?? s.start) : s.finish;
+            const bound = lagged(side, link, -1, 'late');
+            const finish = link.type[0] === 'T' ? bound : finishFrom(bound, span, 'late');
+            cap = cap ? earlierAt(cap, finish) : finish;
+          }
+        capOf.set(task.id, cap!);
+        continue;
+      }
+      const lateFinish = lateFinishOf(task, leaf, hasSuccessor(task.id) ? ceiling : finishAt!);
       const lateStart = task.actualStart ? atStart(task.actualStart) : startFrom(lateFinish, leaf, 'late');
       const rest = task.actualStart && !task.actualEnd && leaf.days ? remainingDays(task, leaf) : 0;
       const resume = rest ? startFrom(lateFinish, { ...leaf, days: rest }, 'late') : undefined;
@@ -635,13 +716,19 @@ export function analyzeSchedule(
     self.totalSlack = task.actualStart ? finishSlack : Math.min(finishSlack, diff(place.slackStart, tardy.start));
     // Folga livre: quanto a tarefa pode atrasar sem mexer nas datas cedo das sucessoras — a conta
     // inversa a partir do início (ou término) cedo de cada uma, como a passada inversa faz.
+    // O vínculo que sai do término de um resumo acima também conta: a sucessora dele espera esta tarefa.
     let free = Infinity;
-    for (const link of outgoing.get(task.id) ?? []) {
-      const successor = early.get(link.successorId)!;
-      const bound = lagged(link.type[1] === 'I' ? successor.start : successor.finish, link, -1, 'late');
-      const finish = link.type[0] === 'T' ? bound : finishFrom(bound, leaf, 'late');
-      free = Math.min(free, diff(place.finish, leaf.days && leaf.business ? asFinish(finish) : finish));
-    }
+    const outs = [
+      ...(outgoing.get(task.id) ?? []),
+      ...ancestorsOf.get(task.id)!.flatMap(id => (outgoing.get(id) ?? []).filter(l => l.type[0] === 'T')),
+    ];
+    for (const link of outs)
+      for (const target of targetsOf(link)) {
+        const successor = early.get(target)!;
+        const bound = lagged(link.type[1] === 'I' ? successor.start : successor.finish, link, -1, 'late');
+        const finish = link.type[0] === 'T' ? bound : finishFrom(bound, leaf, 'late');
+        free = Math.min(free, diff(place.finish, leaf.days && leaf.business ? asFinish(finish) : finish));
+      }
     self.freeSlack = complete ? 0 : Math.max(0, Math.min(self.totalSlack, free === Infinity ? self.totalSlack : free));
     self.critical = !complete && self.totalSlack <= threshold;
   }
@@ -681,7 +768,13 @@ export function analyzeSchedule(
       critical: children.some(id => info.get(id)!.critical),
       drivenBy: 'summary',
       driverIds: [],
-      conflict: false,
+      // Vínculo do próprio resumo desrespeitado por alguma subtarefa ainda não iniciada (presa antes da
+      // predecessora por uma restrição); a já iniciada não conta, como nas tarefas comuns.
+      conflict: (incoming.get(task.id) ?? []).some(link => {
+        const p = early.get(link.predecessorId)!;
+        const at = lagged(link.type[0] === 'T' ? p.finish : p.start, link, 1, 'early');
+        return leavesOf.get(task.id)!.some(id => !byId.get(id)!.actualStart && workDiff(at, early.get(id)!.start) < 0);
+      }),
       deadlineMissed: false,
       edges: { earlyStart: earlyStart.edge, earlyFinish: earlyFinish.edge, lateStart: lateStart.edge, lateFinish: lateFinish.edge },
     });

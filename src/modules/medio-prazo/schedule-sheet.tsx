@@ -273,7 +273,6 @@ const LEAF_ONLY: Col[] = [
   'start',
   'end',
   'progress',
-  'links',
   'actualStart',
   'actualEnd',
   'constraintType',
@@ -313,26 +312,50 @@ export function moveColumn(order: Col[], key: Col, target: Col, after: boolean):
   const next = [...rest.slice(0, at), key, ...rest.slice(at)];
   return next.every((k, i) => k === order[i]) ? order : next;
 }
-/** Um resumo não carrega data real, restrição (nova ou antiga) nem prazo final; os vínculos saem fora daqui. */
+/** Um resumo não carrega data real, restrição (nova ou antiga) nem prazo final; os vínculos ficam
+ * (16/11/2026), menos os que a estrutura nova recusa (`linksForStructure`). */
 function asSummary(t: PlanTask): PlanTask {
   const summary = { ...t };
   for (const k of ['actualStart', 'actualEnd', 'deadline', 'anchorStart', 'constraintType', 'constraintDate'] as const) delete summary[k];
   return summary;
 }
+/** Os vínculos que a estrutura aceita, como no Project: some o que liga um resumo às próprias
+ * subtarefas (seria ciclo) e o que chega ao término de um resumo (TT e IT). O resto fica, inclusive
+ * os vínculos de quem acabou de virar resumo (16/11/2026). */
+export function linksForStructure(tasks: PlanTask[], links: PlanDependency[]): PlanDependency[] {
+  const ancestors = new Map<string, string[]>();
+  const stack: PlanTask[] = [];
+  for (const t of tasks) {
+    while (stack.length && stack.at(-1)!.level >= t.level) stack.pop();
+    ancestors.set(
+      t.id,
+      stack.map(s => s.id),
+    );
+    stack.push(t);
+  }
+  const summary = new Set(tasks.filter((t, i) => tasks[i + 1]?.level > t.level).map(t => t.id));
+  return links.filter(
+    l =>
+      !ancestors.get(l.successorId)?.includes(l.predecessorId) &&
+      !ancestors.get(l.predecessorId)?.includes(l.successorId) &&
+      !(summary.has(l.successorId) && l.type[1] === 'T'),
+  );
+}
 /** Recua (`delta` 1) ou diminui o recuo (`-1`) do bloco que começa na linha `from` e vai até o fim da
  * subárvore da linha `to` (índices em `tasks`): as subtarefas, visíveis ou recolhidas, acompanham e a
  * estrutura relativa se mantém. Recuar exige que a primeira linha possa virar subitem da de cima;
  * diminuir o recuo, que nenhuma linha do bloco esteja no nível 0. Quem vira resumo (a linha de cima,
- * ao recuar; a última do bloco, ao diminuir o recuo com uma irmã logo abaixo) perde vínculos, datas
- * reais, restrição e prazo, como na linha única. Não reagenda: quem chama faz isso. Com erro, devolve
- * a frase e as entradas intactas. */
+ * ao recuar; a última do bloco, ao diminuir o recuo com uma irmã logo abaixo) perde datas reais,
+ * restrição e prazo, como na linha única; dos vínculos, saem só os que a estrutura nova recusa
+ * (`dropped` conta quantos). Não reagenda: quem chama faz isso. Com erro, devolve a frase e as
+ * entradas intactas. */
 export function shiftLevels(
   tasks: PlanTask[],
   from: number,
   to: number,
   delta: 1 | -1,
   links: PlanDependency[] = [],
-): { tasks: PlanTask[]; links: PlanDependency[]; error?: string } {
+): { tasks: PlanTask[]; links: PlanDependency[]; error?: string; dropped?: number } {
   if (from < 0 || to < from || to >= tasks.length) return { tasks, links, error: 'Selecione as linhas para recuar.' };
   let end = to + 1;
   while (end < tasks.length && tasks[end].level > tasks[to].level) end++;
@@ -341,10 +364,34 @@ export function shiftLevels(
   if (delta === -1 && tasks.slice(from, end).some(t => t.level === 0)) return { tasks, links, error: 'Há linha no nível 0 na seleção.' };
   const next = tasks.map((t, i) => (i >= from && i < end ? { ...t, level: t.level + delta } : t));
   const promoted = delta === 1 ? (next[from].level > next[from - 1].level ? from - 1 : -1) : next[end]?.level > next[to].level ? to : -1;
-  if (promoted < 0) return { tasks: next, links };
-  next[promoted] = asSummary(next[promoted]);
-  const id = next[promoted].id;
-  return { tasks: next, links: links.filter(l => l.predecessorId !== id && l.successorId !== id) };
+  if (promoted >= 0) next[promoted] = asSummary(next[promoted]);
+  const kept = linksForStructure(next, links);
+  return { tasks: next, links: kept, ...(kept.length < links.length ? { dropped: links.length - kept.length } : {}) };
+}
+/** Exclui as tarefas `ids`, cada uma com as subtarefas dela (visíveis ou recolhidas), e os vínculos
+ * que tocam qualquer tarefa excluída; renumera a ordem. Tirar subárvores inteiras não deixa nível
+ * pulado. `roots` são as escolhidas que não estão dentro de outra escolhida (o que a pergunta lista);
+ * `removed`, tudo o que sai. Não reagenda: quem chama faz isso. */
+export function removeTasks(
+  tasks: PlanTask[],
+  links: PlanDependency[],
+  ids: Iterable<string>,
+): { tasks: PlanTask[]; links: PlanDependency[]; roots: PlanTask[]; removed: PlanTask[] } {
+  const chosen = new Set(ids);
+  const out = new Set<string>();
+  const roots: PlanTask[] = [];
+  tasks.forEach((t, i) => {
+    if (!chosen.has(t.id) || out.has(t.id)) return;
+    roots.push(t);
+    out.add(t.id);
+    for (let j = i + 1; j < tasks.length && tasks[j].level > t.level; j++) out.add(tasks[j].id);
+  });
+  return {
+    tasks: tasks.filter(t => !out.has(t.id)).map((t, i) => ({ ...t, order: i + 1 })),
+    links: links.filter(l => !out.has(l.predecessorId) && !out.has(l.successorId)),
+    roots,
+    removed: tasks.filter(t => out.has(t.id)),
+  };
 }
 /** Linhas visíveis sem filtro: ficam de fora os descendentes de resumo recolhido. */
 function unfoldedRows(tasks: PlanTask[], folded: string[]): PlanTask[] {
@@ -1580,7 +1627,11 @@ export function Sheet({
       }
       return;
     } else if (kind === 'link' || kind === 'unlink') {
-      const chosen = rows.slice(bounds.r0, bounds.r1 + 1).filter(t => !roll.get(t.id)!.summary);
+      // Resumo entra como uma tarefa a mais (16/11/2026), menos quando subtarefas dele também estão
+      // na seleção: aí quem se liga são as subtarefas, como antes, e o resumo fica de fora.
+      const range = rows.slice(bounds.r0, bounds.r1 + 1);
+      const numbers = range.map(t => roll.get(t.id)!.number);
+      const chosen = range.filter((t, i) => !roll.get(t.id)!.summary || !numbers.some(n => n.startsWith(`${numbers[i]}.`)));
       const ids = new Set(chosen.map(t => t.id));
       if (kind === 'link') {
         if (chosen.length < 2) {
@@ -1605,19 +1656,48 @@ export function Sheet({
             : next.links.filter(l => !ids.has(l.predecessorId) && !ids.has(l.successorId));
     } else if (at >= 0) {
       if (kind === 'remove') {
-        let end = at + 1;
-        while (end < next.tasks.length && next.tasks[end].level > next.tasks[at].level) end++;
+        // Exclui todas as linhas do intervalo selecionado (Shift+clique ou Shift+setas), cada uma com
+        // os subitens, numa pergunta só e num passo só do desfazer (16/11/2026).
+        const picked = rows.slice(bounds.r0, Math.min(bounds.r1, rows.length - 1) + 1);
+        const out = removeTasks(
+          next.tasks,
+          next.links,
+          picked.map(t => t.id),
+        );
+        const subitems = out.removed.length - out.roots.length;
+        const sub = subitems ? ` e ${subitems} ${subitems === 1 ? 'subitem' : 'subitens'}` : '';
         const ok = await confirm({
-          title: `Excluir “${active.name}”${end - at > 1 ? ` e ${end - at - 1} subitens` : ''}?`,
-          description: 'A exclusão fica no rascunho e só vai ao banco em “Revisar e salvar”. Dá para desfazer com Ctrl+Z.',
+          title: out.roots.length === 1 ? `Excluir “${out.roots[0].name}”${sub}?` : `Excluir ${out.roots.length} tarefas${sub}?`,
+          description: (
+            <>
+              {out.roots.length > 1 && (
+                <ul className="mb-2 max-h-48 list-disc overflow-auto pl-5">
+                  {out.roots.slice(0, 8).map(t => (
+                    <li key={t.id}>
+                      {next.tasks.indexOf(t) + 1} · {t.name}
+                    </li>
+                  ))}
+                  {out.roots.length > 8 && <li className="list-none">e mais {out.roots.length - 8}</li>}
+                </ul>
+              )}
+              A exclusão fica no rascunho e só vai ao banco em “Revisar e salvar”. Dá para desfazer com Ctrl+Z.
+            </>
+          ),
           confirmLabel: 'Excluir',
           tone: 'danger',
         });
         if (!ok) return;
-        const ids = new Set(next.tasks.slice(at, end).map(t => t.id));
-        next.tasks.splice(at, end - at);
-        next.links = next.links.filter(l => !ids.has(l.predecessorId) && !ids.has(l.successorId));
-        next.tasks.forEach((t, i) => (t.order = i + 1));
+        next.tasks = out.tasks;
+        next.links = out.links;
+        // A seleção e o foco ficam na linha que subiu para o lugar da primeira excluída (ou na última que
+        // sobrou), para o teclado continuar na grade depois do Delete.
+        const gone = new Set(out.removed.map(t => t.id));
+        const cell = { row: Math.max(0, Math.min(bounds.r0, rows.filter(t => !gone.has(t.id)).length - 1)), col: selected.col };
+        setSelected(cell);
+        setAnchor(cell);
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => gridRef.current?.querySelector<HTMLElement>(`[data-pos="${cell.row}:${cell.col}"]`)?.focus()),
+        );
       } else {
         // Recuo e seu inverso agem no intervalo selecionado (Shift+setas ou Shift+clique), da primeira
         // linha ao fim da subárvore da última, numa só entrada do desfazer.
@@ -1630,6 +1710,12 @@ export function Sheet({
         }
         next.tasks = shifted.tasks;
         next.links = shifted.links;
+        if (shifted.dropped)
+          toast({
+            title: shifted.dropped === 1 ? '1 vínculo saiu' : `${shifted.dropped} vínculos saíram`,
+            description: 'Um resumo não se vincula às próprias subtarefas nem recebe vínculo no término (TT ou IT), como no Project.',
+            tone: 'info',
+          });
         // Recuo para dentro de um resumo recolhido: abre o resumo, senão o bloco sumiria da vista; a
         // seleção desce o tanto de linhas que apareceram antes dela.
         if (kind === 'indent') {
@@ -2016,7 +2102,6 @@ export function Sheet({
    * como se fosse digitado — o ciclo é recusado com a mesma mensagem da coluna. */
   function linkTasks(fromId: string, toId: string) {
     if (fromId === toId || fromId === PLAN_ROW || toId === PLAN_ROW) return;
-    if (summaryOf(fromId) || summaryOf(toId)) return setError('Vínculos ficam nas subtarefas, não nos resumos.');
     const base = latest();
     if (base.links.some(l => l.predecessorId === fromId && l.successorId === toId)) return;
     const number = base.tasks.findIndex(t => t.id === fromId) + 1;
@@ -2133,6 +2218,18 @@ export function Sheet({
     if (e.key === 'Insert') {
       e.preventDefault();
       structural('insert');
+      return;
+    }
+    // Delete (ou o Backspace do Mac) com a seleção no Id ou no Nome exclui as tarefas selecionadas,
+    // como o Delete no nome da tarefa do Project; pergunta antes. Nas outras colunas não faz nada.
+    if (
+      (e.key === 'Delete' || e.key === 'Backspace') &&
+      !cmd &&
+      !e.altKey &&
+      visibleCols.slice(bounds.c0, bounds.c1 + 1).some(col => col.key === 'id' || col.key === 'name')
+    ) {
+      e.preventDefault();
+      structural('remove');
       return;
     }
     // Alt+Shift+setas é o atalho do Project; Cmd/Ctrl+Alt+setas, o pedido pela equipe no Mac.
@@ -2416,10 +2513,14 @@ export function Sheet({
                     className={`${tool} text-danger`}
                     disabled={!canEdit || !active || !!editor || filtering}
                     onClick={() => structural('remove')}
-                    title="Excluir tarefa e subitens"
+                    title={
+                      bounds.r1 > bounds.r0
+                        ? `Excluir as ${bounds.r1 - bounds.r0 + 1} tarefas selecionadas e os subitens (Delete)`
+                        : 'Excluir tarefa e subitens (Delete). Para excluir várias, selecione as linhas com Shift+clique ou Shift+setas'
+                    }
                   >
                     <Trash2 size={14} aria-hidden />
-                    <span className="sr-only">Excluir tarefa</span>
+                    <span className="sr-only">{bounds.r1 > bounds.r0 ? 'Excluir tarefas selecionadas' : 'Excluir tarefa'}</span>
                   </button>
                 </>
               )}
@@ -3445,8 +3546,10 @@ export function Sheet({
           <HelpNote title="Formatos aceitos" label="Durações e predecessoras">
             <p>Duração aceita “10 dias”, “10 dias corridos”, “8h”, “1 mês” e “0 dias” (marco).</p>
             <p>
-              Predecessoras usam o Id da linha, como no Project: “12”, “12;14”, “27TI+6 dias”, “12II+2 dias corridos”, “5TT-1 dia”. Vínculos
-              ficam nas subtarefas, não nos resumos.
+              Predecessoras usam o Id da linha, como no Project: “12”, “12;14”, “27TI+6 dias”, “12II+2 dias corridos”, “5TT-1 dia”. Um
+              resumo também se vincula: como predecessora, vale o término (ou o início) do grupo inteiro; como sucessora, todas as
+              subtarefas esperam a predecessora, e só entram Término-Início e Início-Início. Resumo e as próprias subtarefas não se
+              vinculam.
             </p>
             <p>
               Tipo de restrição aceita o nome do Project ou a sigla: NIAD, NIDD, NTAD, NTDD, DIE, DTE, OMBP, OMTP. Digitar o início cria
@@ -3638,7 +3741,14 @@ export function Sheet({
             notes: editable(infoTask, 'notes'),
             timeline: canEdit,
           }}
-          options={draft.tasks.flatMap((t, i) => (t.id === infoTask.id ? [] : [{ number: i + 1, name: t.name, summary: summaryOf(t.id) }]))}
+          // Fora da lista: a própria tarefa, as subtarefas dela e os resumos acima (vínculo recusado pelo motor).
+          options={draft.tasks.flatMap((t, i) => {
+            const own = roll.get(infoTask.id)!.number,
+              other = roll.get(t.id)!.number;
+            return t.id === infoTask.id || other.startsWith(`${own}.`) || own.startsWith(`${other}.`)
+              ? []
+              : [{ number: i + 1, name: t.name, summary: summaryOf(t.id) }];
+          })}
           teams={teams}
           onApply={(changes, timeline) => applyInfo(infoTask.id, changes, timeline)}
           onClose={closeInfo}

@@ -109,7 +109,7 @@ A barra de seções fica no cabeçalho da aba. A seção vai no endereço da pá
 - Antes de gravar, a gaveta mostra a **conferência**: linhas, resumos, vínculos, concluídas e em andamento, a linha de base do Project, o calendário (dias úteis, horas por dia, dias sem trabalho), quantas tarefas ficam fora do horizonte e os avisos do que mudou.
 - **Recursos → equipes**: cada recurso do Project é ligado à equipe da obra de mesmo nome (sem diferenciar acento e maiúscula, também "EMPRESA - NOME"); sem equipe correspondente, a sugestão é criar uma com o nome do Project e a empresa antes do " - ". Dá para trocar cada um por outra equipe ou "Sem recurso". As equipes criadas ficam com capacidade 1 e aparecem também no curto prazo.
 - **Datas**: o sistema refaz a rede como o Project. A gaveta lista as tarefas cuja data ficaria diferente do arquivo, antes de criar.
-- Entra tudo do arquivo: níveis, durações, % concluída, início e término reais, restrições, prazo final, anotações e vínculos nos quatro tipos com defasagem. Tarefa manual vira automática com "Não iniciar antes de" na data dela; inativa e linha em branco não entram; vínculo com tarefa-resumo passa para as subtarefas; defasagem em horas ou % vira dias.
+- Entra tudo do arquivo: níveis, durações, % concluída, início e término reais, restrições, prazo final, anotações e vínculos nos quatro tipos com defasagem. Tarefa manual vira automática com "Não iniciar antes de" na data dela; inativa e linha em branco não entram; vínculo com tarefa-resumo entra no próprio resumo, como no arquivo (desde 16/11/2026; o que liga o resumo às próprias subtarefas e o TT ou IT que chega a um resumo são descartados com aviso); defasagem em horas ou % vira dias.
 - A linha de base do Project vira a linha de base "Linha de base do Project", já exibida no Gantt.
 - Quem pode: quem cria cronograma do mês (planejador, gestor ou admin com o módulo de médio prazo). Um plano vivo por mês continua valendo.
 
@@ -172,7 +172,7 @@ Ocultas por padrão, ligam-se no menu "Colunas": "Início tardio", "Término tar
 - "Nome da tarefa" não se oculta. Resumo tem a seta para recolher e abrir.
 - Datas no formato "Seg 24/08/26"; "ND" é sem data. Ao digitar, aceita dd/mm/aa, dd/mm/aaaa, AAAA-MM-DD ou o texto copiado do Project.
 - Arraste o cabeçalho para mudar a ordem (ou Alt+← e Alt+→ com o foco nele) e a borda do cabeçalho para a largura. "Id" e "Indicadores" ficam presas no começo. "Restaurar padrão" devolve colunas, ordem e larguras. As escolhas ficam salvas no navegador, por pessoa e por plano, junto com visão, zoom e apresentação.
-- Só leitura: Id, Indicadores, tardias, folgas, Crítica, linha de base, Decorrido, % alvo, Desvio e Variação. Nas linhas de **resumo**, duração, datas, %, predecessoras, restrição e prazo também são calculadas ("Resumo calculado das subtarefas").
+- Só leitura: Id, Indicadores, tardias, folgas, Crítica, linha de base, Decorrido, % alvo, Desvio e Variação. Nas linhas de **resumo**, duração, datas, %, restrição e prazo também são calculadas ("Resumo calculado das subtarefas"); as **predecessoras** do resumo se editam desde 16/11/2026.
 
 ## Linha 0
 
@@ -215,6 +215,7 @@ A primeira linha resume o plano inteiro, como a tarefa de resumo do projeto no P
       'recuar',
       'diminuir recuo',
       'excluir tarefa',
+      'excluir várias tarefas',
       'vincular',
       'desvincular',
       'atalhos',
@@ -249,13 +250,17 @@ Ctrl+D copia a primeira linha da seleção para as de baixo, com as mesmas regra
 ## Item e subitem (recuo)
 
 - "Recuar" (Alt+Shift+→ ou Cmd+Alt+→) torna as linhas selecionadas subitens da linha de cima, que vira **resumo**. "Diminuir recuo" (Alt+Shift+← ou Cmd+Alt+←) faz o inverso. Com um intervalo selecionado, os dois agem em todas as linhas dele e levam as subtarefas junto (inclusive recolhidas), numa só entrada do desfazer.
-- Resumo não tem datas próprias: início, término, duração e % vêm dos subitens. Ao virar resumo, a linha **perde vínculos, datas reais, restrição e prazo final**; informe-os nas subtarefas.
+- Resumo não tem datas próprias: início, término, duração e % vêm dos subitens. Ao virar resumo, a linha **perde datas reais, restrição e prazo final**; informe-os nas subtarefas.
 - Recusas: "A primeira linha selecionada não pode recuar." e "Há linha no nível 0 na seleção." (não dá para diminuir o recuo de quem já está no nível 0).
 - No Mac, Cmd+Alt+setas pode ser capturado pelo Chrome (troca de aba); Alt+Shift+setas sempre funciona.
 
 ## Excluir
 
 O botão de lixeira ("Excluir tarefa e subitens") pergunta "Excluir X e N subitens?". A exclusão leva os subitens e os vínculos da tarefa, fica no rascunho, se desfaz com Ctrl+Z e só vai ao banco em "Revisar e salvar".
+
+**Várias tarefas de uma vez** (16/11/2026): selecione as linhas com Shift+clique ou Shift+setas (em qualquer coluna) e use a lixeira, que passa a dizer "Excluir as N tarefas selecionadas". A pergunta é uma só, "Excluir N tarefas e M subitens?", com a lista das linhas (Id · nome, até 8 e "e mais N"). Cada linha leva os subitens, inclusive recolhidos; a subtarefa selecionada junto com o resumo dela não conta duas vezes. Saem também todos os vínculos que tocam qualquer tarefa excluída, e as sucessoras são reagendadas. É um passo só do Ctrl+Z.
+
+**Tecla Delete** (ou o Backspace do Mac) com a seleção no **Id** ou no **Nome da tarefa** faz o mesmo que a lixeira, como no Project, sempre perguntando antes. Nas outras colunas a tecla não faz nada. Depois de excluir, a seleção fica na linha que subiu para o lugar, e o teclado continua na grade. Com filtro ou busca ativos e com a grade bloqueada, excluir não funciona (limpe o filtro ou libere a edição). Linhas que não ficam juntas na grade: exclua em mais de uma vez.
 
 ## Vincular e desvincular
 
@@ -303,6 +308,8 @@ No Gantt, com a edição liberada: arrastar a barra muda o início (cria "Não i
       'dias sem trabalho',
       'feriados',
       'recesso',
+      'vínculo com resumo',
+      'vincular grupo',
     ],
     screen: 'medio-prazo',
     body: `## Como escrever predecessoras
@@ -325,7 +332,16 @@ Sem tipo, vale TI; sem unidade, a defasagem é em **dias úteis** do calendário
 - **TT (Término-a-término)**: a sucessora termina quando a predecessora termina.
 - **IT (Início-a-término)**: a sucessora termina quando a predecessora começa (no dia útil anterior).
 
-Vínculo só nas subtarefas, nunca nos resumos ("Vínculos ficam nas subtarefas, não nos resumos.").
+## Vínculo com resumo (grupo)
+
+Desde 16/11/2026 um resumo também é predecessora e sucessora, como no Project:
+- **Resumo como sucessora**: o vínculo vale para **todas as subtarefas** dele, em qualquer nível. Com "12" na coluna Predecessoras do resumo, nenhuma subtarefa começa antes de a linha 12 terminar. Subtarefa com predecessora própria mais tarde segue a mais tarde. Só entram **Término-Início e Início-Início**; TT ou IT chegando a um resumo é recusado: "Resumo como sucessora aceita só Término-Início ou Início-Início, como no Project."
+- **Resumo como predecessora**: vale o **envelope** do grupo — Término-Início e Término-Término usam o término da última subtarefa; Início-Início e Início-Término, o início da primeira. Qualquer tipo é aceito. Na passada inversa, todas as subtarefas ficam limitadas pela sucessora do resumo (a que segura o término fica crítica; as mais curtas ganham folga).
+- Resumo e as próprias subtarefas não se vinculam: "Um resumo não se vincula às próprias subtarefas." Ciclo através de resumos é recusado como os outros: "Essa ligação criaria um ciclo entre as linhas."
+- Onde se faz: coluna Predecessoras da linha do resumo, aba Predecessoras das Informações da tarefa (o resumo aparece com "(resumo)" na lista), botão Vincular (o resumo entra na seleção quando nenhuma subtarefa dele está junto; se estiver, quem se liga são as subtarefas) e arrastando a barra do resumo para fora da linha no Gantt (a barra do resumo continua sem mover nem esticar).
+- Ao recuar, a linha que vira resumo **mantém os vínculos**; saem só os que passam a ligar o resumo às próprias subtarefas e os TT ou IT que chegam nele, com o aviso "N vínculos saíram".
+- Indicadores: quando uma subtarefa ainda não iniciada fica presa antes da predecessora do resumo (por "Deve iniciar em", por exemplo), o "vínculo desrespeitado" acende **no resumo** e a folga negativa aparece na subtarefa. Subtarefa já iniciada não conta como conflito: o restante dela espera a predecessora.
+- A exportação .xml leva o vínculo no resumo, como o Project grava.
 
 ## Cuidado com o Id
 

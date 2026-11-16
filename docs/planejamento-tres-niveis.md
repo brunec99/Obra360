@@ -290,7 +290,7 @@ O usuário pediu que a aba 3 ficasse mais parecida com o MS Project, que é onde
   - linha verde de hoje, tracejado no início e no fim do horizonte, sombra fora do horizonte e nos dias não úteis;
   - clique na barra seleciona a linha na tabela.
   As funções de layout são puras e testadas em `tests/gantt-chart.test.ts`.
-- **Ferramentas e teclado do Project**: Inserir tarefa acima da selecionada (Insert), recuar e diminuir o recuo (Alt+Shift+→/←), Vincular as selecionadas em TI (Ctrl+F2), Desvincular (Ctrl+Shift+F2) e Excluir. Mantidos: cadeado, desfazer e refazer, Ctrl+D, copiar e colar, filtros e modo reunião. Recuar uma linha que vira resumo tira dela os vínculos e as datas reais, que passam a ficar nas subtarefas.
+- **Ferramentas e teclado do Project**: Inserir tarefa acima da selecionada (Insert), recuar e diminuir o recuo (Alt+Shift+→/←), Vincular as selecionadas em TI (Ctrl+F2), Desvincular (Ctrl+Shift+F2) e Excluir. Mantidos: cadeado, desfazer e refazer, Ctrl+D, copiar e colar, filtros e modo reunião. Recuar uma linha que vira resumo tira dela os vínculos e as datas reais, que passam a ficar nas subtarefas. *(Revisto em 16/11/2026: os vínculos ficam no resumo, menos os que passariam a ligá-lo às próprias subtarefas e os TT/IT que chegam nele; ver "Vínculo com resumo".)*
 - **Horizonte**: o cabeçalho mostra "Horizonte de três meses: Ter 01/09/26 a Seg 30/11/26". Tarefas fora dele recebem indicador e aviso e têm o filtro "Fora do horizonte". São sinalizadas, **não bloqueadas**, porque a rede pode empurrar uma tarefa para fora.
 - **Novo cronograma do mês**: o mês seguinte ao último vem sugerido, junto com "Cópia de ‹mês›" ou "Em branco".
 - **Linha de base**: a mais recente aparece por padrão (o Project mostra a base sempre).
@@ -521,7 +521,7 @@ O usuário pediu a aba 3 "o mais próximo possível do MS Project" e que se busc
 ### Tela (`schedule-sheet.tsx` + `gantt-chart.tsx`)
 
 - **Colunas novas**, todas ocultas por padrão (a tabela padrão continua igual ao print do Project): Tipo de restrição (lista com os oito tipos, em português; aceita também a sigla NIAD/NIDD/NTAD/NTDD/DIE/DTE/OMBP/OMTP ou o código ao colar), Data da restrição, Prazo final, Início tardio, Término tardio, Folga total, Folga livre e Crítica (Sim/Não). As três primeiras são só de subtarefa; as demais valem para resumo e para a linha 0 (término tardio = fim do projeto).
-- **Edição como no Project**: digitar o início cria "Não iniciar antes de" na data; digitar o término recalcula a duração **e** cria "Não terminar antes de"; escolher um tipo com data numa tarefa sem data usa o início (ou o término) atual; digitar uma data de restrição numa tarefa sem restrição cria NIAD; apagar a data volta a "O mais breve possível". Tarefa nova nasce sem restrição. Recuar uma linha que vira resumo tira dela restrição e prazo, além de vínculos e datas reais. Decisão a confirmar com o usuário: digitar o início numa tarefa que já tinha DIE/NIDD troca o tipo para NIAD (o Project mantém o tipo e troca só a data em alguns casos).
+- **Edição como no Project**: digitar o início cria "Não iniciar antes de" na data; digitar o término recalcula a duração **e** cria "Não terminar antes de"; escolher um tipo com data numa tarefa sem data usa o início (ou o término) atual; digitar uma data de restrição numa tarefa sem restrição cria NIAD; apagar a data volta a "O mais breve possível". Tarefa nova nasce sem restrição. Recuar uma linha que vira resumo tira dela restrição e prazo, além de vínculos e datas reais (desde 16/11/2026 os vínculos ficam; ver "Vínculo com resumo"). Decisão a confirmar com o usuário: digitar o início numa tarefa que já tinha DIE/NIDD troca o tipo para NIAD (o Project mantém o tipo e troca só a data em alguns casos).
 - **Indicadores**: restrição (azul = semiflexível, vermelho = inflexível, cinza = OMTP; o texto diz "segurando a data" quando é ela, e não a rede, que fixa o início), prazo final perdido e vínculo desrespeitado, sempre com ícone e texto.
 - **Gantt de acompanhamento**: barra **vermelha** para tarefa e marco críticos ("Caminho crítico", ligado por padrão, como no Gantt de acompanhamento do Project); **linha de folga** do fim da barra até o término tardio ("Folga", desligado por padrão); **seta de prazo final** verde, vermelha quando perdido; borda tracejada no vínculo desrespeitado; e o **"Caminho da tarefa"** do Project 2013 (desligado por padrão): com uma linha selecionada, predecessoras determinantes em âmbar cheio, demais predecessoras em âmbar claro, sucessoras determinadas em roxo cheio, demais sucessoras em roxo claro, vínculo determinante mais grosso e o resto apagado. As três opções ficam no grupo "Exibir" e são lembradas por pessoa e plano, como as outras preferências. Tudo o que a cor diz está também no texto da dica e do rótulo acessível.
 - Filtros novos: Críticas, Com vínculo desrespeitado, Prazo final perdido. Barra de status: quantas críticas e o fim do projeto. Painel de detalhes: datas tardias, folgas, crítica, restrição, prazo final e as predecessoras determinantes (pelo Id da linha). Diálogo de revisão e histórico mostram os três campos novos; `anchorStart` aparece no histórico antigo como "Não iniciar antes de (antigo)".
@@ -1042,7 +1042,7 @@ Antes de codar, o modelo da tela foi publicado com as regras numeradas e a carga
 3. **Recursos viram equipes:** liga à equipe da obra quando o nome bate (sem diferenciar acento e maiúscula, também no formato "EMPRESA - NOME", e "EMPRESA - NOME" casa com a equipe NOME da empresa que começa por EMPRESA, como "ATR - Adenir" com "adenir · ATR OBRA"). Sem candidata única, sugere criar a equipe com o nome do Project e a empresa antes do " - " (a empresa que já existe na obra mantém a grafia de lá). Na conferência dá para trocar cada um por outra equipe ou "Sem recurso". A equipe criada nasce com capacidade 1 (as "Unidades máximas" de 100% do Project) e aparece também no curto prazo.
 4. **Linha de base:** a linha de base 0 do Project vira uma linha de base congelada do cronograma, "Linha de base do Project", já exibida no Gantt. Folha sem base fica fora dela (no Project aparece sem base); resumo entra sempre, para a estrutura não mudar.
 5. **Calendário:** dias úteis, horas por dia e dias sem trabalho do calendário do projeto, inclusive períodos (recesso de fim de ano). Dia trabalhado fora do normal e calendário por recurso não existem no sistema e geram aviso.
-6. **O que o sistema não tem:** tarefa manual vira automática com "Não iniciar antes de" na data dela; inativa não entra; linha em branco é ignorada; defasagem em horas ou % vira dias; vínculo com tarefa-resumo passa para as subtarefas (o sistema só vincula subtarefas): o que chega no resumo vai para as subtarefas sem predecessora dentro dele, o que sai, das subtarefas sem sucessora dentro dele. Cada caso vira um aviso na conferência.
+6. **O que o sistema não tem:** tarefa manual vira automática com "Não iniciar antes de" na data dela; inativa não entra; linha em branco é ignorada; defasagem em horas ou % vira dias; vínculo com tarefa-resumo passa para as subtarefas (o sistema só vincula subtarefas): o que chega no resumo vai para as subtarefas sem predecessora dentro dele, o que sai, das subtarefas sem sucessora dentro dele. Cada caso vira um aviso na conferência. *(Revisto em 16/11/2026: o vínculo com tarefa-resumo entra no próprio resumo, como no arquivo; o que liga o resumo às próprias subtarefas sai com `vinculo_resumo_proprio`, e o TT ou IT que chega a um resumo, com `vinculo_resumo_termino`. O aviso `vinculo_resumo` deixou de existir.)*
 7. **Datas:** o sistema refaz a rede ao gravar, como o Project faz ao abrir, e a conferência lista antes as tarefas cuja data ficaria diferente do arquivo.
 8. **Quem pode:** quem já cria cronograma do mês (planejador, gestor ou admin com o módulo de médio prazo). Continua valendo um plano vivo por mês por obra.
 
@@ -1080,7 +1080,7 @@ Essenza, Mozine, Bioma, Nova Sede e SEPAT não tinham arquivo e seguem sem crono
 
 ### Validação (08/11/2026)
 
-- **Testes novos:** `tests/mspdi-import.test.ts` (15: níveis, nulas e inativas, formatos de duração, marco, manual, estimada, restrições, vínculos nos quatro tipos com defasagem útil, corrida, negativa e em horas, vínculo com resumo, recursos, calendário com recesso, feriado e exceção de dia útil, linha de base, entidades e BOM, XML que não é do Project, e ida e volta com `buildMspdi`), `tests/plan-import-command.test.ts` (7: gravação completa com equipe existente, equipe criada, vínculo, datas pela rede, feriado e linha de base; equipe reaproveitada; sem linha de base; 14 recusas; mês ocupado; ciclo; módulo) e `tests/plan-import.test.ts` (3: sugestão de equipes, montagem do comando e comparação de datas).
+- **Testes novos:** `tests/mspdi-import.test.ts` (15, 16 desde 16/11/2026: níveis, nulas e inativas, formatos de duração, marco, manual, estimada, restrições, vínculos nos quatro tipos com defasagem útil, corrida, negativa e em horas, vínculo com resumo, recursos, calendário com recesso, feriado e exceção de dia útil, linha de base, entidades e BOM, XML que não é do Project, e ida e volta com `buildMspdi`), `tests/plan-import-command.test.ts` (7: gravação completa com equipe existente, equipe criada, vínculo, datas pela rede, feriado e linha de base; equipe reaproveitada; sem linha de base; 14 recusas; mês ocupado; ciclo; módulo) e `tests/plan-import.test.ts` (3: sugestão de equipes, montagem do comando e comparação de datas).
 - **Arquivos reais:** leitura de 1 a 23 ms por arquivo; o motor sobre o rascunho chega às datas do Project em 655 de 656 folhas.
 - **Navegador:** a gaveta foi aberta numa página de prévia temporária com `next dev` e as APIs respondidas pelo Playwright com as regras reais (`applyCommand` sobre os dados de exemplo), com o XML real da Blentt. Em 1440 px: o .mpp é recusado com a explicação, a conferência aparece com os números do arquivo, a troca de equipe de um recurso funciona, "Criar cronograma de Nov/26" grava (290 tarefas) e avisa "Cronograma importado do Project", sem erro de console. Em 400 px, sem rolagem lateral. A primeira passada achou a gaveta cortada à direita no celular (o `fieldset` não encolhia; ganhou `min-w-0`) e o nome do arquivo repetido; os dois foram corrigidos. **Não foi aberta no app logado.**
 
@@ -1569,3 +1569,119 @@ Sem migração e sem mudança de dado.
 - Os feriados estaduais e municipais não são conhecidos: o sistema não sabe a cidade da obra. Marcam-se à mão.
 - Não há "dia trabalhado fora do normal" (um sábado de trabalho num calendário de segunda a sexta), nem calendário por recurso, como já era antes.
 - Os dias sem trabalho são de cada cronograma. O mês seguinte nasce como cópia e os leva junto, mas não há calendário da obra compartilhado entre os cronogramas.
+
+## Médio prazo: excluir várias tarefas de uma vez (16/11/2026)
+
+### Pedido
+
+"Ainda no médio prazo, permita excluir mais de uma tarefa." Até aqui a lixeira excluía só a tarefa ativa, com os subitens dela. Mesmo com um intervalo selecionado, era preciso excluir linha por linha, com uma pergunta e um passo do desfazer para cada uma.
+
+### Comportamento entregue
+
+- **A lixeira exclui o intervalo selecionado.** A seleção é feita com Shift+clique ou Shift+setas, em qualquer coluna, a mesma que o recuo e o vínculo já usavam. O botão diz "Excluir as N tarefas selecionadas e os subitens (Delete)". Com uma linha só, diz como selecionar várias.
+- **Uma pergunta só.**
+  - Com várias linhas: "Excluir 3 tarefas?" ou "Excluir 3 tarefas e 2 subitens?", com a lista das linhas escolhidas (Id · nome; até 8, depois "e mais N").
+  - Com uma linha, a pergunta de antes: "Excluir “Estrutura” e 2 subitens?". O singular "1 subitem" foi corrigido; antes saía "1 subitens".
+  - Um resumo selecionado junto com subtarefas dele conta como uma raiz só.
+- **O que sai** (`removeTasks`, puro, em `schedule-sheet.tsx`):
+  - cada linha escolhida, com a subárvore inteira, inclusive o que está recolhido;
+  - todos os vínculos que tocam qualquer tarefa excluída.
+
+  A ordem é renumerada e a rede reagenda as sucessoras. Tirar subárvores inteiras não deixa nível pulado. O resumo que perde todos os filhos vira tarefa comum, como já acontecia ao excluir o último subitem. Tudo é um passo só do Ctrl+Z, e a exclusão fica no rascunho até "Revisar e salvar".
+- **Tecla Delete** (ou o Backspace do Mac) com a seleção no **Id** ou no **Nome da tarefa**: faz o mesmo que a lixeira, sempre perguntando antes, como o Delete no nome da tarefa do Project. Nas outras colunas a tecla continua sem efeito. Com o editor da célula aberto, ela apaga texto, como sempre.
+- Depois de excluir, a seleção e o foco ficam na linha que subiu para o lugar da primeira excluída (ou na última que sobrou), e as setas continuam funcionando.
+- Mantido como era:
+  - com filtro ou busca ativos, a exclusão não roda, como as outras operações de estrutura;
+  - com a grade bloqueada, também não;
+  - linhas que não ficam juntas na grade se excluem em mais de uma vez. Não há Ctrl+clique para escolher linhas soltas.
+- Vale também no Gantt de legalização (mesma grade). Manual da Claudia (seção "Editar a grade", palavra-chave "excluir várias tarefas") e passo "Excluir tarefas" do tour atualizados. **Sem migração.**
+
+### Validação (16/11/2026)
+
+- `tests/plan-remove.test.ts` (4 testes):
+  - três linhas soltas com vínculos;
+  - resumo com subtarefa recolhida e subtarefa escolhida dentro dele;
+  - subtarefas que saem sem levar o resumo, com a estrutura válida;
+  - nada escolhido e tudo escolhido.
+- Navegador: `next dev` na 3102, Supabase falso e Playwright. O cronograma tinha seis linhas, Estrutura (resumo com Formas e Armação), Alvenaria, Reboco e Pintura, com Armação → Reboco → Pintura. Casos conferidos:
+  - Shift+clique de Alvenaria a Pintura e lixeira: o botão disse "Excluir as 3 tarefas selecionadas…", a pergunta listou "4 · Alvenaria, 5 · Reboco, 6 · Pintura" e as três saíram, com o foco na última linha;
+  - um Ctrl+Z trouxe as três de volta;
+  - Estrutura + Formas (Shift+↓): "Excluir “Estrutura” e 2 subitens?", e Cancelar não mudou nada;
+  - Delete no Nome de Reboco: perguntou, excluiu e tirou o vínculo de Pintura. O foco foi para Pintura, e ↑ andou para a linha de cima;
+  - Delete na Duração não fez nada;
+  - Backspace no Id com Formas…Alvenaria: "Excluir 3 tarefas?", e ficaram Estrutura e Pintura;
+  - sem erro de console.
+- **Não validado:** uso logado no servidor da ATR.
+
+## Médio prazo: vínculo com resumo (grupo) como predecessora e sucessora (16/11/2026)
+
+### Pedido
+
+"Permita ligar uma tarefa a um grupo como predecessora e antecessora." Até aqui só as subtarefas se vinculavam. O motor recusava qualquer vínculo com resumo ("Vincule as subtarefas, não as tarefas-resumo."), a coluna Predecessoras do resumo era calculada, o Vincular pulava os resumos, a barra do resumo no Gantt não se vinculava, e a importação do Project espalhava pelas subtarefas os vínculos que o arquivo tinha nos resumos.
+
+### Regras do motor (`analyzeSchedule`, `src/domain/plan-schedule.ts`)
+
+Seguem o Project. O resumo virou um nó da rede:
+- **Resumo como sucessora:** o vínculo vale para **todas as folhas** abaixo dele, em qualquer nível. Cada subtarefa herda a predecessora, e quem tem uma predecessora própria mais tarde segue a mais tarde. Só entram vínculos que chegam no início, **TI e II**. TT ou IT para um resumo é recusado: "Resumo como sucessora aceita só Término-Início ou Início-Início, como no Project."
+- **Resumo como predecessora:** a sucessora enxerga o **envelope** do resumo: o início mais cedo e o término mais tarde das folhas. Qualquer tipo é aceito: TI e TT usam o término do grupo; II e IT, o início.
+- **Ordem da rede:** o resumo entra depois de todas as folhas dele, e o vínculo que chega a um resumo chega a cada folha. O ciclo que só existe através de resumos é pego pela mesma mensagem, "Essa ligação criaria um ciclo entre as linhas.". Resumo e as próprias subtarefas (ou os resumos acima) não se vinculam: "Um resumo não se vincula às próprias subtarefas."
+- **Passada inversa:**
+  - O vínculo de uma tarefa para um resumo limita o término tardio dela pelo menor início tardio das folhas do resumo.
+  - O resumo com sucessora impõe um término tardio a todas as subtarefas dele. Num vínculo que sai do término (TI, TT), é o limite da sucessora. Num que sai do início (II, IT), é esse limite mais a duração do envelope.
+  - Na prática, a subtarefa que segura o término do grupo fica crítica, e as mais curtas ganham folga.
+- **Folga livre:** conta o vínculo que sai do término de um resumo acima da tarefa.
+- **Indicadores:**
+  - o "vínculo desrespeitado" de um vínculo herdado acende no **resumo**, quando alguma subtarefa ainda não iniciada fica presa antes da predecessora (por "Deve iniciar em", por exemplo);
+  - a subtarefa fica com a folga negativa;
+  - subtarefa já iniciada não conta como conflito: o restante dela espera a predecessora, como no "dividir tarefas em andamento".
+- **Predecessoras determinantes:** a predecessora herdada aparece na subtarefa que ela segura.
+
+### Tela
+
+- **Coluna Predecessoras:** passa a ser editável na linha do resumo (saiu de `LEAF_ONLY`), digitando, colando ou copiando.
+- **Informações da tarefa:**
+  - a aba Predecessoras libera o resumo e explica a regra;
+  - a lista de predecessoras não oferece mais a própria tarefa, as subtarefas dela e os resumos acima, que seriam recusados;
+  - os resumos aparecem com "(resumo)".
+- **Vincular e Desvincular:** o resumo entra na seleção como uma tarefa a mais, menos quando alguma subtarefa dele também está selecionada. Nesse caso quem se liga são as subtarefas, como antes.
+- **Gantt:** arrastar a barra do resumo para fora da linha cria o vínculo, como nas outras barras, e a barra do resumo também serve de alvo. Ela continua sem mover, esticar ou puxar avanço.
+- **Recuo:** a linha que vira resumo **mantém os vínculos**. Saem só os que a estrutura nova recusa (`linksForStructure`): resumo com as próprias subtarefas e TT ou IT chegando a um resumo. O aviso "N vínculos saíram" explica.
+- **Textos:** a dica "Durações e predecessoras" explica a regra. Manual da Claudia (seção "Predecessoras", com "Vínculo com resumo (grupo)") e tour atualizados.
+
+### Importação e exportação
+
+- **Importação do Project** (`mspdi-import.ts`, feita por um agente em paralelo): o vínculo com resumo entra **no próprio resumo**, como no arquivo. A redistribuição pelas subtarefas e o aviso `vinculo_resumo` saíram.
+  - O vínculo que liga um resumo às próprias subtarefas continua descartado (`vinculo_resumo_proprio`).
+  - O TT ou IT que chega a um resumo é descartado com o aviso novo `vinculo_resumo_termino`: "Vínculos que chegam ao término de uma tarefa-resumo (TT ou IT) foram descartados: o Project só aceita Término-Início e Início-Início com o resumo como sucessora."
+  - O `dropCycles` passou a montar a mesma rede do motor, então o ciclo que só existe através de resumos é descartado na importação, com `vinculo_ciclo`.
+- **Exportação .xml** (`mspdi.ts`): o vínculo vai no resumo, como o Project grava. A folha cujo resumo tem predecessora deixou de ganhar "Não iniciar antes de" e de contar para o início do projeto, porque ela herda a predecessora.
+
+Nada muda no banco: o vínculo continua sendo uma linha de `plan_dependencies`, agora com uma ponta num resumo. **Sem migração.** O servidor valida pelo mesmo motor no "Revisar e salvar".
+
+### Validação (16/11/2026)
+
+- Testes novos e revistos:
+  - `tests/plan-summary-links.test.ts` (10): resumo como predecessora e como sucessora, resumo intermediário, resumo para resumo, subtarefa com predecessora própria, II com defasagem, prazo final, subtarefa presa antes (conflito no resumo), subtarefa iniciada (sem conflito) e as recusas;
+  - `tests/sheet-columns.test.ts`: o recuo mantém os vínculos válidos, e há um teste novo de `linksForStructure`;
+  - `tests/gantt-chart.test.ts`: o resumo se vincula e serve de alvo;
+  - `tests/mspdi-import.test.ts`: 16 testes.
+- Os cenários da bancada conferida no Project (`tests/fixtures/cenarios-project.ts`, rodados por `tests/plan-cpm.test.ts`) continuam passando sem mudança.
+- Navegador, com `next dev` na 3102, Supabase falso e Playwright:
+  - "1" na Predecessoras da Estrutura (resumo) levou Formas e Armação para depois da Fundação;
+  - "2" na Alvenaria fez ela esperar a Armação, a subtarefa mais longa;
+  - "1TT" no resumo e "2" na Formas (a subtarefa do próprio resumo) mostraram as recusas;
+  - o arrasto da barra da Estrutura até o Reboco criou o vínculo, com a dica "De: Estrutura, Para: Reboco";
+  - recuar o Reboco sob a Alvenaria manteve os vínculos dos dois;
+  - nas Informações da Estrutura, a lista de predecessoras saiu sem as subtarefas dela;
+  - sem erro de console.
+- **Conferência no Project real: pendente.**
+  - Os 20 cenários estão em `scripts/ms-project/cenarios-resumo.json`, com R01 a R20: tipos, aninhamento, prazo final, restrição, tarefa em andamento e as três recusas.
+  - O motor calcula os 17 cenários válidos com os resultados esperados pela regra do Project.
+  - A VM "Windows" ligou, mas o login automático do Windows estava desligado (`AutoAdminLogon` vazio) e ninguém estava logado, então a tarefa agendada que abre o Project não rodou.
+  - Para conferir: entrar na VM e rodar `exportar-cenarios.ts` com esse arquivo, `vm.sh enviar` (com `entrada.txt` = `resumo,resumo-project`), `montar-no-project.ps1` e `comparar.py` (ver `docs/engenharia-reversa-project.md`).
+  - Pontos que só o Project responde:
+    - a passada inversa do resumo com sucessora II ou IT (R04, R06, R18);
+    - se o Project lista a predecessora herdada como determinante da subtarefa;
+    - a folga livre das subtarefas;
+    - as mensagens das três recusas.
+- **Não validado:** uso logado no servidor da ATR.

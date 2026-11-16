@@ -1,0 +1,246 @@
+[
+  {
+    "nome": "R01 resumo predecessora TI",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "3d", "nivel": 1 },
+      { "id": "A2", "dur": "5d", "nivel": 1 },
+      { "id": "B", "dur": "2d" }
+    ],
+    "vinculos": [{ "de": "A", "para": "B" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R02 resumo sucessora TI",
+    "tarefas": [
+      { "id": "P", "dur": "3d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "2d", "nivel": 1 },
+      { "id": "S2", "dur": "4d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "P", "para": "S" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R03 resumo sucessora com vinculo interno",
+    "tarefas": [
+      { "id": "P", "dur": "3d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "2d", "nivel": 1 },
+      { "id": "S2", "dur": "2d", "nivel": 1 },
+      { "id": "Z", "dur": "1d" }
+    ],
+    "vinculos": [
+      { "de": "P", "para": "S" },
+      { "de": "S1", "para": "S2" },
+      { "de": "S2", "para": "Z" }
+    ],
+    "esperado": {}
+  },
+  {
+    "nome": "R04 resumo predecessora II",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "2d", "nivel": 1, "inicio": "2026-09-09" },
+      { "id": "A2", "dur": "3d", "nivel": 1, "inicio": "2026-09-07" },
+      { "id": "B", "dur": "2d" }
+    ],
+    "vinculos": [{ "de": "A", "para": "B", "tipo": "II", "lag": 1 }],
+    "esperado": {}
+  },
+  {
+    "nome": "R05 resumo predecessora TT",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "2d", "nivel": 1 },
+      { "id": "A2", "dur": "4d", "nivel": 1 },
+      { "id": "B", "dur": "2d" }
+    ],
+    "vinculos": [{ "de": "A", "para": "B", "tipo": "TT" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R06 resumo predecessora IT",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "2d", "nivel": 1, "inicio": "2026-09-14" },
+      { "id": "A2", "dur": "4d", "nivel": 1, "inicio": "2026-09-16" },
+      { "id": "B", "dur": "2d" }
+    ],
+    "vinculos": [{ "de": "A", "para": "B", "tipo": "IT" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R07 resumo sucessora II com defasagem",
+    "tarefas": [
+      { "id": "P", "dur": "4d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "2d", "nivel": 1 },
+      { "id": "S2", "dur": "3d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "P", "para": "S", "tipo": "II", "lag": 2 }],
+    "esperado": {}
+  },
+  {
+    "nome": "R08 resumo para resumo",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "2d", "nivel": 1 },
+      { "id": "A2", "dur": "3d", "nivel": 1 },
+      { "id": "B", "dur": "1d" },
+      { "id": "B1", "dur": "2d", "nivel": 1 },
+      { "id": "B2", "dur": "1d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "A", "para": "B" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R09 resumo intermediario",
+    "tarefas": [
+      { "id": "P", "dur": "2d" },
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "1d", "nivel": 1 },
+      { "id": "A11", "dur": "2d", "nivel": 2 },
+      { "id": "A12", "dur": "3d", "nivel": 2 },
+      { "id": "A2", "dur": "2d", "nivel": 1 },
+      { "id": "X", "dur": "1d" }
+    ],
+    "vinculos": [
+      { "de": "P", "para": "A1" },
+      { "de": "A1", "para": "A2" },
+      { "de": "A", "para": "X" }
+    ],
+    "esperado": {}
+  },
+  {
+    "nome": "R10 sucessora resumo e filho com outra predecessora",
+    "tarefas": [
+      { "id": "P", "dur": "2d" },
+      { "id": "Q", "dur": "5d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "2d", "nivel": 1 },
+      { "id": "S2", "dur": "2d", "nivel": 1 }
+    ],
+    "vinculos": [
+      { "de": "P", "para": "S" },
+      { "de": "Q", "para": "S2" }
+    ],
+    "esperado": {}
+  },
+  {
+    "nome": "R11 sucessora resumo com filho preso antes",
+    "tarefas": [
+      { "id": "P", "dur": "3d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "2d", "nivel": 1, "restricao": { "tipo": "MSO", "data": "2026-09-08" } },
+      { "id": "S2", "dur": "2d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "P", "para": "S" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R12 TT para resumo",
+    "tarefas": [
+      { "id": "P", "dur": "3d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "2d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "P", "para": "S", "tipo": "TT" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R13 IT para resumo",
+    "tarefas": [
+      { "id": "P", "dur": "3d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "2d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "P", "para": "S", "tipo": "IT" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R14 resumo com a propria subtarefa",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "2d", "nivel": 1 },
+      { "id": "A2", "dur": "2d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "A", "para": "A2" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R15 resumo predecessora TI com dias corridos",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "3d", "nivel": 1 },
+      { "id": "A2", "dur": "4d", "nivel": 1 },
+      { "id": "B", "dur": "2d" }
+    ],
+    "vinculos": [{ "de": "A", "para": "B", "lag": 2, "corrido": true }],
+    "esperado": {}
+  },
+  {
+    "nome": "R16 sucessora resumo com marco",
+    "tarefas": [
+      { "id": "P", "dur": "2d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "0d", "nivel": 1 },
+      { "id": "S2", "dur": "2d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "P", "para": "S" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R17 prazo final depois do resumo",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "2d", "nivel": 1 },
+      { "id": "A2", "dur": "4d", "nivel": 1 },
+      { "id": "B", "dur": "3d", "prazo": "2026-09-14" },
+      { "id": "C", "dur": "6d" }
+    ],
+    "vinculos": [{ "de": "A", "para": "B" }],
+    "esperado": {}
+  },
+  {
+    "nome": "R18 II resumo sem caminho no inicio",
+    "tarefas": [
+      { "id": "A", "dur": "1d" },
+      { "id": "A1", "dur": "2d", "nivel": 1 },
+      { "id": "A2", "dur": "3d", "nivel": 1 },
+      { "id": "B", "dur": "2d" },
+      { "id": "C", "dur": "8d" }
+    ],
+    "vinculos": [
+      { "de": "A", "para": "B", "tipo": "II" },
+      { "de": "A1", "para": "A2" }
+    ],
+    "esperado": {}
+  },
+  {
+    "nome": "R19 resumo sucessora com predecessora de dentro",
+    "tarefas": [
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "2d", "nivel": 1 },
+      { "id": "S2", "dur": "2d", "nivel": 1 },
+      { "id": "T", "dur": "1d" },
+      { "id": "T1", "dur": "3d", "nivel": 1 }
+    ],
+    "vinculos": [
+      { "de": "S1", "para": "T" },
+      { "de": "T", "para": "S2" }
+    ],
+    "esperado": {}
+  },
+  {
+    "nome": "R20 resumo em andamento com filho iniciado",
+    "tarefas": [
+      { "id": "P", "dur": "3d" },
+      { "id": "S", "dur": "1d" },
+      { "id": "S1", "dur": "4d", "nivel": 1, "inicioReal": "2026-09-07", "progresso": 50 },
+      { "id": "S2", "dur": "2d", "nivel": 1 }
+    ],
+    "vinculos": [{ "de": "P", "para": "S" }],
+    "esperado": {}
+  }
+]

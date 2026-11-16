@@ -176,6 +176,19 @@ O plano continua guardando dias. Dentro do `analyzeSchedule`, cada data é um **
 - **Determinante com TT corrido e II**: no V1, o Inspetor de tarefas lista a predecessora do II, embora o início saia do TT; o motor lista a do TT.
 - Continuam valendo as da seção "Diferenças conhecidas em relação ao Project", acima: defasagem em %, restrição em resumo, tarefas manuais e o resto.
 
+## Vínculo com resumo (16/11/2026)
+
+O motor passou a aceitar vínculo com tarefa-resumo, como o Project. As regras e a tela estão em `docs/planejamento-tres-niveis.md`, seção "Vínculo com resumo".
+- O resumo como sucessora empurra todas as folhas abaixo dele e só aceita TI e II.
+- O resumo como predecessora usa o envelope das folhas.
+- Na passada inversa, o resumo com sucessora limita o término tardio de todas as subtarefas.
+- O vínculo com as próprias subtarefas é recusado.
+
+A conferência no Project 2019 ficou pendente porque a VM estava sem login. Os 20 cenários (R01–R20) estão em `scripts/ms-project/cenarios-resumo.json`, sem valores esperados. Depois de rodar `montar-no-project.ps1`, os valores do Project entram em `tests/fixtures/cenarios-project.ts` e o motor é acertado onde divergir. Os pontos em aberto são:
+- a passada inversa com II ou IT saindo do resumo;
+- a predecessora determinante herdada;
+- a folga livre das subtarefas.
+
 ## Pendências
 
 - O oráculo automático é o próprio Project, pelos scripts de `scripts/ms-project/`. Toda mudança no motor deve ser conferida de novo com os passos de "Como foi feito", e cada divergência vira cenário na fixture.

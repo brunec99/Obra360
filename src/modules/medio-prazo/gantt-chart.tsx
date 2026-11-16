@@ -618,8 +618,8 @@ export interface DragAbilities {
   progress: boolean;
   link: boolean;
 }
-/** O que cada barra aceita. Resumo não se arrasta: as datas dele vêm dos filhos, e o motor não
- * vincula resumos. A tarefa iniciada não se move — o início real é o que já aconteceu, e o motor
+/** O que cada barra aceita. Resumo não se arrasta: as datas dele vêm dos filhos; mas se vincula
+ * (16/11/2026), arrastando para fora da linha como as outras barras. A tarefa iniciada não se move — o início real é o que já aconteceu, e o motor
  * não o reprograma —, mas ainda se estica, recebe avanço e se vincula. A concluída não se estica
  * pelo mesmo motivo. Marco não se estica nem tem avanço para puxar. Cada ação também exige o
  * callback dela. */
@@ -632,7 +632,7 @@ export function barDragAbilities(
     move: on && !!handlers.move && !row.actualStart,
     resize: on && !!handlers.resize && !row.milestone && !row.actualEnd,
     progress: on && !!handlers.progress && !row.milestone,
-    link: on && !!handlers.link,
+    link: !!handlers.canEdit && !!handlers.link,
   };
 }
 
@@ -739,8 +739,8 @@ export function dragModeAt(origin: GanttDragOrigin, y: number, rowIndex: number,
 }
 
 /** Sucessora sob o ponteiro durante o vínculo: a linha na altura do ponteiro, com o ponteiro sobre
- * a barra dela (com `tolerance` px de cada lado, para barras curtas). Resumo e a própria tarefa
- * não servem. */
+ * a barra dela (com `tolerance` px de cada lado, para barras curtas). A própria tarefa não serve;
+ * o resumo serve (16/11/2026), e o motor recusa o vínculo com as próprias subtarefas. */
 export function linkTargetAt(
   point: { x: number; y: number },
   rows: readonly Pick<GanttRow, 'id' | 'summary'>[],
@@ -752,7 +752,7 @@ export function linkTargetAt(
   const index = Math.floor(point.y / rowHeight),
     row = rows[index],
     bar = bars[index];
-  if (!row || !bar || row.summary || row.id === sourceId) return undefined;
+  if (!row || !bar || row.id === sourceId) return undefined;
   return point.x >= bar.left - tolerance && point.x <= bar.right + tolerance ? row.id : undefined;
 }
 
@@ -1539,7 +1539,8 @@ export function GanttChart({
                       }}
                     />
                   )}
-                  {/* Resumo: colchete preto com as pontas voltadas para baixo, como no Project. Não se arrasta. */}
+                  {/* Resumo: colchete preto com as pontas voltadas para baixo, como no Project. Não se move nem
+                   * se estica; arrastar para fora da linha vincula. */}
                   <button
                     {...barProps}
                     className="absolute focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
@@ -1675,7 +1676,8 @@ export function GanttChart({
       top = dragIndex * rowHeight;
     const tone = barTone(row, { showCritical, showPath });
     const targetIndex = drag.target ? rows.findIndex(item => item.id === drag.target) : -1;
-    const locked = drag.mode === 'move' && !drag.dates && row.actualStart && ISO.test(row.actualStart) ? row.actualStart : undefined;
+    const locked =
+      drag.mode === 'move' && !drag.dates && !row.summary && row.actualStart && ISO.test(row.actualStart) ? row.actualStart : undefined;
     const showTip = drag.mode !== 'move' || !!drag.dates || !!locked;
     const tip = dragTooltip({
       mode: drag.mode,

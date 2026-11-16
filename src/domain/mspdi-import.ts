@@ -11,9 +11,11 @@ import { constraintNeedsDate, countedDays, planWindow, type TaskDuration, type W
  *    `<TimephasedData>` — a maior parte do arquivo, a distribuição de trabalho dia a dia — são
  *    pulados sem montar nó nenhum.
  * 2. `buildPlanImport` converte para o que o servidor aceita, nas regras do `save_plan_revision` e
- *    do motor (`analyzeSchedule`): resumo não tem vínculo, restrição, prazo final nem data real;
- *    defasagem é inteira (de -365 a 365); hierarquia não pula nível; % acima de zero exige início
- *    real e término real exige 100%. Tudo que muda no caminho vira aviso, agrupado por código.
+ *    do motor (`analyzeSchedule`): resumo não tem restrição, prazo final nem data real; vínculo com
+ *    resumo fica no resumo, como no Project (o motor passa às subtarefas), mas não com as próprias
+ *    subtarefas e, com o resumo como sucessora, só término-início ou início-início; defasagem é
+ *    inteira (de -365 a 365); hierarquia não pula nível; % acima de zero exige início real e término
+ *    real exige 100%. Tudo que muda no caminho vira aviso, agrupado por código.
  *
  * As datas planejadas que saem aqui são as do arquivo (o que o Project mostra); o servidor só
  * aceita as que o motor calcula, então a tela passa o rascunho pelo motor e compara com
@@ -192,8 +194,6 @@ export interface DraftLink {
   type: LinkType;
   lagDays: number;
   lagBusiness: boolean;
-  /** Veio de um vínculo com tarefa-resumo, passado para as subtarefas. */
-  redistributed?: boolean;
 }
 export interface ImportWarning {
   code: string;
@@ -1231,91 +1231,48 @@ export function buildPlanImport(project: MspdiProject, options: PlanImportOption
     }
   });
 
-  // Folhas de borda de um resumo: as de entrada não recebem vínculo de dentro dele; as de saída não
-  // mandam vínculo para dentro dele (o vínculo pode estar num resumo intermediário, que vale para
-  // todas as folhas abaixo).
-  const edgeMemo = new Map<string, number[]>();
-  const edgeLeaves = (group: number, side: 'entry' | 'exit'): number[] => {
-    const memo = edgeMemo.get(`${group}:${side}`);
-    if (memo) return memo;
-    const blocked = new Set<number>();
-    for (const link of raw) {
-      if (!inside(group, link.from) || !inside(group, link.to)) continue;
-      const target = side === 'entry' ? link.to : link.from;
-      if (summary[target]) for (let j = target + 1; j < end[target]; j++) blocked.add(j);
-      else blocked.add(target);
-    }
-    const leaves: number[] = [],
-      all: number[] = [];
-    for (let j = group + 1; j < end[group]; j++)
-      if (!summary[j]) {
-        all.push(j);
-        if (!blocked.has(j)) leaves.push(j);
-      }
-    const result = leaves.length ? leaves : all;
-    edgeMemo.set(`${group}:${side}`, result);
-    return result;
-  };
+  // Vínculo com resumo fica como está no arquivo: o motor passa às subtarefas o que chega no resumo
+  // e usa o envelope dele (início mais cedo, término mais tarde) no que sai. Caem só os que o motor
+  // recusaria: com as próprias subtarefas e os que chegam ao término do resumo (TT ou IT).
   let links: DraftLink[] = [];
   const pairs = new Set<string>();
-  const push = (from: number, to: number, link: RawLink, redistributed: boolean): 'ok' | 'repeated' => {
-    const pair = `${from}>${to}`;
-    if (pairs.has(pair)) return 'repeated';
+  for (const link of raw) {
+    const key = rows[link.to].key;
+    if (inside(link.from, link.to) || inside(link.to, link.from)) {
+      warn('vinculo_resumo_proprio', 'Vínculos entre uma tarefa-resumo e as próprias subtarefas foram descartados.', { key });
+      continue;
+    }
+    if (summary[link.to] && link.type[1] === 'T') {
+      warn(
+        'vinculo_resumo_termino',
+        'Vínculos que chegam ao término de uma tarefa-resumo (TT ou IT) foram descartados: o Project só aceita Término-Início e Início-Início com o resumo como sucessora.',
+        { key },
+      );
+      continue;
+    }
+    const pair = `${link.from}>${link.to}`;
+    if (pairs.has(pair)) {
+      warn('vinculo_repetido', 'Vínculos repetidos entre as mesmas tarefas foram descartados.', { key });
+      continue;
+    }
     pairs.add(pair);
     links.push({
-      predecessorKey: rows[from].key,
-      successorKey: rows[to].key,
+      predecessorKey: rows[link.from].key,
+      successorKey: key,
       type: link.type,
       lagDays: link.lagDays,
       lagBusiness: link.lagBusiness,
-      ...(redistributed ? { redistributed: true } : {}),
     });
-    return 'ok';
-  };
-  // Os vínculos diretos entre folhas vêm antes: valem sobre o que a redistribuição repetiria.
-  for (const link of raw)
-    if (!summary[link.from] && !summary[link.to] && push(link.from, link.to, link, false) === 'repeated')
-      warn('vinculo_repetido', 'Vínculos repetidos entre as mesmas tarefas foram descartados.', { key: rows[link.to].key });
-  let fromSummary = 0,
-    created = 0,
-    repeated = 0;
-  const summaryKeys = new Set<string>();
-  for (const link of raw) {
-    if (!summary[link.from] && !summary[link.to]) continue;
-    if (inside(link.from, link.to) || inside(link.to, link.from)) {
-      warn('vinculo_resumo_proprio', 'Vínculos entre uma tarefa-resumo e as próprias subtarefas foram descartados.', {
-        key: rows[link.to].key,
-      });
-      continue;
-    }
-    fromSummary++;
-    summaryKeys.add(rows[link.from].key).add(rows[link.to].key);
-    // O lado do vínculo diz a ponta do resumo: término (T) sai das folhas de saída, início (I) das de entrada.
-    const sources = summary[link.from] ? edgeLeaves(link.from, link.type[0] === 'T' ? 'exit' : 'entry') : [link.from];
-    const targets = summary[link.to] ? edgeLeaves(link.to, link.type[1] === 'I' ? 'entry' : 'exit') : [link.to];
-    for (const source of sources)
-      for (const target of targets)
-        if (push(source, target, link, true) === 'ok') created++;
-        else repeated++;
   }
-  if (fromSummary) {
-    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-    const result = [
-      created ? plural(created, 'vínculo novo entre subtarefas', 'vínculos novos entre subtarefas') : '',
-      repeated
-        ? plural(repeated, 'que já existia entre as subtarefas e foi descartado', 'que já existiam entre as subtarefas e foram descartados')
-        : '',
-    ]
-      .filter(Boolean)
-      .join(' e ');
-    const message =
-      `${plural(fromSummary, 'vínculo do arquivo ligado a tarefa-resumo foi passado', 'vínculos do arquivo ligados a tarefas-resumo foram passados')} ` +
-      `para as subtarefas (o sistema só vincula subtarefas)${result ? `: ${result}` : ''}. O que chega no resumo vai ` +
-      'para as subtarefas sem predecessora dentro dele; o que sai, das subtarefas sem sucessora dentro dele.';
-    warn('vinculo_resumo', message, { count: fromSummary });
-    for (const key of summaryKeys) warn('vinculo_resumo', message, { key, count: 0 });
+  // Folhas (todos os níveis) de cada resumo, para o ciclo ver o que o motor vê.
+  const leavesOf = new Map<string, string[]>();
+  for (let i = 0; i < n; i++) {
+    if (!summary[i]) continue;
+    const list: string[] = [];
+    for (let j = i + 1; j < end[i]; j++) if (!summary[j]) list.push(rows[j].key);
+    leavesOf.set(rows[i].key, list);
   }
-  links = dropCycles(links, warn);
+  links = dropCycles(links, leavesOf, warn);
 
   // ——— Recursos, limites e números ———
   const counts = new Map<string, number>();
@@ -1362,24 +1319,40 @@ export function buildPlanImport(project: MspdiProject, options: PlanImportOption
   };
 }
 
-/** O motor recusa ciclo; o Project também, mas a redistribuição dos resumos ou um arquivo mexido à
- * mão podem fechar um. Os vínculos entram na ordem e cai o que fecharia o ciclo. */
-function dropCycles(links: DraftLink[], warn: Warn): DraftLink[] {
+/** O motor recusa ciclo; o Project também, mas um arquivo mexido à mão pode fechar um. O grafo é o
+ * do motor: o vínculo que chega num resumo chega a cada folha dele, e cada folha alimenta os resumos
+ * acima dela (o envelope), então o ciclo que só existe pela herança do resumo também aparece. Os
+ * vínculos entram na ordem e cai o que fecharia o ciclo. */
+function dropCycles(links: DraftLink[], leavesOf: Map<string, string[]>, warn: Warn): DraftLink[] {
+  const targetsOf = (link: DraftLink) => leavesOf.get(link.successorKey) ?? [link.successorKey];
+  const edge = (graph: Map<string, string[]>, from: string, to: string) => {
+    const list = graph.get(from);
+    if (list) list.push(to);
+    else graph.set(from, [to]);
+  };
+  /** Folha → resumos acima dela, mais os vínculos dados. */
+  const graphOf = (list: DraftLink[]) => {
+    const graph = new Map<string, string[]>();
+    for (const [summaryKey, leaves] of leavesOf) for (const leaf of leaves) edge(graph, leaf, summaryKey);
+    for (const link of list) for (const target of targetsOf(link)) edge(graph, link.predecessorKey, target);
+    return graph;
+  };
+  let graph = graphOf(links);
+  // Kahn: sem ciclo (o caso comum), nada a fazer.
   const indegree = new Map<string, number>();
-  const outgoing = new Map<string, string[]>();
-  for (const link of links) {
-    indegree.set(link.successorKey, (indegree.get(link.successorKey) ?? 0) + 1);
-    if (!indegree.has(link.predecessorKey)) indegree.set(link.predecessorKey, 0);
-    outgoing.set(link.predecessorKey, [...(outgoing.get(link.predecessorKey) ?? []), link.successorKey]);
+  for (const [from, list] of graph) {
+    if (!indegree.has(from)) indegree.set(from, 0);
+    for (const to of list) indegree.set(to, (indegree.get(to) ?? 0) + 1);
   }
   const queue = [...indegree].filter(([, d]) => d === 0).map(([key]) => key);
   for (let i = 0; i < queue.length; i++)
-    for (const next of outgoing.get(queue[i]) ?? []) {
+    for (const next of graph.get(queue[i]) ?? []) {
       indegree.set(next, indegree.get(next)! - 1);
       if (!indegree.get(next)) queue.push(next);
     }
   if (queue.length === indegree.size) return links;
-  const graph = new Map<string, string[]>();
+  // Com ciclo: refaz o grafo vínculo a vínculo, a partir só da estrutura dos resumos.
+  graph = graphOf([]);
   const reaches = (from: string, target: string) => {
     const stack = [from],
       visited = new Set<string>();
@@ -1393,11 +1366,12 @@ function dropCycles(links: DraftLink[], warn: Warn): DraftLink[] {
     return false;
   };
   return links.filter(link => {
-    if (reaches(link.successorKey, link.predecessorKey)) {
+    const targets = targetsOf(link);
+    if (targets.some(target => reaches(target, link.predecessorKey))) {
       warn('vinculo_ciclo', 'Vínculos que fechariam um ciclo entre as tarefas foram descartados.', { key: link.successorKey });
       return false;
     }
-    graph.set(link.predecessorKey, [...(graph.get(link.predecessorKey) ?? []), link.successorKey]);
+    for (const target of targets) edge(graph, link.predecessorKey, target);
     return true;
   });
 }

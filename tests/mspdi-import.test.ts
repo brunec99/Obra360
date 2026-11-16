@@ -393,49 +393,87 @@ test('vínculos: quatro tipos, defasagem útil, corrida, negativa, em horas, em 
   assert.doesNotThrow(() => analyzeSchedule(plan.tasks, plan.links, draft.calendar));
 });
 
-test('vínculo com resumo vai para as subtarefas de borda, sem repetir o que já existe', () => {
+test('vínculo com resumo fica no resumo; com as próprias subtarefas e no término do resumo cai', () => {
   const draft = read(
     projectXml({
       tasks: [
         taskXml(1, 1, 'Antes'),
-        summaryXml(2, 1, 'Grupo', {}, linkXml(1)),
+        // Chega no resumo (fica) e sai de uma subtarefa para o próprio resumo (cai).
+        summaryXml(2, 1, 'Grupo', {}, linkXml(1) + linkXml(4)),
         taskXml(3, 2, 'G1', {}, linkXml(1)),
         taskXml(4, 2, 'G2', {}, linkXml(3)),
-        taskXml(5, 2, 'G3'),
+        // Do resumo para a própria subtarefa: cai.
+        taskXml(5, 2, 'G3', {}, linkXml(2)),
         taskXml(6, 1, 'Depois', {}, linkXml(2, 1, 4800)),
-        taskXml(7, 1, 'Junto', {}, linkXml(2, 3)),
+        // O segundo vínculo do mesmo par, ainda que de outro tipo, é repetido.
+        taskXml(7, 1, 'Junto', {}, linkXml(2, 3) + linkXml(2, 1)),
+        // TT e IT chegam ao término do resumo: o Project recusa, e o sistema também; TI de resumo para resumo fica.
+        summaryXml(8, 1, 'Fim', {}, linkXml(1, 0) + linkXml(6, 2) + linkXml(2)),
+        taskXml(9, 2, 'F1'),
       ],
     }),
   );
   assert.deepEqual(linkList(draft), [
+    'Antes→Grupo TI0',
     'Antes→G1 TI0',
     'G1→G2 TI0',
-    // Chega no resumo: G1 e G3 não têm predecessora dentro do grupo (Antes→G1 já existia).
-    'Antes→G3 TI0',
-    // Sai do resumo pelo término: G2 e G3 não têm sucessora dentro do grupo.
-    'G2→Depois TI1',
-    'G3→Depois TI1',
-    // II sai pelo início: das subtarefas de entrada.
-    'G1→Junto II0',
-    'G3→Junto II0',
+    'Grupo→Depois TI1',
+    'Grupo→Junto II0',
+    'Grupo→Fim TI0',
   ]);
-  assert.deepEqual(draft.links.filter(l => l.redistributed).length, 5, 'os vínculos vindos do resumo ficam marcados');
-  assert.ok(!draft.links.some(l => l.predecessorKey === '2' || l.successorKey === '2'));
-  const notice = warning(draft, 'vinculo_resumo');
-  assert.equal(notice?.count, 3);
-  assert.match(
-    notice!.message,
-    /3 vínculos do arquivo ligados a tarefas-resumo .*: 5 vínculos novos entre subtarefas e 1 que já existia entre as subtarefas e foi descartado/,
+  assert.equal(draft.stats.links, 6);
+  const own = warning(draft, 'vinculo_resumo_proprio');
+  assert.equal(own?.count, 2);
+  assert.deepEqual(own?.taskKeys, ['2', '5']);
+  const finish = warning(draft, 'vinculo_resumo_termino');
+  assert.equal(finish?.count, 2);
+  assert.deepEqual(finish?.taskKeys, ['8']);
+  assert.equal(
+    finish?.message,
+    'Vínculos que chegam ao término de uma tarefa-resumo (TT ou IT) foram descartados: o Project só aceita Término-Início e Início-Início com o resumo como sucessora.',
   );
-  // O motor recusaria vínculo em resumo; aqui ele aceita.
+  assert.deepEqual(warning(draft, 'vinculo_repetido')?.taskKeys, ['7']);
+  assert.equal(warning(draft, 'vinculo_resumo'), undefined, 'nada é passado para as subtarefas');
+  assert.equal(warning(draft, 'vinculo_ciclo'), undefined);
+
+  // O motor aceita o rascunho e passa o vínculo do resumo às subtarefas: G3, sem predecessora
+  // própria, espera Antes; Depois espera o término do envelope do Grupo (G2, 05/11) e mais um dia.
   const plan = toPlan(draft);
-  assert.doesNotThrow(() => analyzeSchedule(plan.tasks, plan.links, draft.calendar));
+  const analysis = analyzeSchedule(plan.tasks, plan.links, draft.calendar);
+  const start = (name: string) => analysis.info.get(named(draft, name).key)?.earlyStart;
+  assert.equal(start('G3'), '2026-11-04');
+  assert.equal(start('G2'), '2026-11-05');
+  assert.equal(start('Depois'), '2026-11-09');
+  assert.equal(start('F1'), '2026-11-06');
 });
 
 test('ciclo num arquivo mexido à mão: cai o vínculo que fecha o ciclo', () => {
   const draft = read(projectXml({ tasks: [taskXml(1, 1, 'A', {}, linkXml(2)), taskXml(2, 1, 'B', {}, linkXml(1))] }));
   assert.deepEqual(linkList(draft), ['B→A TI0']);
   assert.equal(warning(draft, 'vinculo_ciclo')?.count, 1);
+});
+
+test('ciclo que só existe pelo resumo também cai, antes do motor', () => {
+  // A → Grupo chega em G1; G1 → A fecha o ciclo pela herança.
+  const inherited = read(
+    projectXml({
+      tasks: [taskXml(1, 1, 'A', {}, linkXml(3)), summaryXml(2, 1, 'Grupo', {}, linkXml(1)), taskXml(3, 2, 'G1')],
+    }),
+  );
+  assert.deepEqual(linkList(inherited), ['G1→A TI0']);
+  assert.deepEqual(warning(inherited, 'vinculo_ciclo')?.taskKeys, ['2']);
+  // Grupo → B sai do envelope, que depende de G1; B → G1 fecha o ciclo.
+  const envelope = read(
+    projectXml({
+      tasks: [summaryXml(1, 1, 'Grupo'), taskXml(2, 2, 'G1', {}, linkXml(3)), taskXml(3, 1, 'B', {}, linkXml(1))],
+    }),
+  );
+  assert.deepEqual(linkList(envelope), ['B→G1 TI0']);
+  assert.deepEqual(warning(envelope, 'vinculo_ciclo')?.taskKeys, ['3']);
+  for (const draft of [inherited, envelope]) {
+    const plan = toPlan(draft);
+    assert.doesNotThrow(() => analyzeSchedule(plan.tasks, plan.links, draft.calendar));
+  }
 });
 
 test('recursos: o da primeira atribuição; atribuição dupla avisa; sem recurso é ignorado', () => {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { PlanDependency, PlanTask } from '../src/domain/entities';
-import { FIXED_COLS, moveColumn, normalizeOrder, shiftLevels } from '../src/modules/medio-prazo/schedule-sheet';
+import { FIXED_COLS, linksForStructure, moveColumn, normalizeOrder, shiftLevels } from '../src/modules/medio-prazo/schedule-sheet';
 
 function task(id: string, level: number, extra: Partial<PlanTask> = {}): PlanTask {
   return {
@@ -69,7 +69,7 @@ test('diminuir o recuo do bloco preserva a estrutura relativa e leva a subárvor
   assert.equal(levels(out.tasks), 'a0 b0 c1 d0 e1 f0');
 });
 
-test('a linha de cima que vira resumo perde vínculos, datas reais, restrição, prazo e anchorStart', () => {
+test('a linha de cima que vira resumo perde datas reais, restrição, prazo e anchorStart; dos vínculos, só os com as próprias subtarefas', () => {
   const parent = task('p', 0, {
     actualStart: '2026-09-01',
     actualEnd: '2026-09-02',
@@ -85,10 +85,12 @@ test('a linha de cima que vira resumo perde vínculos, datas reais, restrição,
   const p = out.tasks[1];
   for (const k of ['actualStart', 'actualEnd', 'deadline', 'anchorStart', 'constraintType', 'constraintDate'] as const)
     assert.equal(p[k], undefined, k);
+  // a→p fica (o resumo como sucessora, Término-Início); p→b sai (p virou resumo de b).
   assert.deepEqual(
     out.links.map(l => l.id),
-    ['b>c'],
+    ['a>p', 'b>c'],
   );
+  assert.equal(out.dropped, 1);
   // Entradas intactas.
   assert.equal(parent.deadline, '2026-09-30');
   assert.equal(links.length, 3);
@@ -150,4 +152,31 @@ test('normalizeOrder filtra chaves desconhecidas, repetidas, prende Id e Indicad
   assert.equal(custom.length, 26);
   assert.equal(new Set(custom).size, 26);
   assert.deepEqual(normalizeOrder('name'), full);
+});
+
+test('vínculos que a estrutura recusa: resumo com a própria subtarefa e TT ou IT chegando ao resumo', () => {
+  const tasks = [task('a', 0), task('s', 0), task('s1', 1), task('s2', 2), task('x', 0)];
+  const typed = (from: string, to: string, type: PlanDependency['type']) => ({ ...link(from, to), id: `${from}${type}${to}`, type });
+  const links = [
+    link('a', 's'),
+    typed('a', 's', 'II'),
+    typed('x', 's', 'TT'),
+    typed('a', 's', 'IT'),
+    link('s', 's2'),
+    link('s2', 's'),
+    link('s', 'x'),
+    link('s1', 'x'),
+  ];
+  assert.deepEqual(
+    linksForStructure(tasks, links).map(l => l.id),
+    ['a>s', 'aIIs', 's>x', 's1>x'],
+  );
+  // Recuar x para dentro de s: o vínculo s→x passa a ligar o resumo à própria subtarefa e sai.
+  const out = shiftLevels(tasks, 4, 4, 1, [link('s', 'x'), link('s1', 'x')]);
+  assert.equal(levels(out.tasks), 's0 s11 s22 x1'.replace(/^/, 'a0 '));
+  assert.deepEqual(
+    out.links.map(l => l.id),
+    ['s1>x'],
+  );
+  assert.equal(out.dropped, 1);
 });

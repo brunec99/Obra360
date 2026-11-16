@@ -217,6 +217,19 @@ export function buildMspdi(input: MspdiInput): string {
   for (const link of input.links)
     if (uids.has(link.predecessorId) && uids.has(link.successorId))
       incoming.set(link.successorId, [...(incoming.get(link.successorId) ?? []), link]);
+  // Folha cujo resumo (em qualquer nível acima) tem predecessora também tem predecessora: herda a
+  // dele (16/11/2026). Sem isso, a exportação a trataria como solta e poria um NIAD nela.
+  const inherited = new Set<Id>();
+  {
+    const stack: { id: Id; level: number }[] = [];
+    for (const t of rows) {
+      const level = rollUp.get(t.id)!.number.split('.').length;
+      while (stack.length && stack.at(-1)!.level >= level) stack.pop();
+      if (stack.some(s => incoming.has(s.id))) inherited.add(t.id);
+      stack.push({ id: t.id, level });
+    }
+  }
+  const hasPredecessor = (id: Id) => incoming.has(id) || inherited.has(id);
   const bounds =
     analysis.projectStart && analysis.projectFinish
       ? { start: analysis.projectStart, end: analysis.projectFinish }
@@ -224,7 +237,7 @@ export function buildMspdi(input: MspdiInput): string {
   // O início do projeto do Project: o primeiro início entre as folhas sem predecessora.
   const leafRows = rows.filter(t => !rollUp.get(t.id)?.summary);
   const anchor = leafRows
-    .filter(t => !incoming.has(t.id))
+    .filter(t => !hasPredecessor(t.id))
     .map(t => t.actualStart ?? t.plannedStart)
     .sort()[0];
   const projectStart = anchor ?? bounds.start;
@@ -270,7 +283,7 @@ export function buildMspdi(input: MspdiInput): string {
     const own: TaskConstraint = roll.summary ? { type: 'ASAP' } : constraintOf(task);
     // Sem predecessora, começando depois do início do projeto: no Project isso é um NIAD na data.
     const constraint: TaskConstraint =
-      own.type === 'ASAP' && !roll.summary && !incoming.has(task.id) && !roll.actualStart && start > projectStart
+      own.type === 'ASAP' && !roll.summary && !hasPredecessor(task.id) && !roll.actualStart && start > projectStart
         ? { type: 'SNET', date: start }
         : own;
     const slackHours = span.format === FORMAT.elapsed ? 24 : c.hoursPerDay;
