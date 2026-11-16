@@ -318,7 +318,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-calendario',
     title: 'Calendário de trabalho',
-    body: 'Dias úteis da semana, horas por dia, dias por mês e feriados do plano; horas e dias por mês convertem durações em "h" e em meses. Mudar o calendário reagenda todas as tarefas e vai ao banco em "Revisar e salvar".',
+    body: 'Dias úteis da semana, horas por dia e dias por mês do plano; horas e dias por mês convertem durações em "h" e em meses. "Dias sem trabalho" abre um calendário de três meses: clique marca feriado, arrastar ou Shift+clique marca um recesso, e um botão marca os feriados nacionais. Mudar o calendário reagenda todas as tarefas e vai ao banco em "Revisar e salvar".',
   },
   {
     target: 'medio-exportar',

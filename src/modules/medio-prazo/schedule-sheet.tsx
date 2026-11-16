@@ -104,6 +104,8 @@ import { ResourceUsageView } from './resource-usage-view';
 import { ResourceSheetView } from './resource-sheet-view';
 import { NewPlanDrawer } from './new-plan-drawer';
 import { DatePopover } from './date-picker';
+import { NonWorkingDaysDialog } from './non-working-days-dialog';
+import { offDaysSummary } from './non-working-days';
 import { TaskInfoDialog, type TaskInfoChange, type TaskInfoTab, type TaskInfoValues } from './task-info-dialog';
 
 /* Cronograma do mês no layout do MS Project: tabela à esquerda, Gantt de acompanhamento à direita,
@@ -651,6 +653,7 @@ export function Sheet({
     [metrics, setMetrics] = useState({ row: 28, head: 44 });
   // O histórico só é pedido ao servidor com o painel aberto: trocar de linha com as setas não pode virar uma consulta por tecla.
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [offDaysOpen, setOffDaysOpen] = useState(false);
   const confirm = useConfirm();
   const { toast } = useToast();
   const router = useRouter();
@@ -3433,29 +3436,12 @@ export function Sheet({
               />
             </label>
           ))}
-          <label>
-            Feriados (AAAA-MM-DD, separados por vírgula)
-            <input
-              key={draft.calendar.holidays.join(',')}
-              className="field"
-              defaultValue={draft.calendar.holidays.join(', ')}
-              disabled={!canEdit}
-              onBlur={e => {
-                const calendar = {
-                  ...draft.calendar,
-                  holidays: e.target.value
-                    .split(',')
-                    .map(d => d.trim())
-                    .filter(Boolean),
-                };
-                try {
-                  stage({ ...draft, calendar, tasks: scheduleTasks(draft.tasks, draft.links, calendar) });
-                } catch (err) {
-                  setError((err as Error).message);
-                }
-              }}
-            />
-          </label>
+          <div data-tour="medio-dias-sem-trabalho" className="flex flex-wrap items-center gap-2">
+            <button type="button" className="button-ghost px-3 py-1.5" onClick={() => setOffDaysOpen(true)}>
+              <CalendarDays size={14} aria-hidden /> Dias sem trabalho
+            </button>
+            <span className="text-xs text-slate-500">{offDaysSummary(draft.calendar.holidays, win)}</span>
+          </div>
           <HelpNote title="Formatos aceitos" label="Durações e predecessoras">
             <p>Duração aceita “10 dias”, “10 dias corridos”, “8h”, “1 mês” e “0 dias” (marco).</p>
             <p>
@@ -3470,6 +3456,24 @@ export function Sheet({
           </HelpNote>
         </div>
       </details>
+      {offDaysOpen && (
+        <NonWorkingDaysDialog
+          initial={draft.calendar.holidays}
+          weekdays={draft.calendar.weekdays}
+          firstMonth={win.start.slice(0, 7)}
+          today={today}
+          canEdit={canEdit}
+          onClose={() => setOffDaysOpen(false)}
+          onApply={holidays => {
+            const calendar = { ...draft.calendar, holidays };
+            try {
+              stage({ ...draft, calendar, tasks: scheduleTasks(draft.tasks, draft.links, calendar) });
+            } catch (err) {
+              return (err as Error).message;
+            }
+          }}
+        />
+      )}
       <div className="flex flex-wrap gap-3 border-t border-slate-200 p-3">
         <button
           type="button"

@@ -1512,3 +1512,60 @@ Sem migração e sem mudança de dado.
   - Ctrl+D numa linha: copiou o nome da linha de cima;
   - área de transferência vazia: nada mudou.
 - **Não validado:** uso logado no servidor da ATR; os atalhos de teclado nativos de copiar e colar no Safari e no Firefox. No teste, os eventos de copiar e colar foram disparados diretamente.
+
+## Médio prazo: calendário para os dias sem trabalho (16/11/2026)
+
+### Pedido
+
+"No médio prazo vamos melhorar a forma de definir dias não trabalhados. Está muito manual, abra um calendário para que possamos selecionar dias não úteis." Até aqui, os feriados do "Calendário de trabalho" eram um campo de texto, "Feriados (AAAA-MM-DD, separados por vírgula)". Um recesso de fim de ano exigia digitar data por data, e um erro de digitação só aparecia ao sair do campo.
+
+### Comportamento entregue
+
+- **Seção "Calendário de trabalho".** O campo de texto saiu. No lugar dele há o botão **"Dias sem trabalho"** e, ao lado, um resumo: "Nenhum dia marcado.", "3 dias no período: 20/11, 24/12, 25/12" ou, com dias fora do período, "… · 12 no total". O período é o horizonte do cronograma (três meses) ou a janela do Gantt de legalização. O botão abre um diálogo.
+- **O diálogo mostra três meses lado a lado**, a partir do mês de início do cronograma. As setas trocam o mês, e "Voltar ao início" volta ao primeiro. No celular, os meses ficam um embaixo do outro.
+  - **Clique** num dia marca ou desmarca. Dia sem trabalho fica vermelho.
+  - **Arrastar** com o mouse marca ou desmarca o período, com prévia durante o arrasto. O primeiro dia decide: se estava livre, o período é marcado; se estava marcado, é desmarcado. **Shift+clique** repete, até o dia clicado, o que o clique anterior fez. No toque não há arrasto, para o dedo poder rolar a tela; marca-se um dia por vez.
+  - **Fim de semana** fora dos dias úteis da semana aparece cinza e não se marca, porque já não é trabalhado. Num período, só entram os dias úteis da semana, como na importação do Project: o recesso que atravessa um sábado não grava o sábado. Um dia marcado que deixou de ser útil, porque o sábado foi desmarcado depois, por exemplo, ainda se desmarca.
+  - **Feriado nacional** (`src/domain/holidays.ts`: datas fixas, Consciência Negra desde 2024 e Sexta-feira Santa) tem um ponto laranja e o nome na dica. **Carnaval** (segunda e terça) e **Corpus Christi** têm um ponto cinza. São ponto facultativo, não feriado nacional, e por isso não são marcados sozinhos. O botão **"Marcar N feriados nacionais destes meses"** marca os nacionais dos três meses à vista que caem em dia útil e ainda não estão marcados. A dica do botão lista quais são.
+  - **Lista à direita** com todos os dias marcados, inclusive os que estão fora dos meses à vista, em ordem. Cada dia traz a data ("Sex 25/12/26"), o nome do feriado, "novo" quando foi marcado nesta abertura e um X para desmarcar. Clicar na data leva o calendário até o mês dela. "Desmarcar todos" limpa a lista.
+  - **Teclado:** um dia por vez recebe o Tab. As setas andam um dia ou uma semana, PageUp/PageDown andam um mês, e Enter ou espaço marcam. Ao sair dos meses à vista, o calendário acompanha.
+  - **Aplicar** grava a lista no rascunho e reagenda as tarefas pela rede, num passo só do Desfazer. O rodapé diz quantos dias foram marcados e desmarcados. **Cancelar**, o X ou Esc fecham sem mudar nada. Erro do motor aparece no rodapé, com o diálogo aberto.
+  - **Sem a edição liberada** (grade bloqueada, cronograma congelado, salvando), o diálogo abre só para consulta: sem "Marcar feriados", sem X, com "Fechar".
+- **O dado não mudou:** continua a lista `holidays` do `WorkCalendar` no `schedule_meta`. Ela vai ao banco em "Revisar e salvar" ("Calendário alterado nesta revisão."), entra no rascunho guardado no navegador e sai no .xml do Project como antes. **Sem migração.**
+- Vale também no **Gantt de legalização** (aba 1), que usa a mesma grade.
+- Código:
+  - `src/modules/medio-prazo/non-working-days.ts` (puro): marcar dia e período, feriados nacionais que faltam numa faixa de meses, Carnaval e Corpus Christi, e o resumo ao lado do botão;
+  - `src/modules/medio-prazo/non-working-days-dialog.tsx`: o diálogo;
+  - integração em `schedule-sheet.tsx` (botão, resumo e `onApply` com `scheduleTasks`);
+  - manual da Claudia (`medio-prazo.ts`, seção "Calendário de trabalho", com as palavras-chave "dias sem trabalho", "feriados" e "recesso");
+  - texto do passo "Calendário de trabalho" do tour.
+
+### Validação (16/11/2026)
+
+- `tests/non-working-days.test.ts` (7 testes):
+  - marcar e desmarcar;
+  - sábado que não marca;
+  - recesso nos dois sentidos do arrasto;
+  - desmarcar um período;
+  - feriados nacionais de novembro a janeiro, com e sem domingo útil;
+  - Carnaval e Corpus Christi de 2027;
+  - o resumo;
+  - o dia marcado empurrando a tarefa no motor.
+- Navegador: `next dev` na 3102, Supabase falso e Playwright, com um cronograma de duas tarefas (Formas, 18 a 24/11; Pintura, 21 a 25/12), em 1600 px e 390 px. Casos conferidos:
+  - sem liberar a edição, o diálogo abre só para consulta, e o clique não marca;
+  - "Marcar 4 feriados nacionais destes meses" marcou 02/11, 20/11, 25/12 e 01/01. A Proclamação da República (domingo) ficou de fora;
+  - o clique no sábado não marcou;
+  - o arrasto de 21/12 a 31/12 marcou os oito dias úteis, com a prévia durante o arrasto;
+  - o clique desmarcou Finados;
+  - o Shift+clique de 26/01 a 29/01 marcou os quatro dias;
+  - PageDown em 29/01 foi a 28/02, e o calendário passou a mostrar de dezembro a fevereiro;
+  - "Aplicar": Formas passou a terminar em 25/11 (era 24/11) e Pintura em 08/01 (era 25/12). O resumo mostrou "15 dias no período: 20/11, 21/12, …";
+  - Desfazer voltou as datas e o calendário num passo, e Esc fechou sem aplicar;
+  - sem erro de console.
+- **Não validado:** uso logado no servidor da ATR; Safari e Firefox.
+
+### Limites e próximas etapas
+
+- Os feriados estaduais e municipais não são conhecidos: o sistema não sabe a cidade da obra. Marcam-se à mão.
+- Não há "dia trabalhado fora do normal" (um sábado de trabalho num calendário de segunda a sexta), nem calendário por recurso, como já era antes.
+- Os dias sem trabalho são de cada cronograma. O mês seguinte nasce como cópia e os leva junto, mas não há calendário da obra compartilhado entre os cronogramas.

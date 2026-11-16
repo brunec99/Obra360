@@ -300,6 +300,9 @@ No Gantt, com a edição liberada: arrastar a barra muda o início (cria "Não i
       'empurra',
       'ciclo',
       'calendário de trabalho',
+      'dias sem trabalho',
+      'feriados',
+      'recesso',
     ],
     screen: 'medio-prazo',
     body: `## Como escrever predecessoras
@@ -350,7 +353,18 @@ Aceita "10 dias" (úteis), "10 dias corridos", "8h", "1 mês" (converte pelos "D
 
 ## Calendário de trabalho
 
-Em "Calendário de trabalho" (abaixo do cronograma; edita-se com a edição liberada): dias úteis da semana (padrão segunda a sexta), "Horas por dia" (padrão 8), "Dias por mês" (padrão 20) e "Feriados (AAAA-MM-DD, separados por vírgula)". Horas e dias por mês convertem durações em "h" e em meses. Mudar o calendário reagenda todas as tarefas e vai ao banco em "Revisar e salvar" ("Calendário alterado nesta revisão.").`,
+Em "Calendário de trabalho" (abaixo do cronograma; edita-se com a edição liberada): dias úteis da semana (padrão segunda a sexta), "Horas por dia" (padrão 8), "Dias por mês" (padrão 20) e o botão "Dias sem trabalho", com o resumo ao lado ("3 dias no período: 20/11, 24/12, 25/12"). Horas e dias por mês convertem durações em "h" e em meses. Mudar o calendário reagenda todas as tarefas e vai ao banco em "Revisar e salvar" ("Calendário alterado nesta revisão.").
+
+### Dias sem trabalho (feriados, pontos facultativos e recessos)
+
+Desde 16/11/2026 os feriados não se digitam mais: o botão "Dias sem trabalho" abre um calendário com três meses lado a lado, a partir do início do cronograma (setas trocam o mês; "Voltar ao início" volta).
+- Clique num dia marca ou desmarca (vermelho = sem trabalho). Arrastar com o mouse, ou clicar num dia e dar Shift+clique em outro, marca o período inteiro, como o recesso de fim de ano. No celular, um dia por toque.
+- Fins de semana fora dos "dias úteis da semana" aparecem cinza e não se marcam: já não são trabalhados. Num período, só entram os dias úteis da semana.
+- Feriado nacional tem um ponto laranja e o nome na dica; Carnaval e Corpus Christi, um ponto cinza (ponto facultativo, não marcado sozinho). O botão "Marcar N feriados nacionais destes meses" marca os nacionais dos três meses à vista que caem em dia útil.
+- À direita, a lista de todos os dias marcados (inclusive fora dos meses à vista), com o nome do feriado, "novo" nos marcados agora e um X para desmarcar; clicar na data leva o calendário até ela. "Desmarcar todos" limpa a lista.
+- Nada muda até "Aplicar", que reagenda as tarefas de uma vez (um passo só no Desfazer). Cancelar, o X ou Esc fecham sem mudar. Sem a edição liberada, o calendário só mostra.
+- Teclado: setas andam um dia ou uma semana, PageUp/PageDown um mês, Enter ou espaço marca.
+- Vale também no Gantt de legalização, que usa o mesmo cronograma.`,
   },
   {
     id: 'medio-prazo-restricoes-prazo-critico',
