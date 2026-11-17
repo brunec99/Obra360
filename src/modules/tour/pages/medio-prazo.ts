@@ -38,7 +38,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-mes',
     title: 'Mês do cronograma',
-    body: 'Troca o cronograma aberto entre os criados, mostrados como "mês · nome": o mesmo mês pode ter mais de um, e a tela abre no criado por último do mês corrente. À esquerda ficam o horizonte de três meses e de qual mês o plano foi copiado. Com alteração não salva, a troca fica travada: salve ou descarte antes.',
+    body: 'Troca o cronograma aberto entre os criados, mostrados como "mês · nome": o mesmo mês pode ter mais de um, e a tela abre no mais recente (o do último mês e, nele, o criado por último). À esquerda ficam o horizonte de três meses e de qual mês o plano foi copiado. Com alteração não salva, a troca fica travada: salve ou descarte antes.',
   },
   {
     target: 'medio-salvar',

@@ -41,6 +41,18 @@ export const newestPlanFirst = (
   b: Pick<MediumTermPlan, 'id' | 'month'> & { createdAt?: string },
 ): number => b.month.localeCompare(a.month) || (b.createdAt ?? '').localeCompare(a.createdAt ?? '') || b.id.localeCompare(a.id);
 
+/** O cronograma em que a tela do médio prazo abre (16/11/2026, pedido do usuário: "sempre mostrar o
+ * planejamento de médio prazo mais recente antes, não o mais antigo"): o primeiro de `newestPlanFirst`
+ * que não está congelado — o do mês mais adiante e, no mesmo mês, o criado por último. Antes a tela
+ * preferia o mês corrente e abria novembro mesmo com dezembro já criado. É a mesma escolha da Claudia,
+ * do resumo dos três meses e da variação da linha de base. */
+export function latestPlan<T extends Pick<MediumTermPlan, 'id' | 'month' | 'frozenAt'> & { createdAt?: string }>(
+  plans: readonly T[],
+): T | undefined {
+  const sorted = [...plans].sort(newestPlanFirst);
+  return sorted.find(p => !p.frozenAt) ?? sorted[0];
+}
+
 /** O nome com que um cronograma novo entra no mês: o pedido (ou "Plano de AAAA-MM") e, se outro
  * cronograma vivo da obra no mesmo mês já usa esse nome, " (2)", " (3)"… para os dois se distinguirem
  * nos seletores. */

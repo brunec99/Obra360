@@ -78,7 +78,7 @@ import {
   type WorkCalendar,
 } from '@/domain/plan-schedule';
 import { buildMspdi } from '@/domain/mspdi';
-import { isMonthlyPlan, newestPlanFirst } from '@/domain/legalization';
+import { isMonthlyPlan, latestPlan, newestPlanFirst } from '@/domain/legalization';
 import { decideRecovery, draftKey, formatSavedAt, hashText, serializeDraft } from './draft-storage';
 import { parseLinks, formatLink, rollUpPlan } from '@/domain/rules';
 import { validateDate } from '@/domain/validation';
@@ -568,8 +568,8 @@ export function ScheduleSheet({ workId }: { workId: string }) {
   // O Gantt de legalização da aba 1 usa este mesmo cronograma, mas não é plano do mês (regra 17).
   const plans = context.planning.data.plans.filter(p => p.workId === workId && !p.baselineOf && isMonthlyPlan(p)).sort(newestPlanFirst);
   const today = context.planning.today;
-  // Abre no cronograma do mês corrente (havendo mais de um, o criado por último); sem ele, no mais recente.
-  const plan = plans.find(p => p.id === id) ?? plans.find(p => p.month === today.slice(0, 7)) ?? plans[0];
+  // Abre no cronograma mais recente (16/11/2026): o do mês mais adiante e, no mesmo mês, o criado por último.
+  const plan = plans.find(p => p.id === id) ?? latestPlan(plans);
   return (
     <section className="panel my-5 overflow-hidden" data-tour="medio-gantt">
       {plan ? (

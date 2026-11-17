@@ -1765,3 +1765,27 @@ Nada muda no banco: o vínculo continua sendo uma linha de `plan_dependencies`, 
   - Safari e Firefox;
   - o Gantt de legalização no navegador (a régua de 12 meses está coberta só pelo teste);
   - uso logado no servidor da ATR.
+
+## Médio prazo: abrir no cronograma mais recente (16/11/2026)
+
+### Pedido
+
+"Sempre mostrar o planejamento de médio prazo mais recente antes, não o mais antigo."
+
+### O que estava acontecendo
+
+A tela do cronograma abria no cronograma do **mês corrente**. Quando a obra já tinha criado o do mês seguinte, por exemplo dezembro copiado de novembro ainda em novembro, a tela continuava abrindo novembro, o mais antigo. Ao mesmo tempo, a Claudia, o resumo dos três meses e a variação da linha de base já usavam o mais recente. A ordem do seletor já era do mais recente ao mais antigo.
+
+### Comportamento entregue
+
+- A tela abre no **mais recente**: o cronograma do mês mais adiante e, no mesmo mês, o criado por último. Plano congelado só entra se não houver nenhum vivo. A regra fica em `latestPlan` (`src/domain/legalization.ts`), sobre a mesma ordem `newestPlanFirst` do seletor e da Claudia.
+- Escolher outro cronograma no seletor continua valendo enquanto a tela está aberta. Ao voltar para a aba, ela abre de novo no mais recente.
+- **Não mudou** o painel de médio prazo do Dashboard da obra e do Dashboard geral (`pickPlan`). Ele escolhe o cronograma do mês da **semana analisada**, para que uma semana passada seja lida contra o cronograma daquela época.
+- Tour (passo do seletor) e manual da Claudia atualizados. **Sem migração.**
+
+### Validação (16/11/2026)
+
+- `tests/plan-monthly.test.ts` ganhou o teste "latestPlan: a tela abre no mais recente, mesmo com o mês corrente criado antes". Ele cobre novembro criado em 08/11 com dezembro criado depois (abre dezembro), dois no mesmo mês em qualquer ordem, plano congelado e lista vazia.
+- A consulta de leitura aos cronogramas de produção (mês e data de criação por obra), para ver o caso real da equipe, foi barrada pela permissão desta sessão. A causa foi deduzida do código.
+- **Não validado:** uso logado no servidor da ATR.
+

@@ -30,7 +30,7 @@ export const sections: ManualSection[] = [
     screen: 'medio-prazo',
     body: `## Para que serve
 
-A aba 1.2, "Cronograma de médio prazo" (aba 3 até 12/11/2026; grupo "1 · Prazo" do menu; endereço /obras/<obra>/medio-prazo), é o cronograma do mês da obra no padrão do MS Project: tabela à esquerda, Gantt à direita e datas calculadas pela rede de predecessoras. Cada cronograma é de um mês, com **horizonte de três meses** (do dia 1 do mês ao último dia do segundo mês seguinte). Desde 16/11/2026 o **mesmo mês pode ter mais de um cronograma** (por exemplo, uma nova versão importada do Project): todos aparecem no seletor "Mês" como "Mmm/aa · nome", e a tela abre no criado por último do mês corrente. O primeiro nasce em branco; cada mês seguinte nasce como cópia do anterior, que fica guardado como estava. Em volta dele ficam seções de apoio à reunião de médio prazo.
+A aba 1.2, "Cronograma de médio prazo" (aba 3 até 12/11/2026; grupo "1 · Prazo" do menu; endereço /obras/<obra>/medio-prazo), é o cronograma do mês da obra no padrão do MS Project: tabela à esquerda, Gantt à direita e datas calculadas pela rede de predecessoras. Cada cronograma é de um mês, com **horizonte de três meses** (do dia 1 do mês ao último dia do segundo mês seguinte). Desde 16/11/2026 o **mesmo mês pode ter mais de um cronograma** (por exemplo, uma nova versão importada do Project): todos aparecem no seletor "Mês" como "Mmm/aa · nome", do mais recente ao mais antigo, e a tela abre no **mais recente**: o do último mês criado e, nele, o criado por último (desde 16/11/2026; antes abria no mês corrente mesmo com o mês seguinte já criado). O primeiro nasce em branco; cada mês seguinte nasce como cópia do anterior, que fica guardado como estava. Em volta dele ficam seções de apoio à reunião de médio prazo.
 
 O "Gantt de legalização" (os 12 meses até a entrega da obra) usa este mesmo cronograma, com tabela, Gantt, cálculo, linha de base e exportação, mas fica na aba 1.1 (longo prazo): não aparece na lista de cronogramas do mês nem nas seções desta aba.
 
@@ -115,7 +115,7 @@ A barra de seções fica no cabeçalho da aba. A seção vai no endereço da pá
 
 ## Trocar de mês
 
-O seletor "Mês" troca entre os meses criados; a tela abre no mês corrente ou, sem ele, no mais recente. À esquerda ficam "Horizonte de três meses: X a Y" e "copiado de Mmm/aa". Com alteração não salva, a troca fica travada: salve ou descarte antes.
+O seletor "Mês" troca entre os meses criados, do mais recente ao mais antigo; a tela abre no mais recente. À esquerda ficam "Horizonte de três meses: X a Y" e "copiado de Mmm/aa". Com alteração não salva, a troca fica travada: salve ou descarte antes.
 
 ## A grade abre bloqueada
 

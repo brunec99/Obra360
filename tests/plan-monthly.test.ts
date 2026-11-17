@@ -18,7 +18,7 @@ import { parseLinks, formatLink, formatLinks, rollUpPlan } from '../src/domain/r
 import type { PlanTask, PlanDependency, LinkType, PlanningData } from '../src/domain/entities';
 import { createMockData } from '../src/mocks/planning';
 import { applyCommand, type Command, type CommandContext } from '../src/application/use-cases/commands';
-import { newestPlanFirst, uniquePlanName } from '../src/domain/legalization';
+import { latestPlan, newestPlanFirst, uniquePlanName } from '../src/domain/legalization';
 import { MockPlanningRepository } from '../src/infrastructure/repositories/mock/planning-repository';
 import { planningDataToPayload, rowsToPlanningData, type Rows } from '../src/infrastructure/repositories/supabase/mappers';
 
@@ -560,4 +560,20 @@ test('newestPlanFirst: mês mais recente primeiro e, no mesmo mês, o criado por
     sorted.map(p => p.id),
     ['c', 'b', 'a', 'd'],
   );
+});
+
+test('latestPlan: a tela abre no mais recente, mesmo com o mês corrente criado antes', () => {
+  const plan = (id: string, month: string, createdAt: string, frozenAt?: string) => ({ id, month, createdAt, frozenAt });
+  // Em 16/11: novembro importado em 08/11 e dezembro copiado depois. Abre dezembro, não novembro.
+  const nov = plan('nov', '2026-11', '2026-11-08T10:00:00Z');
+  const dez = plan('dez', '2026-12', '2026-11-16T15:00:00Z');
+  assert.equal(latestPlan([nov, dez])?.id, 'dez');
+  // Dois no mesmo mês: o criado por último, em qualquer ordem de entrada.
+  const nov2 = plan('nov2', '2026-11', '2026-11-16T09:00:00Z');
+  assert.equal(latestPlan([nov2, nov])?.id, 'nov2');
+  // Plano congelado fica de fora enquanto houver um vivo; só congelados, o mais recente deles.
+  const frozen = plan('dez-congelado', '2026-12', '2026-11-17T10:00:00Z', '2026-11-17T11:00:00Z');
+  assert.equal(latestPlan([nov, dez, frozen])?.id, 'dez');
+  assert.equal(latestPlan([frozen])?.id, 'dez-congelado');
+  assert.equal(latestPlan([]), undefined);
 });
