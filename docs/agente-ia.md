@@ -350,6 +350,15 @@ Anotadas pelos agentes ao montar a Claudia geral; nenhuma foi corrigida no códi
 - **Curto prazo sem conferência de nível nas ferramentas (corrigido em 08/11/2026):** `listar_semana`, `propor_levar`, `propor_criar_linhas` e `propor_apontar` liam e propunham linhas da planilha sem olhar `levels`, porque o curto prazo era aberto a todos. No mesmo dia ele passou a ser liberado por pessoa, e a revisão do trabalho simultâneo achou a brecha: quem não tinha o módulo ainda leria a planilha pelo painel da Claudia. `runAgentTool` (`agent-tools.ts`) agora recusa as quatro sem o nível `curto` ("O curto prazo não está liberado para esta pessoa."), como já fazia com o médio e o longo prazo; o dossiê já respeitava o nível. A Claudia geral não muda: é só do admin, que tem todos os níveis. Teste em `tests/agent-tools.test.ts`.
 - **Manual:** o índice está com 13.801 de 14.000 caracteres do teste; a próxima seção nova exige encurtar resumos. Os textos do manual que diziam que a assistente só abre dentro da obra (`dashboard-geral.ts`, `geral.ts`, `acesso-configuracoes.ts`) foram corrigidos em 08/11/2026, e a ajuda de Configurações → Agente de IA ganhou o parágrafo "Geral (várias obras)".
 
+## Sugestão de vínculo dos custos (16/11/2026)
+
+Primeiro uso da Claudia fora do chat com resposta estruturada: na visão Custos do longo prazo, "Sugerir com a Claudia" propõe o pacote de serviço de cada item do orçamento sem pacote. Segue o mesmo desenho das propostas do chat: o modelo não grava, a sugestão entra no rascunho da tela e só o "Salvar" do engenheiro grava.
+
+- Rota `POST /api/lob/costs/suggest` (até 300 itens por chamada; a tela manda os lotes em sequência). Entram só id, código e descrição; o valor em reais nunca é enviado.
+- `suggestCostLinks` em `src/infrastructure/agent/chat.ts`: saída estruturada (`output_config.format` com esquema JSON), `effort` baixo, lista de pacotes no prompt do sistema com cache. `parseCostLinks` valida a resposta (índices fora da lista são descartados, confiança desconhecida vira baixa, item ligado a dois pacotes fica sem pacote).
+- Teto: mesma conferência da Claudia da obra (`loadLedger`, `budgetState` e `budgetDecision`, agora em `src/infrastructure/agent/budget.ts`); o uso é gravado como `pergunta`, inclusive quando a resposta veio e não serviu. Sem migração.
+- Medido em 16/11/2026 com dados fictícios (24 itens, 12 pacotes): US$ 0,008 e 3,5 s no Sonnet 5.5, com os vínculos corretos. Com o orçamento real de uma obra ainda não foi medido.
+
 ## Custo estimado
 
 Preços por milhão de tokens (`MODEL_PRICES`) e custo por chamada, estimado para o tamanho típico do dossiê de uma obra mais as ferramentas:

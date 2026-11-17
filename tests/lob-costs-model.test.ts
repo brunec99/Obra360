@@ -1,16 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applySuggestions,
   columnFill,
   columnValues,
   costsDiff,
   importBudget,
+  liveMarks,
   moveItems,
   parseBudgetPaste,
   pastedRows,
   readAmount,
   saveBlocker,
   setPackageAmount,
+  SUGGEST_BATCH,
+  SUGGEST_MAX,
+  suggestedItems,
+  suggestionBatches,
+  suggestionCandidates,
+  suggestionSummary,
+  undoSuggestions,
+  usableSuggestions,
+  type CostSuggestion,
   type DraftContext,
   type DraftCost,
 } from '../src/modules/longo-prazo/lob/costs-model';
@@ -212,4 +223,105 @@ test('coluna colada: preenche a partir do pacote do campo; 2+ itens pula a linha
 
 test('coluna colada com várias colunas: vale o último número de cada linha', () => {
   assert.deepEqual(columnValues('Alvenaria\t1.000\nPintura\t2.500,50'), [1000, 2500.5]);
+});
+
+// ─── Sugestão da Claudia (16/11/2026) ───────────────────────────────────────────
+
+const serviceIds = new Set(services.map(s => s.id));
+
+test('suggestionCandidates: só os não apropriados, na ordem, sem o valor em reais', () => {
+  const draft = [
+    item('c', { orderIndex: 2, description: '  Tinta   acrílica ' }),
+    item('a', { orderIndex: 0, serviceId: 's-alv' }),
+    item('b', { orderIndex: 1, code: '01.02', description: 'Bloco cerâmico' }),
+    item('d', { orderIndex: 3, serviceId: 'pacote-que-saiu', description: 'Eletroduto' }),
+    item('e', { orderIndex: 4, description: '   ' }),
+  ];
+  const candidates = suggestionCandidates(draft, serviceIds);
+  assert.deepEqual(candidates, [
+    { id: 'b', code: '01.02', description: 'Bloco cerâmico' },
+    { id: 'c', description: 'Tinta acrílica' },
+    { id: 'd', description: 'Eletroduto' },
+  ]);
+  assert.ok(candidates.every(c => !('amount' in c)));
+});
+
+test('suggestionBatches: lotes de até 300, na ordem', () => {
+  const ids = Array.from({ length: 650 }, (_, i) => i);
+  const batches = suggestionBatches(ids);
+  assert.deepEqual(
+    batches.map(b => b.length),
+    [300, 300, 50],
+  );
+  assert.equal(batches[1][0], 300);
+  assert.deepEqual(suggestionBatches([], 300), []);
+  assert.equal(SUGGEST_BATCH, 300);
+  assert.equal(SUGGEST_MAX, 3000);
+});
+
+test('applySuggestions: só mexe em item ainda não apropriado e com pacote da obra', () => {
+  const draft = [item('a'), item('b'), item('c', { serviceId: 's-pin' }), item('d'), item('e')];
+  const suggestions: CostSuggestion[] = [
+    { itemId: 'a', serviceId: 's-alv', confidence: 'alta' },
+    { itemId: 'b', serviceId: null, confidence: 'baixa' },
+    { itemId: 'c', serviceId: 's-ele', confidence: 'alta' }, // a pessoa já apontou: fica onde está
+    { itemId: 'd', serviceId: 'pacote-inventado', confidence: 'alta' },
+    { itemId: 'e', serviceId: 's-ele', confidence: 'baixa' },
+    { itemId: 'e', serviceId: 's-pin', confidence: 'alta' }, // repetido: vale a primeira
+    { itemId: 'fantasma', serviceId: 's-alv', confidence: 'alta' },
+  ];
+  const next = applySuggestions(draft, suggestions, serviceIds);
+  assert.deepEqual(
+    next.map(i => i.serviceId ?? null),
+    ['s-alv', null, 's-pin', null, 's-ele'],
+  );
+  assert.equal(next[0].amount, 100);
+  assert.equal(draft[0].serviceId, undefined, 'não altera o rascunho recebido');
+  const usable = usableSuggestions(draft, suggestions, serviceIds);
+  assert.deepEqual([...usable.keys()], ['a', 'e']);
+  assert.deepEqual(usable.get('e'), { serviceId: 's-ele', confidence: 'baixa' });
+});
+
+test('liveMarks e undoSuggestions: o selo vale enquanto o item segue no pacote sugerido', () => {
+  const draft = [item('a'), item('b'), item('c')];
+  const suggestions: CostSuggestion[] = [
+    { itemId: 'a', serviceId: 's-alv', confidence: 'alta' },
+    { itemId: 'b', serviceId: 's-ele', confidence: 'baixa' },
+    { itemId: 'c', serviceId: 's-pin', confidence: 'media' },
+  ];
+  const marks = usableSuggestions(draft, suggestions, serviceIds);
+  let next = applySuggestions(draft, suggestions, serviceIds);
+  // A pessoa corrige o item b e exclui o c.
+  next = moveItems(next, ['b'], 's-pin').filter(i => i.id !== 'c');
+  assert.deepEqual([...liveMarks(next, marks).keys()], ['a']);
+  const undone = undoSuggestions(next, marks);
+  assert.deepEqual(
+    undone.map(i => [i.id, i.serviceId ?? null]),
+    [
+      ['a', null],
+      ['b', 's-pin'],
+    ],
+  );
+});
+
+test('suggestionSummary e suggestedItems: contagem do aviso e ordem da revisão', () => {
+  const draft = [item('a', { orderIndex: 0 }), item('b', { orderIndex: 1 }), item('c', { orderIndex: 2 }), item('d', { orderIndex: 3 })];
+  const suggestions: CostSuggestion[] = [
+    { itemId: 'a', serviceId: 's-alv', confidence: 'alta' },
+    { itemId: 'b', serviceId: 's-ele', confidence: 'media' },
+    { itemId: 'c', serviceId: 's-pin', confidence: 'baixa' },
+    { itemId: 'd', serviceId: null, confidence: 'baixa' },
+  ];
+  const marks = usableSuggestions(draft, suggestions, serviceIds);
+  assert.deepEqual(suggestionSummary(4, marks), { asked: 4, linked: 3, unlinked: 1, lowConfidence: 1 });
+  assert.deepEqual(suggestionSummary(0, new Map()), { asked: 0, linked: 0, unlinked: 0, lowConfidence: 0 });
+  const next = applySuggestions(draft, suggestions, serviceIds);
+  assert.deepEqual(
+    suggestedItems(next, marks).map(r => [r.item.id, r.confidence]),
+    [
+      ['c', 'baixa'],
+      ['b', 'media'],
+      ['a', 'alta'],
+    ],
+  );
 });

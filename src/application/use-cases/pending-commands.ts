@@ -76,8 +76,9 @@ export interface PendingContext {
   /** Perfis com a obra liberada: quem pode ser responsável e ser marcado. */
   people: PendingPerson[];
   /** Só em `create_card` de origem médio ou longo prazo: a tarefa ou o serviço que a rota achou na obra
-   * (início e nome atuais). Ausente = não existe ou é de outra obra, e o comando é recusado. */
-  source?: { start: string; label: string };
+   * (início e nome atuais). Ausente = não existe ou é de outra obra, e o comando é recusado. `notes` são
+   * as anotações da tarefa do médio prazo: viram a descrição do card criado sem descrição (16/11/2026). */
+  source?: { start: string; label: string; notes?: string };
 }
 
 /** Onde o comando atua: direto numa obra ou num registro cuja obra a rota precisa descobrir. */
@@ -223,7 +224,7 @@ export function planPendingCommand(current: PendingData, command: PendingCommand
     case 'create_card': {
       const workId = requiredId(command.workId, 'Obra não informada.');
       const title = line(command.title, 'o título', PENDING_LIMITS.title);
-      const description = block(command.description, 'A descrição', PENDING_LIMITS.description);
+      let description = block(command.description, 'A descrição', PENDING_LIMITS.description);
       const origin = command.origin;
       if (origin !== 'manual' && origin !== 'medio_prazo' && origin !== 'longo_prazo') return fail('Origem do card inválida.');
       const leadTimeDays = validLeadTime(command.leadTimeDays);
@@ -243,6 +244,9 @@ export function planPendingCommand(current: PendingData, command: PendingCommand
         // A entrega não é digitada: é a véspera útil do início atual da origem (regras 4 e 5).
         dueDate = dueDateFromStart(validDate(ctx.source.start, 'Data de início da origem'));
         source = { sourceId, sourceLabel: ctx.source.label.slice(0, PENDING_LIMITS.title), sourceStart: ctx.source.start };
+        // Sem descrição digitada, o card herda as anotações da tarefa do médio prazo, cortadas no limite do campo.
+        if (!description && origin === 'medio_prazo' && typeof ctx.source.notes === 'string')
+          description = ctx.source.notes.trim().slice(0, PENDING_LIMITS.description).trimEnd();
       }
       const card: PendingCard = {
         id: ctx.newId(),

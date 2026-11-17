@@ -17,13 +17,18 @@ import { CHART } from '@/shared/palette';
  * sai daqui, e o arrasto usa `dateAtX` para voltar de pixel a data. Tudo em dias corridos no eixo
  * (um dia = `pxPerDay`), mas as datas devolvidas caem sempre em dia útil. */
 
-export type LobZoom = 'semana' | 'mes' | 'trimestre';
+/** Níveis de zoom (16/11/2026). 'semana', 'mes' e 'trimestre' têm escala fixa; 'obra' encaixa a obra
+ * inteira na largura disponível. */
+export type LobZoom = 'semana' | 'mes' | 'trimestre' | 'obra';
 
 /** Medidas fixas do desenho. Rótulos dos locais à esquerda, uma linha de 30 px por local; a linha
- * cresce quando serviços do mesmo local se sobrepõem no tempo (faixas, 11/11/2026). */
+ * cresce quando serviços do mesmo local se sobrepõem no tempo (faixas, 11/11/2026). No topo, o
+ * cabeçalho do tempo em duas faixas de `band` px (`top` = 2 × `band`). */
 export const GEOMETRY = {
   left: 110,
-  top: 34,
+  top: 40,
+  /** Altura de cada uma das duas faixas do cabeçalho do tempo. */
+  band: 20,
   right: 24,
   bottom: 26,
   row: 30,
@@ -41,14 +46,47 @@ export const GEOMETRY = {
   minLabelWidth: 40,
 } as const;
 
-/** Pixels por dia corrido em cada zoom. 'mes' é calculado para o plano caber na largura disponível. */
-export const ZOOM_PX = { semana: 9, trimestre: 1, mesMin: 1.5, mesMax: 4 } as const;
+/** Pixels por dia corrido em cada zoom, antes do ajuste fino (`zoomScale`). Cada nível tem mais ou
+ * menos o triplo do seguinte, para a troca de visão ser evidente: numa tela de 1.100 px cabem cerca
+ * de 2 meses na semana, 7 no mês e 22 no trimestre. 'obra' é calculado para o plano caber na largura
+ * disponível, entre `obraMin` e `obraMax`. */
+export const ZOOM_PX = { semana: 16, mes: 4.5, trimestre: 1.5, obraMin: 0.4, obraMax: 6 } as const;
+
+/** Ajuste fino do zoom (botões − e +, Ctrl+roda): multiplicador sobre a escala do nível escolhido. */
+export const ZOOM_SCALE_MIN = 0.25;
+export const ZOOM_SCALE_MAX = 6;
+export const ZOOM_SCALE_STEP = 1.25;
+/** Limites da escala efetiva (nível × ajuste fino), em px por dia corrido. */
+export const PX_PER_DAY_MIN = 0.3;
+export const PX_PER_DAY_MAX = 40;
+
+/** Escala efetiva a partir da qual o cabeçalho do tempo muda de cara: semanas (≥ `week`), meses
+ * (≥ `month`) ou trimestres (abaixo disso). */
+export const HEADER_SCALE_PX = { week: 9, month: 2.5 } as const;
+
+/** Contorno dos blocos do caminho crítico: roxo, para não se confundir com o vermelho do atraso
+ * (`CHART.late`) nem com o contorno escuro da seleção (`CHART.ink`). */
+export const CRITICAL_COLOR = '#7e22ce';
 
 /** "Hoje" só entra na janela do eixo se estiver a até este tanto de dias do plano: uma obra
  * concluída há anos não precisa de um eixo até hoje. */
 const TODAY_REACH_DAYS = 120;
 
 export const MONTHS_SHORT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const MONTHS_LONG = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+];
 export const WEEKDAYS_SHORT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 /** "dd/mm". */
 export const shortDate = (date: LocalDate) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
@@ -93,7 +131,9 @@ export function inkOn(fill: string, alpha = 1) {
 export interface LobLayoutInput {
   data: Pick<LobData, 'locals' | 'services' | 'activities'>;
   zoom: LobZoom;
-  /** Largura do contêiner em px: o zoom 'mes' ajusta a escala para o plano caber nela. */
+  /** Ajuste fino sobre a escala do zoom (padrão 1). */
+  zoomScale?: number;
+  /** Largura do contêiner em px: o zoom 'obra' ajusta a escala para o plano caber nela. */
   availableWidth: number;
   today: LocalDate;
   measurementDates?: { number: number; date: LocalDate }[];
@@ -138,13 +178,31 @@ export interface LobGhost {
   start: LocalDate;
   durationDays: number;
 }
-export interface LobMonthTick {
+export type LobHeaderScale = 'week' | 'month' | 'quarter';
+/** Uma célula do cabeçalho do tempo, já recortada na janela do eixo. */
+export interface LobHeaderCell {
   x: number;
+  w: number;
+  /** Vazio quando o texto não cabe na célula. */
   label: string;
-  /** Janeiro: grade mais forte e rótulo "jan/27" em negrito. */
-  yearStart: boolean;
-  /** Falso quando o zoom não deixa espaço para escrever todos os meses (só o rótulo some; a grade fica). */
-  labeled: boolean;
+  /** Primeiro período do ano (janeiro, T1): rótulo em negrito. */
+  strong?: boolean;
+}
+/** Cabeçalho do tempo conforme a escala efetiva:
+ * - 'week': meses em cima ("novembro 2026"), semanas embaixo (dia da segunda-feira); grade leve por
+ *   semana e forte por mês;
+ * - 'month': anos em cima, meses embaixo ("nov", "jan/27"); grade por mês (forte em janeiro) e traço
+ *   curto por semana na base;
+ * - 'quarter': anos em cima, trimestres embaixo ("T2", "T1/27"); grade forte por trimestre e leve
+ *   por mês. */
+export interface LobHeader {
+  scale: LobHeaderScale;
+  top: LobHeaderCell[];
+  bottom: LobHeaderCell[];
+  /** Linhas verticais da grade, da esquerda para a direita. */
+  lines: { x: number; strong: boolean }[];
+  /** Traços curtos na base do gráfico (segundas-feiras, só na escala 'month'). */
+  ticks: number[];
 }
 export interface LobMarker {
   x: number;
@@ -171,9 +229,7 @@ export interface LobLayout {
   blocks: LobBlock[];
   blockById: Map<string, LobBlock>;
   ghosts: LobGhost[];
-  months: LobMonthTick[];
-  /** Abscissas das segundas-feiras, para os traços na base do gráfico. */
-  mondays: number[];
+  header: LobHeader;
   /** Abscissa de "hoje"; indefinida quando fica fora da janela. */
   todayX?: number;
   measurements: LobMarker[];
@@ -263,12 +319,112 @@ export const rowHeightFor = (lanes: number) =>
     ? GEOMETRY.row
     : Math.max(GEOMETRY.row, Math.ceil(2 * GEOMETRY.blockPad + lanes * GEOMETRY.lane + (lanes - 1) * GEOMETRY.laneGap));
 
-export function pxPerDayFor(zoom: LobZoom, days: number, availableWidth: number): number {
-  if (zoom === 'semana') return ZOOM_PX.semana;
-  if (zoom === 'trimestre') return ZOOM_PX.trimestre;
-  // 2 px a menos: o arredondamento da largura não pode gerar uma barra de rolagem de 1 px.
-  const inner = Math.max(120, availableWidth - GEOMETRY.left - GEOMETRY.right - 2);
-  return clamp(inner / Math.max(1, days), ZOOM_PX.mesMin, ZOOM_PX.mesMax);
+/** Escala efetiva, em px por dia corrido: a do nível (fixa, ou a que encaixa a obra na largura)
+ * vezes o ajuste fino, dentro de `PX_PER_DAY_MIN`…`PX_PER_DAY_MAX`. */
+export function pxPerDayFor(zoom: LobZoom, days: number, availableWidth: number, zoomScale = 1): number {
+  let base: number;
+  if (zoom === 'obra') {
+    // 2 px a menos: o arredondamento da largura não pode gerar uma barra de rolagem de 1 px.
+    const inner = Math.max(120, availableWidth - GEOMETRY.left - GEOMETRY.right - 2);
+    base = clamp(inner / Math.max(1, days), ZOOM_PX.obraMin, ZOOM_PX.obraMax);
+  } else base = ZOOM_PX[zoom];
+  const scale = Number.isFinite(zoomScale) && zoomScale > 0 ? zoomScale : 1;
+  return clamp(base * scale, PX_PER_DAY_MIN, PX_PER_DAY_MAX);
+}
+
+export const headerScaleFor = (pxPerDay: number): LobHeaderScale =>
+  pxPerDay >= HEADER_SCALE_PX.week ? 'week' : pxPerDay >= HEADER_SCALE_PX.month ? 'month' : 'quarter';
+
+/** Primeiro rótulo que cabe em `width` px (~6 px por caractere a 10 px, mais 10 px de margem). */
+const fitLabel = (width: number, ...candidates: string[]) => candidates.find(text => text.length * 6 + 10 <= width) ?? '';
+
+/** Inícios de período de `step` meses (1 = mês, 3 = trimestre, 12 = ano), do que contém `start` até
+ * o primeiro em `end` ou depois: cada par vizinho é uma célula. */
+function monthBounds(start: LocalDate, end: LocalDate, step: number): LocalDate[] {
+  const cursor = new Date(toMs(start));
+  cursor.setUTCDate(1);
+  cursor.setUTCMonth(Math.floor(cursor.getUTCMonth() / step) * step);
+  const bounds: LocalDate[] = [];
+  for (;;) {
+    const date = fromMs(cursor.getTime());
+    bounds.push(date);
+    if (date >= end) return bounds;
+    cursor.setUTCMonth(cursor.getUTCMonth() + step);
+  }
+}
+/** Segundas-feiras, da semana que contém `start` até a primeira em `end` ou depois. */
+function weekBounds(start: LocalDate, end: LocalDate): LocalDate[] {
+  const bounds: LocalDate[] = [];
+  for (let d = addDays(start, -((weekday(start) + 6) % 7)); ; d = addDays(d, 7)) {
+    bounds.push(d);
+    if (d >= end) return bounds;
+  }
+}
+
+/** Cabeçalho do tempo da janela `start` (inclusivo) … `end` (exclusivo) na escala dada. Função pura:
+ * o gráfico só desenha as células e as linhas que saem daqui. */
+export function lobHeader(start: LocalDate, end: LocalDate, pxPerDay: number, left: number = GEOMETRY.left): LobHeader {
+  const scale = headerScaleFor(pxPerDay);
+  const right = left + Math.round(Math.max(1, daysBetween(start, end)) * pxPerDay);
+  const xAt = (date: LocalDate) => clamp(left + daysBetween(start, date) * pxPerDay, left, right);
+  const month = (date: LocalDate) => Number(date.slice(5, 7)) - 1;
+  const yy = (date: LocalDate) => date.slice(2, 4);
+  const cells = (bounds: LocalDate[], cell: (date: LocalDate, width: number) => Omit<LobHeaderCell, 'x' | 'w'>): LobHeaderCell[] => {
+    const out: LobHeaderCell[] = [];
+    for (let i = 0; i + 1 < bounds.length; i++) {
+      const x = xAt(bounds[i]),
+        w = xAt(bounds[i + 1]) - x;
+      if (w > 0) out.push({ x: r2(x), w: r2(w), ...cell(bounds[i], w) });
+    }
+    return out;
+  };
+  // Grade: uma linha por limite que cai dentro da janela; o mais forte vence quando dois coincidem.
+  const lineAt = new Map<LocalDate, boolean>();
+  const addLines = (bounds: LocalDate[], strong: (date: LocalDate) => boolean) => {
+    for (const date of bounds) if (date >= start && date < end) lineAt.set(date, lineAt.get(date) || strong(date));
+  };
+  const months = monthBounds(start, end, 1);
+  const years = () =>
+    cells(monthBounds(start, end, 12), (date, w) => ({ label: fitLabel(w, date.slice(0, 4), `'${yy(date)}`), strong: true }));
+  let top: LobHeaderCell[], bottom: LobHeaderCell[];
+  let ticks: number[] = [];
+
+  if (scale === 'week') {
+    const weeks = weekBounds(start, end);
+    top = cells(months, (date, w) => {
+      const m = month(date),
+        year = date.slice(0, 4);
+      return {
+        label: fitLabel(w, `${MONTHS_LONG[m]} ${year}`, `${MONTHS_SHORT[m]} ${year}`, `${MONTHS_SHORT[m]}/${yy(date)}`, MONTHS_SHORT[m]),
+        strong: m === 0,
+      };
+    });
+    // A semana cortada pela borda esquerda fica sem número: a segunda-feira dela está fora da janela.
+    bottom = cells(weeks, (date, w) => ({ label: date >= start ? fitLabel(w, date.slice(8, 10)) : '' }));
+    addLines(weeks, () => false);
+    addLines(months, () => true);
+  } else if (scale === 'month') {
+    top = years();
+    bottom = cells(months, (date, w) => {
+      const m = month(date);
+      return m === 0
+        ? { label: fitLabel(w, `${MONTHS_SHORT[0]}/${yy(date)}`, MONTHS_SHORT[0]), strong: true }
+        : { label: fitLabel(w, MONTHS_SHORT[m]) };
+    });
+    addLines(months, date => month(date) === 0);
+    ticks = weekBounds(start, end)
+      .filter(date => date >= start && date < end)
+      .map(date => r2(xAt(date)));
+  } else {
+    top = years();
+    bottom = cells(monthBounds(start, end, 3), (date, w) => {
+      const quarter = `T${month(date) / 3 + 1}`;
+      return month(date) === 0 ? { label: fitLabel(w, `${quarter}/${yy(date)}`, quarter), strong: true } : { label: fitLabel(w, quarter) };
+    });
+    addLines(months, date => month(date) % 3 === 0);
+  }
+  const lines = [...lineAt].sort(([a], [b]) => a.localeCompare(b)).map(([date, strong]) => ({ x: r2(xAt(date)), strong }));
+  return { scale, top, bottom, lines, ticks };
 }
 
 /** Monta o layout inteiro. Chamar dentro de um `useMemo`: percorre todos os blocos uma vez. */
@@ -276,7 +432,7 @@ export function lobLayout(input: LobLayoutInput): LobLayout {
   const { left, top, right, bottom, row: rowHeight } = GEOMETRY;
   const { start, end } = timeWindow(input);
   const days = Math.max(1, daysBetween(start, end));
-  const pxPerDay = pxPerDayFor(input.zoom, days, input.availableWidth);
+  const pxPerDay = pxPerDayFor(input.zoom, days, input.availableWidth, input.zoomScale);
   const innerW = Math.round(days * pxPerDay);
   const xOf = (date: LocalDate) => left + daysBetween(start, date) * pxPerDay;
   const dateAtX = (x: number) => nearestWorkday(addDays(start, Math.round((x - left) / pxPerDay)));
@@ -362,35 +518,6 @@ export function lobLayout(input: LobLayoutInput): LobLayout {
     });
   }
 
-  // Meses: linha de grade no dia 1 e rótulo "mar", "abr"; na virada do ano "jan/27" em negrito.
-  // Três letras a 10 px ocupam ~18 px: cabem a partir de 28 px por mês (o zoom 'trimestre' tem 30).
-  // "jan/27" ocupa ~30 px e, abaixo de 40 px por mês, toma o lugar do rótulo de fevereiro.
-  const pxPerMonth = 30.44 * pxPerDay;
-  const labelEvery = pxPerMonth >= 28 ? 1 : pxPerMonth >= 14 ? 2 : 3;
-  const tightYear = labelEvery === 1 && pxPerMonth < 40;
-  const months: LobMonthTick[] = [];
-  const cursor = new Date(toMs(start));
-  cursor.setUTCDate(1);
-  while (cursor.getTime() < toMs(end)) {
-    const month = cursor.getUTCMonth();
-    const x = xOf(fromMs(cursor.getTime()));
-    if (x >= left) {
-      const yearStart = month === 0;
-      months.push({
-        x: r2(x),
-        label: yearStart ? `${MONTHS_SHORT[month]}/${String(cursor.getUTCFullYear()).slice(2)}` : MONTHS_SHORT[month],
-        yearStart,
-        labeled: yearStart || (month % labelEvery === 0 && !(tightYear && month === 1)),
-      });
-    }
-    cursor.setUTCMonth(month + 1);
-  }
-
-  // Segundas-feiras: traço curto na base, a régua das semanas.
-  const mondays: number[] = [];
-  const firstMonday = addDays(start, (8 - weekday(start)) % 7);
-  for (let d = firstMonday; d < end; d = addDays(d, 7)) mondays.push(r2(xOf(d)));
-
   const inWindow = (date: LocalDate) => date >= start && date < end;
   const todayX = inWindow(input.today) ? r2(xOf(input.today)) : undefined;
   const measurements: LobMarker[] = (input.measurementDates ?? [])
@@ -416,8 +543,7 @@ export function lobLayout(input: LobLayoutInput): LobLayout {
     blocks,
     blockById,
     ghosts,
-    months,
-    mondays,
+    header: lobHeader(start, end, pxPerDay, left),
     todayX,
     measurements,
     xOf,

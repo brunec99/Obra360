@@ -11,7 +11,13 @@ import {
   type PendingSourceRows,
   type PendingSourceTask,
 } from '../src/application/use-cases/pending-commands';
-import { PENDING_LIMITS, type PendingCard, type PendingCommand, type PendingData } from '../src/domain/pending-board';
+import {
+  PENDING_LIMITS,
+  PENDING_ORIGIN_LABELS,
+  type PendingCard,
+  type PendingCommand,
+  type PendingData,
+} from '../src/domain/pending-board';
 import { pendingCardLink, pendingEmail } from '../src/infrastructure/email/takt-outbox';
 
 const WORK = 'obra-1';
@@ -74,7 +80,7 @@ test('parse e alvo: tipo conhecido, obra no create e registro nos demais', () =>
   refuses(() => pendingCommandTarget({ type: 'delete_card', cardId: '' }), /Card não informado/);
 });
 
-test('create_card manual: entra no fim de A fazer, registra a criação e avisa o responsável', () => {
+test('create_card avulso: entra no fim de A fazer, registra a criação e avisa o responsável', () => {
   const current = data({ cards: [card('a', { orderIndex: 4 }), card('b', { status: 'doing', orderIndex: 9 })] });
   const m = planPendingCommand(current, create({ description: ' linha 1\nlinha 2 ' }), context());
   const [created] = m.insert.cards;
@@ -96,6 +102,30 @@ test('create_card manual: entra no fim de A fazer, registra a criação e avisa 
   );
   // Quem atribui a si mesmo não recebe e-mail.
   assert.deepEqual(planPendingCommand(current, create({ responsibleId: ANA }), context()).notifications, []);
+});
+
+test('create_card avulso: qualquer pessoa do quadro cria, admin ou não', () => {
+  for (const admin of [false, true])
+    assert.equal(planPendingCommand(data(), create(), context({ admin })).insert.cards[0].origin, 'manual');
+});
+
+test('create_card do médio prazo sem descrição herda as anotações da tarefa, cortadas no limite', () => {
+  const linked = (over: Parameters<typeof create>[0] = {}) => create({ origin: 'medio_prazo', sourceId: 't-1', ...over });
+  const source = { start: '2026-11-16', label: 'Alvenaria', notes: '  Conferir projeto rev. 3\nLiberar com a estrutura  ' };
+  const made = (command: PendingCommand, src: PendingContext['source'] = source) =>
+    planPendingCommand(data(), command, context({ source: src })).insert.cards[0];
+  assert.equal(made(linked()).description, 'Conferir projeto rev. 3\nLiberar com a estrutura');
+  assert.equal(made(linked({ description: '   ' })).description, 'Conferir projeto rev. 3\nLiberar com a estrutura');
+  // Descrição digitada vence as anotações.
+  assert.equal(made(linked({ description: 'Minha descrição' })).description, 'Minha descrição');
+  // Anotação maior que o campo é cortada, não recusada.
+  const long = made(linked(), { ...source, notes: 'x'.repeat(PENDING_LIMITS.description + 50) });
+  assert.equal(long.description?.length, PENDING_LIMITS.description);
+  // Tarefa sem anotações, ou só com espaços: o card nasce sem descrição.
+  assert.equal('description' in made(linked(), { start: source.start, label: source.label }), false);
+  assert.equal('description' in made(linked(), { ...source, notes: '  \n ' }), false);
+  // Serviço do longo prazo não tem anotações de tarefa: nada é copiado, mesmo que o contexto traga.
+  assert.equal('description' in made(create({ origin: 'longo_prazo', sourceId: 's-1' })), false);
 });
 
 test('create_card valida título, data, tempo de execução, responsável e origem', () => {
@@ -179,6 +209,30 @@ test('update_card: histórico da data e do responsável, e-mail só para o novo 
     /acesso a esta obra/,
   );
   refuses(() => planPendingCommand(current, { type: 'update_card', cardId: 'a', dueDate: '2026-13-01' }, context()), /inválida/);
+});
+
+test('update_card: qualquer pessoa do quadro troca o responsável, mesmo sem ter criado o card nem ser a responsável', () => {
+  // Card criado pela Bia e sob responsabilidade do Rafael; quem pede é a Ana, que não é admin.
+  const current = data({ cards: [card('a', { createdBy: BIA, responsibleId: RAFA })] });
+  const m = planPendingCommand(current, { type: 'update_card', cardId: 'a', responsibleId: BIA }, context());
+  assert.equal(m.update.cards[0].responsibleId, BIA);
+  assert.deepEqual(
+    m.insert.messages.map(x => x.body),
+    ['passou a responsabilidade de Rafael Costa para Bia Souza'],
+  );
+  assert.deepEqual(
+    m.notifications.map(n => [n.reason, n.userId]),
+    [['atribuicao', BIA]],
+  );
+});
+
+test('rótulos de origem: avulsa e restrição de vagão antiga', () => {
+  assert.deepEqual(PENDING_ORIGIN_LABELS, {
+    manual: 'Avulsa (sem ligação)',
+    medio_prazo: 'Médio prazo',
+    longo_prazo: 'Longo prazo',
+    restricao: 'Restrição de vagão (antiga)',
+  });
 });
 
 test('update_card recusa data digitada em card ligado a tarefa ou serviço; restrição aceita', () => {

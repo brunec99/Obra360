@@ -1,8 +1,7 @@
 'use client';
-import { useState, type DragEvent } from 'react';
+import { useEffect, useState, type DragEvent } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import {
-  PENDING_ORIGINS,
   PENDING_ORIGIN_LABELS,
   PENDING_STATUSES,
   PENDING_STATUS_LABELS,
@@ -28,6 +27,7 @@ import {
   applyMove,
   cardsByStatus,
   filterCards,
+  filterOrigins,
   hasFilters,
   isSamePlace,
   messageCount,
@@ -40,11 +40,72 @@ import {
   type PendingFilters,
 } from './pending-view';
 
+/** Folga entre o pé do quadro e o pé da janela, e a altura mínima do quadro em janela baixa (24rem). */
+const FIT_GAP = 8;
+const FIT_MIN = 384;
+/** Abaixo de `sm` o quadro fica como era: colunas da altura dos cards e a página rolando. */
+const FIT_QUERY = '(min-width: 640px)';
+
+/** O contêiner que rola a página (o do layout, não a janela). */
+function scrollParent(node: HTMLElement): HTMLElement | null {
+  for (let el = node.parentElement; el && el !== document.body; el = el.parentElement)
+    if (/(auto|scroll)/.test(getComputedStyle(el).overflowY)) return el;
+  return null;
+}
+
+/** Altura do quadro para ele terminar no pé da janela (16/11/2026, retorno do Atmos: "rolar só os cards,
+ * como no Prevision"). Antes nenhuma coluna rolava: quem rolava era a página, levando o cabeçalho, os
+ * filtros e os contadores. A conta é a altura visível do contêiner que rola menos o que fica acima do
+ * quadro (medido com a página no topo) e o respiro de baixo dos contêineres; com isso a página deixa de
+ * rolar e cada coluna rola os próprios cards. Em janela baixa o quadro fica com `FIT_MIN` e a página volta
+ * a rolar. Devolve o `ref` do quadro e a altura; `undefined` (celular, ou antes da primeira medida) = sem
+ * altura fixa. */
+function useFitHeight(): [(node: HTMLDivElement | null) => void, number | undefined] {
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  const [height, setHeight] = useState<number>();
+  useEffect(() => {
+    if (!node) return;
+    const wide = window.matchMedia(FIT_QUERY);
+    const scroller = scrollParent(node);
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!wide.matches) return setHeight(undefined);
+        const box = node.getBoundingClientRect();
+        // Topo do quadro dentro do conteúdo rolável: não muda quando a página rola.
+        const top = scroller ? box.top - scroller.getBoundingClientRect().top + scroller.scrollTop : box.top + window.scrollY;
+        const visible = scroller ? scroller.clientHeight : window.innerHeight;
+        let below = FIT_GAP;
+        for (let el = node.parentElement; el && el !== scroller && el !== document.body; el = el.parentElement)
+          below += parseFloat(getComputedStyle(el).paddingBottom) || 0;
+        const next = Math.max(FIT_MIN, Math.floor(visible - top - below));
+        setHeight(current => (current === next ? current : next));
+      });
+    };
+    measure();
+    // O que fica acima muda de altura (contadores quebrando linha, aviso do link, filtros): o pai acusa.
+    const observer = new ResizeObserver(measure);
+    if (node.parentElement) observer.observe(node.parentElement);
+    if (scroller) observer.observe(scroller);
+    window.addEventListener('resize', measure);
+    wide.addEventListener('change', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      wide.removeEventListener('change', measure);
+    };
+  }, [node]);
+  return [setNode, height];
+}
+
 /** Lista de pendência, a segunda visão da aba 2 (10/11/2026, modelo aprovado "Modelo da lista de
  * pendência"): quadro Kanban de cinco colunas — A fazer, Fazendo, Pausado, Concluído, Cancelado — com
  * prazo em dias úteis, responsável, conversa com menções e checklists. Os cards se arrastam entre as
  * colunas e dentro delas; o menu "⋮" de cada card e o seletor "Coluna" do card aberto movem sem
  * arrastar. Pausar e cancelar pedem motivo; concluir com item de checklist aberto pede confirmação.
+ * Desde 16/11/2026 o quadro cabe na janela e cada coluna rola os próprios cards (`useFitHeight`).
  * `initialCardId` vem do `?card=` do endereço (o link do e-mail de menção). */
 export function PendingBoard({ workId, initialCardId }: { workId: string; initialCardId?: string }) {
   const context = usePlanning();
@@ -58,6 +119,7 @@ export function PendingBoard({ workId, initialCardId }: { workId: string; initia
   const [dragId, setDragId] = useState<string>();
   const [drop, setDrop] = useState<MoveTarget>();
   const [reasonFor, setReasonFor] = useState<{ cardId: string; target: MoveTarget }>();
+  const [boardRef, boardHeight] = useFitHeight();
 
   if (context.state !== 'ready') return <LoadState error={context.state === 'error'} />;
   const { planning } = context;
@@ -85,8 +147,13 @@ export function PendingBoard({ workId, initialCardId }: { workId: string; initia
             item de checklist em aberto pede confirmação.
           </p>
           <p>
-            O card pode nascer aqui (“+ Nova pendência”), de uma tarefa do médio prazo ou de um serviço do longo prazo. Nesses dois casos a
-            entrega é o dia útil anterior ao início da tarefa ou do serviço e muda junto com ele.
+            O card nasce aqui (“+ Nova pendência”, que já abre para escolher a tarefa do médio prazo ou o serviço do longo prazo), numa
+            tarefa do médio prazo ou num serviço do longo prazo. Nesses casos a entrega é o dia útil anterior ao início da tarefa ou do
+            serviço e muda junto com ele. “Sem ligação” cria um card avulso, com a data digitada.
+          </p>
+          <p>
+            Trocar o responsável pede confirmação antes de gravar. Cada coluna rola os próprios cards; o cabeçalho e os filtros ficam
+            parados.
           </p>
           <p>Na conversa, o @ marca quem tem a obra liberada; quem é marcado recebe um e-mail com a mensagem e o link do card.</p>
         </>
@@ -215,7 +282,8 @@ export function PendingBoard({ workId, initialCardId }: { workId: string; initia
     if (cardId) moveFromBoard(cardId, target);
   };
 
-  const marker = <div aria-hidden className="h-1 rounded-full bg-primary" />;
+  const marker = <div aria-hidden className="h-1 shrink-0 rounded-full bg-primary" />;
+  const fitted = boardHeight !== undefined;
 
   return (
     <>
@@ -246,7 +314,7 @@ export function PendingBoard({ workId, initialCardId }: { workId: string; initia
                 onChange={event => setFilters({ ...filters, origin: event.target.value as PendingOrigin | '' })}
               >
                 <option value="">Todas</option>
-                {PENDING_ORIGINS.map(origin => (
+                {filterOrigins(data.cards).map(origin => (
                   <option key={origin} value={origin}>
                     {PENDING_ORIGIN_LABELS[origin]}
                   </option>
@@ -288,15 +356,20 @@ export function PendingBoard({ workId, initialCardId }: { workId: string; initia
         </div>
       )}
 
-      {/* O quadro rola de lado dentro da própria caixa em tela estreita; a página não. */}
+      {/* O quadro rola de lado dentro da própria caixa em tela estreita; a página não. Com altura medida
+          (a partir de `sm`), ele termina no pé da janela e cada coluna rola os próprios cards. */}
       <div
+        ref={boardRef}
         data-tour="pendencias-quadro"
         role="region"
         aria-label="Quadro de Restrições"
         tabIndex={0}
-        className="custom-scrollbar mt-4 max-w-full overflow-x-auto pb-2"
+        style={fitted ? { height: boardHeight } : undefined}
+        className={`custom-scrollbar mt-4 max-w-full overflow-x-auto pb-2 ${fitted ? 'overflow-y-hidden' : ''}`}
       >
-        <div className="grid min-w-[70rem] grid-cols-5 items-start gap-3">
+        <div
+          className={`grid min-w-[70rem] grid-cols-5 gap-3 ${fitted ? 'h-full grid-rows-[minmax(0,1fr)] items-stretch' : 'items-start'}`}
+        >
           {PENDING_STATUSES.map(status => {
             const column = columns[status];
             // A lista sem o card arrastado: é entre os outros que ele vai cair.
@@ -312,46 +385,53 @@ export function PendingBoard({ workId, initialCardId }: { workId: string; initia
                   aim({ status });
                 }}
                 onDrop={event => dropOn(event, status)}
-                className={`flex min-h-32 flex-col gap-2 rounded-2xl p-2.5 transition-colors ${aimed ? 'bg-primary-soft ring-2 ring-primary-ring' : 'bg-slate-200/60'}`}
+                className={`flex flex-col gap-2 rounded-2xl p-2.5 transition-colors ${fitted ? 'min-h-0' : 'min-h-32'} ${aimed ? 'bg-primary-soft ring-2 ring-inset ring-primary-ring' : 'bg-slate-200/60'}`}
               >
-                <h2 className="flex items-center justify-between px-1 py-0.5 text-sm font-bold text-slate-800">
+                <h2 className="flex shrink-0 items-center justify-between px-1 py-0.5 text-sm font-bold text-slate-800">
                   {PENDING_STATUS_LABELS[status]}
                   <span className="text-xs font-semibold tabular-nums text-slate-500">{column.length}</span>
                 </h2>
-                {column.map(card => (
-                  <div key={card.id} className="flex flex-col gap-2">
-                    {aimed && drop?.beforeCardId === card.id && card.id !== dragId && marker}
-                    <PendingCardFace
-                      card={card}
-                      today={today}
-                      responsible={nameOf(card.responsibleId)}
-                      progress={checklistProgress(data.items, card.id)}
-                      messages={messageCount(data.messages, card.id)}
-                      selected={card.id === openId}
-                      dragging={card.id === dragId}
-                      onOpen={() => show(card.id)}
-                      onMove={next => moveFromBoard(card.id, { status: next })}
-                      onDragStart={event => {
-                        event.dataTransfer.effectAllowed = 'move';
-                        event.dataTransfer.setData('text/plain', card.id);
-                        setDragId(card.id);
-                      }}
-                      onDragEnd={endDrag}
-                      onDragOver={event => overCard(event, card, others)}
-                    />
-                  </div>
-                ))}
-                {aimed && !drop?.beforeCardId && marker}
-                {column.length === 0 && !aimed && (
-                  <p className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-center text-xs text-slate-500">
-                    {hasFilters(filters) ? 'Nenhum card com estes filtros.' : 'Nenhum card aqui.'}
-                  </p>
-                )}
+                {/* Só esta lista rola; o título fica em cima e o "+ Nova pendência" embaixo, sempre à vista.
+                    A área vazia abaixo do último card continua sendo da coluna: soltar ali é ir para o fim. */}
+                <div
+                  data-column-cards
+                  className={`flex flex-col gap-2 ${fitted ? 'custom-scrollbar -mx-1.5 min-h-0 flex-1 overflow-y-auto px-1.5 py-0.5' : ''}`}
+                >
+                  {column.map(card => (
+                    <div key={card.id} className="flex shrink-0 flex-col gap-2">
+                      {aimed && drop?.beforeCardId === card.id && card.id !== dragId && marker}
+                      <PendingCardFace
+                        card={card}
+                        today={today}
+                        responsible={nameOf(card.responsibleId)}
+                        progress={checklistProgress(data.items, card.id)}
+                        messages={messageCount(data.messages, card.id)}
+                        selected={card.id === openId}
+                        dragging={card.id === dragId}
+                        onOpen={() => show(card.id)}
+                        onMove={next => moveFromBoard(card.id, { status: next })}
+                        onDragStart={event => {
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', card.id);
+                          setDragId(card.id);
+                        }}
+                        onDragEnd={endDrag}
+                        onDragOver={event => overCard(event, card, others)}
+                      />
+                    </div>
+                  ))}
+                  {aimed && !drop?.beforeCardId && marker}
+                  {column.length === 0 && !aimed && (
+                    <p className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-center text-xs text-slate-500">
+                      {hasFilters(filters) ? 'Nenhum card com estes filtros.' : 'Nenhum card aqui.'}
+                    </p>
+                  )}
+                </div>
                 {status === 'todo' && (
                   <button
                     type="button"
                     onClick={() => setCreating(true)}
-                    className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-semibold text-slate-500 transition-colors hover:border-brand-300 hover:bg-white hover:text-brand-900"
+                    className="flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-semibold text-slate-500 transition-colors hover:border-brand-300 hover:bg-white hover:text-brand-900"
                   >
                     <Plus size={13} aria-hidden />
                     Nova pendência

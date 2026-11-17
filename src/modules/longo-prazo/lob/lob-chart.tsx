@@ -28,6 +28,7 @@ import { daysBetween } from '@/domain/long-term-plan';
 import { CHART } from '@/shared/palette';
 import { formatDate } from '@/shared/format';
 import {
+  CRITICAL_COLOR,
   GEOMETRY,
   clip,
   inkOn,
@@ -67,6 +68,16 @@ export interface LobChartProps {
   /** Filtro de período; undefined = plano inteiro. */
   range?: { start: string; end: string };
   zoom: LobZoom;
+  /** Ajuste fino sobre a escala do zoom (botões − e +); padrão 1. */
+  zoomScale?: number;
+  /** Pedido de um passo de zoom (1 = aproximar, -1 = afastar): Ctrl+roda, ⌘+roda ou pinça do
+   * trackpad sobre o gráfico, e as teclas + e − com o foco nele. Quem recebe ajusta `zoomScale`. */
+  onZoomStep?: (direction: 1 | -1) => void;
+  /** Caminho crítico ligado: os blocos fora do conjunto ficam esmaecidos e os de dentro ganham
+   * contorno roxo. Indefinido = modo desligado. */
+  criticalIds?: ReadonlySet<string>;
+  /** Folga total de cada bloco, em dias úteis, para o tooltip (0 = crítico). */
+  floatDays?: ReadonlyMap<string, number>;
   selectedId?: string;
   /** Sem arrastar nem mover pelo teclado. */
   readOnly: boolean;
@@ -84,6 +95,8 @@ const STYLE = `
 .lob-block:hover .lob-base{fill-opacity:.62}
 .lob-block:focus-visible .lob-base{stroke:var(--color-primary);stroke-width:2}
 .lob-dim{opacity:.3}
+.lob-off{opacity:.28}
+.lob-off:hover,.lob-off:focus-visible{opacity:.8}
 .lob-dragging{transition:none}
 @media (prefers-reduced-motion:reduce){.lob-block{transition:none!important}}
 `;
@@ -95,6 +108,12 @@ const sameSet = (a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | un
   if (a === b) return true;
   if (!a || !b || a.size !== b.size) return false;
   for (const id of a) if (!b.has(id)) return false;
+  return true;
+};
+const sameMap = (a: ReadonlyMap<string, number> | undefined, b: ReadonlyMap<string, number> | undefined) => {
+  if (a === b) return true;
+  if (!a || !b || a.size !== b.size) return false;
+  for (const [id, value] of a) if (b.get(id) !== value) return false;
   return true;
 };
 const sameRecord = (a: Record<string, number>, b: Record<string, number>) => {
@@ -125,10 +144,19 @@ function useStable<T>(value: T, equals: (a: T, b: T) => boolean): T {
 
 // ─── Camadas estáticas (memo: não mudam com hover nem seleção) ──────────────────
 
-/** Fundo com faixas alternadas por local, grade dos meses e régua das segundas-feiras. */
+/** Passo de zoom pela roda: quanto de `deltaY` acumulado vale um passo (um dente da roda do mouse
+ * manda ~100; a pinça do trackpad, vários eventos pequenos). */
+const WHEEL_STEP = 40;
+/** Margem do rótulo dentro da célula do cabeçalho. */
+const HEADER_PAD = 6;
+
+/** Fundo com faixas alternadas por local, cabeçalho do tempo em duas faixas e a grade vertical. As
+ * células e as linhas vêm prontas de `layout.header` (semanas, meses ou trimestres, conforme a escala). */
 const Axes = memo(function Axes({ layout }: { layout: LobLayout }) {
-  const { left, top, innerW, innerH, rows } = layout;
+  const { left, top, innerW, innerH, rows, header } = layout;
+  const band = GEOMETRY.band;
   const bottomY = top + innerH;
+  const textY = (y: number) => y + band / 2 + 3.5;
   return (
     <g aria-hidden="true">
       <rect x={left} y={top} width={innerW} height={innerH} fill={CHART.surfaceMuted} />
@@ -140,32 +168,66 @@ const Axes = memo(function Axes({ layout }: { layout: LobLayout }) {
       {rows.map(r => (
         <line key={`l${r.local.id}`} x1={left} x2={left + innerW} y1={r.y} y2={r.y} stroke={CHART.grid} strokeWidth={0.6} />
       ))}
-      {layout.months.map(m => (
-        <g key={m.x}>
-          <line
-            x1={m.x}
-            x2={m.x}
-            y1={top}
-            y2={bottomY}
-            stroke={m.yearStart ? CHART.gridStrong : CHART.grid}
-            strokeWidth={m.yearStart ? 1.5 : 1}
-          />
-          {m.labeled && (
+      {header.lines.map(l => (
+        <line
+          key={l.x}
+          x1={l.x}
+          x2={l.x}
+          y1={top}
+          y2={bottomY}
+          stroke={l.strong ? CHART.gridStrong : CHART.grid}
+          strokeWidth={l.strong ? 1.5 : 1}
+        />
+      ))}
+      {header.ticks.map(x => (
+        <line key={x} x1={x} x2={x} y1={bottomY} y2={bottomY + 4} stroke={CHART.gridStrong} />
+      ))}
+      {/* Cabeçalho: faixa de cima (meses ou anos) e faixa de baixo (semanas, meses ou trimestres). */}
+      <rect x={left} y={0} width={innerW} height={band} fill={CHART.surfaceAlt} />
+      <rect x={left} y={band} width={innerW} height={band} fill={CHART.surfaceMuted} />
+      {header.top.map(c => (
+        <g key={c.x}>
+          {c.x > left && <line x1={c.x} x2={c.x} y1={0} y2={top} stroke={CHART.gridStrong} strokeWidth={1.5} />}
+          {c.label && (
+            // O rótulo acompanha a rolagem dentro da célula (`placeHeader`): um mês ou um ano mais
+            // largo que a tela não fica sem nome.
             <text
-              x={m.x + 3}
-              y={top - 10}
-              fontSize={10}
-              fontWeight={m.yearStart ? 700 : 500}
-              fill={m.yearStart ? CHART.ink : CHART.inkMuted}
+              x={c.x + HEADER_PAD}
+              y={textY(0)}
+              data-hx={c.x}
+              data-hw={c.w}
+              data-tw={c.label.length * 6.2}
+              fontSize={10.5}
+              fontWeight={700}
+              fill={CHART.ink}
             >
-              {m.label}
+              {c.label}
             </text>
           )}
         </g>
       ))}
-      {layout.mondays.map(x => (
-        <line key={x} x1={x} x2={x} y1={bottomY} y2={bottomY + 4} stroke={CHART.gridStrong} />
+      {header.bottom.map(c => (
+        <g key={c.x}>
+          {c.x > left && <line x1={c.x} x2={c.x} y1={band} y2={top} stroke={CHART.gridStrong} strokeWidth={c.strong ? 1.5 : 1} />}
+          {c.label && (
+            // Semana: o número é o dia da segunda-feira, junto da linha dela. Mês e trimestre: no meio.
+            <text
+              x={header.scale === 'week' ? c.x + 4 : c.x + c.w / 2}
+              y={textY(band)}
+              textAnchor={header.scale === 'week' ? 'start' : 'middle'}
+              fontSize={10}
+              fontWeight={c.strong ? 700 : 500}
+              fill={c.strong ? CHART.ink : CHART.inkMuted}
+              style={{ fontVariantNumeric: 'tabular-nums' }}
+            >
+              {c.label}
+            </text>
+          )}
+        </g>
       ))}
+      <line x1={left} x2={left + innerW} y1={band} y2={band} stroke={CHART.gridStrong} />
+      <line x1={left} x2={left + innerW} y1={0.5} y2={0.5} stroke={CHART.gridStrong} />
+      <line x1={left + innerW} x2={left + innerW} y1={0} y2={top} stroke={CHART.gridStrong} strokeWidth={1.5} />
     </g>
   );
 });
@@ -191,7 +253,7 @@ const Markers = memo(function Markers({ layout, today }: { layout: LobLayout; to
       })}
       {todayX !== undefined && (
         <g>
-          <line x1={todayX} x2={todayX} y1={top - 4} y2={bottomY} stroke={CHART.today} strokeWidth={1.75} strokeDasharray="4 3" />
+          <line x1={todayX} x2={todayX} y1={top} y2={bottomY} stroke={CHART.today} strokeWidth={1.75} strokeDasharray="4 3" />
           <rect x={todayX - 26} y={bottomY + 6} width={52} height={14} rx={4} fill={CHART.today} />
           <text x={todayX} y={bottomY + 16.5} textAnchor="middle" fontSize={9} fontWeight={800} fill="#ffffff">
             Hoje {shortDate(today)}
@@ -239,7 +301,15 @@ const LocalLabels = memo(function LocalLabels({ layout }: { layout: LobLayout })
       style={{ fontFamily: 'inherit' }}
     >
       <rect width={left} height={height} fill={CHART.surface} />
-      <text x={left - 8} y={top - 10} textAnchor="end" fontSize={9.5} fontWeight={700} letterSpacing=".08em" fill={CHART.inkMuted}>
+      <text
+        x={left - 8}
+        y={top - GEOMETRY.band / 2 + 3.5}
+        textAnchor="end"
+        fontSize={9.5}
+        fontWeight={700}
+        letterSpacing=".08em"
+        fill={CHART.inkMuted}
+      >
         LOCAL
       </text>
       {rows.map(r => {
@@ -259,7 +329,7 @@ const LocalLabels = memo(function LocalLabels({ layout }: { layout: LobLayout })
           </text>
         );
       })}
-      <line x1={left - 0.75} x2={left - 0.75} y1={top} y2={top + innerH} stroke={CHART.gridStrong} strokeWidth={1.5} />
+      <line x1={left - 0.75} x2={left - 0.75} y1={0} y2={top + innerH} stroke={CHART.gridStrong} strokeWidth={1.5} />
     </svg>
   );
 });
@@ -274,6 +344,8 @@ const RowBlocks = memo(function RowBlocks({
   today,
   selectedId,
   dimmed,
+  critical,
+  criticalMode,
   shiftId,
   shiftX,
   readOnly,
@@ -285,6 +357,10 @@ const RowBlocks = memo(function RowBlocks({
   selectedId?: string;
   /** Sucessores do bloco arrastado, esmaecidos para sinalizar que acompanham. */
   dimmed?: ReadonlySet<string>;
+  /** Blocos do caminho crítico (referência estável: é a mesma para todas as linhas). */
+  critical?: ReadonlySet<string>;
+  /** Caminho crítico ligado: esmaece quem está fora de `critical` e contorna quem está dentro. */
+  criticalMode: boolean;
   /** Bloco deslocado (arrasto em curso ou solto à espera do servidor) e o deslocamento em px. */
   shiftId?: string;
   shiftX?: number;
@@ -299,6 +375,13 @@ const RowBlocks = memo(function RowBlocks({
         const planned = plannedPercent(a, today);
         const late = isLate(a, measured, today);
         const selected = a.id === selectedId;
+        const isCritical = !!critical?.has(a.id);
+        // Contornos de dentro para fora, sem um cobrir o outro: atraso, caminho crítico, seleção.
+        const criticalRing = criticalMode && isCritical;
+        const criticalOut = late ? 2.75 : 1;
+        const selectedOut = criticalRing ? criticalOut + 2 : 2;
+        // O selecionado não esmaece: o contorno da seleção precisa aparecer.
+        const off = criticalMode && !isCritical && !selected;
         const shifted = a.id === shiftId ? (shiftX ?? 0) : 0;
         // Faixa fina (serviços simultâneos no local): letra menor; abaixo de 10 px, só o bloco.
         const fontSize = b.h >= 16 ? 10.5 : 9;
@@ -307,13 +390,14 @@ const RowBlocks = memo(function RowBlocks({
           `${b.service.name}, ${b.local.name}: ${formatDate(b.start)} a ${formatDate(b.finish)}, ${plural(a.durationDays, 'dia útil', 'dias úteis')}, ` +
           `previsto ${planned}%, medido ${percentText(measured)}` +
           (late ? `, atrasado ${plural(delayDays(a, measured, today), 'dia útil', 'dias úteis')}` : '') +
+          (isCritical ? ', caminho crítico' : '') +
           (selected ? ', selecionado' : '') +
           hint;
         return (
           <g
             key={a.id}
             data-aid={a.id}
-            className={`lob-block${dimmed?.has(a.id) ? ' lob-dim' : ''}${a.id === shiftId ? ' lob-dragging' : ''}`}
+            className={`lob-block${dimmed?.has(a.id) ? ' lob-dim' : off ? ' lob-off' : ''}${a.id === shiftId ? ' lob-dragging' : ''}`}
             style={{
               transform: `translate(${b.x + shifted}px, ${b.y}px)`,
               cursor: readOnly ? 'pointer' : 'grab',
@@ -328,7 +412,30 @@ const RowBlocks = memo(function RowBlocks({
             {late && (
               <rect x={-0.75} y={-0.75} width={b.w + 1.5} height={b.h + 1.5} rx={3.5} fill="none" stroke={CHART.late} strokeWidth={1.75} />
             )}
-            {selected && <rect x={-2} y={-2} width={b.w + 4} height={b.h + 4} rx={4.5} fill="none" stroke={CHART.ink} strokeWidth={2} />}
+            {criticalRing && (
+              <rect
+                x={-criticalOut}
+                y={-criticalOut}
+                width={b.w + 2 * criticalOut}
+                height={b.h + 2 * criticalOut}
+                rx={3 + criticalOut}
+                fill="none"
+                stroke={CRITICAL_COLOR}
+                strokeWidth={2}
+              />
+            )}
+            {selected && (
+              <rect
+                x={-selectedOut}
+                y={-selectedOut}
+                width={b.w + 2 * selectedOut}
+                height={b.h + 2 * selectedOut}
+                rx={2.5 + selectedOut}
+                fill="none"
+                stroke={CHART.ink}
+                strokeWidth={2}
+              />
+            )}
             {label && (
               <text
                 x={5}
@@ -371,12 +478,23 @@ interface Pending {
 const PENDING_MS = 4000;
 
 export function LobChart(props: LobChartProps) {
-  const { data, today, baseline, zoom, selectedId, readOnly, onSelect, onMove, scrollToTodayToken } = props;
+  const { data, today, baseline, zoom, zoomScale = 1, onZoomStep, selectedId, readOnly, onSelect, onMove, scrollToTodayToken } = props;
   const percents = useStable(props.percents, sameRecord);
   const hiddenServiceIds = useStable(props.hiddenServiceIds, sameSet);
   const visibleLocalIds = useStable(props.visibleLocalIds, sameSet);
   const measurementDates = useStable(props.measurementDates, sameDates);
   const range = useStable(props.range, sameRange);
+  const criticalIds = useStable(props.criticalIds, sameSet);
+  const floatDays = useStable(props.floatDays, sameMap);
+  /** Quem é crítico, para o contorno, o texto lido e o tooltip: o conjunto recebido ou, com o modo
+   * desligado, quem tem folga zero. */
+  const critical = useMemo(() => {
+    if (criticalIds) return criticalIds;
+    if (!floatDays) return undefined;
+    const ids = new Set<string>();
+    for (const [id, days] of floatDays) if (days <= 0) ids.add(id);
+    return ids;
+  }, [criticalIds, floatDays]);
 
   const clipId = `lob-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -388,6 +506,10 @@ export function LobChart(props: LobChartProps) {
   /** Bloco que deve receber o foco assim que a seleção chegar (clique ou setas). */
   const focusNextRef = useRef<string | undefined>(undefined);
   const justDraggedRef = useRef(false);
+  const onZoomStepRef = useRef(onZoomStep);
+  /** Onde o ponteiro estava (px a partir da borda esquerda da área) no último passo de zoom pela
+   * roda: é esse ponto, e não o meio da tela, que fica parado quando a escala muda. */
+  const anchorRef = useRef<{ x: number; at: number } | undefined>(undefined);
 
   const [availableWidth, setAvailableWidth] = useState(1100);
   const [hoverId, setHoverId] = useState<string | undefined>(undefined);
@@ -400,6 +522,7 @@ export function LobChart(props: LobChartProps) {
       lobLayout({
         data: { locals, services, activities },
         zoom,
+        zoomScale,
         availableWidth,
         today,
         measurementDates,
@@ -408,7 +531,20 @@ export function LobChart(props: LobChartProps) {
         visibleLocalIds,
         range,
       }),
-    [locals, services, activities, zoom, availableWidth, today, measurementDates, baseline, hiddenServiceIds, visibleLocalIds, range],
+    [
+      locals,
+      services,
+      activities,
+      zoom,
+      zoomScale,
+      availableWidth,
+      today,
+      measurementDates,
+      baseline,
+      hiddenServiceIds,
+      visibleLocalIds,
+      range,
+    ],
   );
   const rowBlocks = useMemo(() => {
     const map = new Map<string, LobBlock[]>(layout.rows.map(r => [r.local.id, []]));
@@ -454,7 +590,7 @@ export function LobChart(props: LobChartProps) {
   })();
   const dimmed = drag?.moved ? drag.dimmed : undefined;
 
-  // Largura disponível: o zoom 'mes' encaixa o plano nela.
+  // Largura disponível: o zoom 'obra' encaixa o plano nela.
   useEffect(() => {
     const box = scrollRef.current;
     if (!box) return;
@@ -466,17 +602,63 @@ export function LobChart(props: LobChartProps) {
     return () => observer.disconnect();
   }, []);
 
-  // Ao trocar a escala (zoom ou largura), a data que estava no meio da tela continua no meio.
+  // Rótulos da faixa de cima do cabeçalho: acompanham a rolagem sem sair da própria célula.
+  const placeHeader = useCallback(() => {
+    const box = scrollRef.current,
+      svg = svgRef.current,
+      current = layoutRef.current;
+    if (!box || !svg || !current) return;
+    const viewLeft = box.scrollLeft + current.left + HEADER_PAD;
+    for (const text of svg.querySelectorAll<SVGTextElement>('[data-hx]')) {
+      const x = Number(text.dataset.hx) + HEADER_PAD;
+      const last = Number(text.dataset.hx) + Number(text.dataset.hw) - Number(text.dataset.tw) - HEADER_PAD;
+      text.setAttribute('x', String(Math.round(clamp(viewLeft, x, Math.max(x, last)))));
+    }
+  }, []);
+
+  // Ao trocar a escala (zoom, ajuste fino ou largura), o instante que estava no meio da tela continua
+  // no meio; no zoom pela roda, o que fica parado é o instante sob o ponteiro.
   useLayoutEffect(() => {
     const box = scrollRef.current,
       previous = layoutRef.current;
     if (box && previous && previous.pxPerDay !== layout.pxPerDay) {
-      const center = previous.dateAtX(scrollLeftRef.current + box.clientWidth / 2);
-      box.scrollLeft = Math.max(0, layout.xOf(center) - box.clientWidth / 2);
+      const anchor = anchorRef.current;
+      anchorRef.current = undefined;
+      const at = anchor && performance.now() - anchor.at < 600 ? Math.max(layout.left, anchor.x) : box.clientWidth / 2;
+      const days = (scrollLeftRef.current + at - previous.left) / previous.pxPerDay - daysBetween(previous.start, layout.start);
+      box.scrollLeft = Math.max(0, layout.left + days * layout.pxPerDay - at);
       scrollLeftRef.current = box.scrollLeft;
     }
     layoutRef.current = layout;
-  }, [layout]);
+    placeHeader();
+  }, [layout, placeHeader]);
+
+  // Ctrl+roda, ⌘+roda e a pinça do trackpad (que chega como roda com Ctrl) pedem um passo de zoom.
+  // Listener nativo não passivo: só assim o `preventDefault` segura o zoom da página inteira.
+  useEffect(() => {
+    onZoomStepRef.current = onZoomStep;
+  }, [onZoomStep]);
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    let sum = 0,
+      last = 0;
+    const onWheel = (e: WheelEvent) => {
+      const step = onZoomStepRef.current;
+      if (!step || !(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      if (e.timeStamp - last > 250) sum = 0;
+      last = e.timeStamp;
+      // deltaMode 1 = linhas (roda de mouse em alguns navegadores).
+      sum += e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+      if (Math.abs(sum) < WHEEL_STEP) return;
+      anchorRef.current = { x: e.clientX - box.getBoundingClientRect().left, at: performance.now() };
+      step(sum < 0 ? 1 : -1);
+      sum = 0;
+    };
+    box.addEventListener('wheel', onWheel, { passive: false });
+    return () => box.removeEventListener('wheel', onWheel);
+  }, []);
 
   // "Hoje" a ~35% da largura visível: na montagem e a cada mudança do token.
   useEffect(() => {
@@ -485,7 +667,8 @@ export function LobChart(props: LobChartProps) {
     if (!box || !current || current.todayX === undefined) return;
     box.scrollLeft = Math.max(0, current.todayX - box.clientWidth * 0.35);
     scrollLeftRef.current = box.scrollLeft;
-  }, [scrollToTodayToken]);
+    placeHeader();
+  }, [scrollToTodayToken, placeHeader]);
 
   // Tooltip: ao lado do bloco, à esquerda quando há espaço, senão à direita; nunca fora da área visível.
   const placeTooltip = useCallback(() => {
@@ -633,8 +816,14 @@ export function LobChart(props: LobChartProps) {
     }
   }
   /** Com o foco na área, Enter entra no bloco selecionado ou, sem seleção, no mais perto de hoje.
-   * As setas ficam livres para a rolagem nativa da área. */
+   * As setas ficam livres para a rolagem nativa da área. As teclas + e − (com o foco na área ou num
+   * bloco) pedem um passo de zoom; com Ctrl ou ⌘ ficam para o zoom do navegador. */
   function onRegionKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (onZoomStep && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '+' || e.key === '=' || e.key === '-')) {
+      e.preventDefault();
+      onZoomStep(e.key === '-' ? -1 : 1);
+      return;
+    }
     if (e.target !== e.currentTarget || !layout.blocks.length || e.key !== 'Enter') return;
     e.preventDefault();
     const target =
@@ -681,6 +870,9 @@ export function LobChart(props: LobChartProps) {
       danger: late,
     });
     if (late) rows.push({ label: 'Atraso', value: plural(delayDays(a, measured, today), 'dia útil', 'dias úteis'), danger: true });
+    const float = floatDays?.get(a.id);
+    if (critical?.has(a.id)) rows.push({ label: 'Folga', value: 'crítico · sem folga' });
+    else if (float !== undefined) rows.push({ label: 'Folga', value: plural(float, 'dia útil', 'dias úteis') });
     if (a.actualStart || a.actualFinish)
       rows.push({
         label: 'Real',
@@ -729,6 +921,7 @@ export function LobChart(props: LobChartProps) {
         onScroll={e => {
           scrollLeftRef.current = e.currentTarget.scrollLeft;
           placeTooltip();
+          placeHeader();
         }}
         onKeyDown={onRegionKeyDown}
       >
@@ -770,6 +963,8 @@ export function LobChart(props: LobChartProps) {
                     today={today}
                     selectedId={selectedBlock?.local.id === row.local.id ? selectedId : undefined}
                     dimmed={dimmed}
+                    critical={critical}
+                    criticalMode={!!criticalIds}
                     shiftId={shift?.rowId === row.local.id ? shift.id : undefined}
                     shiftX={shift?.rowId === row.local.id ? shift.x : undefined}
                     readOnly={readOnly}

@@ -1,6 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assignLanes, GEOMETRY, lobLayout, rowHeightFor } from '../src/modules/longo-prazo/lob/lob-model';
+import {
+  assignLanes,
+  GEOMETRY,
+  HEADER_SCALE_PX,
+  headerScaleFor,
+  lobHeader,
+  lobLayout,
+  PX_PER_DAY_MAX,
+  PX_PER_DAY_MIN,
+  pxPerDayFor,
+  rowHeightFor,
+  ZOOM_PX,
+  ZOOM_SCALE_MAX,
+  ZOOM_SCALE_MIN,
+  ZOOM_SCALE_STEP,
+} from '../src/modules/longo-prazo/lob/lob-model';
 import type { LobActivity, LobLocal, LobService } from '../src/domain/lob';
 
 const NOW = '2026-11-11T12:00:00.000Z';
@@ -112,4 +127,211 @@ test('layout: serviço escondido não ocupa faixa', () => {
     hiddenServiceIds: new Set(['HID']),
   });
   assert.deepEqual([layout.rows[0].lanes, layout.rows[0].height], [1, GEOMETRY.row]);
+});
+
+// ─── Zoom ───────────────────────────────────────────────────────────────────────
+
+test('zoom: semana, mês e trimestre têm escalas fixas e bem diferentes entre si', () => {
+  const days = 730; // obra de 2 anos
+  const [semana, mes, trimestre] = (['semana', 'mes', 'trimestre'] as const).map(zoom => pxPerDayFor(zoom, days, 1200));
+  assert.deepEqual([semana, mes, trimestre], [ZOOM_PX.semana, ZOOM_PX.mes, ZOOM_PX.trimestre]);
+  // Cada nível mostra pelo menos o triplo do tempo do anterior: a troca não pode só "comprimir um pouco".
+  assert.ok(semana / mes >= 3);
+  assert.ok(mes / trimestre >= 3);
+  // Escala fixa: não depende da largura nem do tamanho da obra.
+  assert.equal(pxPerDayFor('mes', 90, 2400), ZOOM_PX.mes);
+});
+
+test("zoom 'obra': encaixa a obra inteira na largura, dentro dos limites", () => {
+  const inner = 1200 - GEOMETRY.left - GEOMETRY.right - 2;
+  const px = pxPerDayFor('obra', 730, 1200);
+  assert.equal(px, inner / 730);
+  assert.ok(730 * px <= inner);
+  // Obra curta não estica além do máximo; obra enorme não some abaixo do mínimo.
+  assert.equal(pxPerDayFor('obra', 30, 1200), ZOOM_PX.obraMax);
+  assert.equal(pxPerDayFor('obra', 20000, 1200), ZOOM_PX.obraMin);
+  const layout = lobLayout({
+    data: { locals: [local('L1', 0)], services: [service('ALV', 0)], activities: [act('a', 'ALV', 'L1', '2026-01-05', 500)] },
+    zoom: 'obra',
+    availableWidth: 1200,
+    today: '2026-11-11',
+  });
+  assert.ok(layout.width <= 1200);
+  assert.equal(layout.header.scale, 'quarter');
+});
+
+test('zoomScale: multiplica a escala do nível e respeita os limites', () => {
+  assert.equal(pxPerDayFor('mes', 730, 1200, 2), ZOOM_PX.mes * 2);
+  assert.equal(pxPerDayFor('trimestre', 730, 1200, 0.5), ZOOM_PX.trimestre * 0.5);
+  assert.equal(pxPerDayFor('obra', 730, 1200, 2), pxPerDayFor('obra', 730, 1200) * 2);
+  // Sem ajuste, ou com valor inválido, vale a escala do nível.
+  for (const bad of [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(pxPerDayFor('mes', 730, 1200, bad), ZOOM_PX.mes);
+  // Nos extremos do ajuste fino a escala efetiva fica dentro do intervalo seguro.
+  assert.equal(pxPerDayFor('semana', 730, 1200, ZOOM_SCALE_MAX), PX_PER_DAY_MAX);
+  assert.equal(pxPerDayFor('obra', 20000, 1200, ZOOM_SCALE_MIN), PX_PER_DAY_MIN);
+  for (const zoom of ['semana', 'mes', 'trimestre', 'obra'] as const)
+    for (const scale of [ZOOM_SCALE_MIN, 1, ZOOM_SCALE_MAX]) {
+      const px = pxPerDayFor(zoom, 730, 1200, scale);
+      assert.ok(px >= PX_PER_DAY_MIN && px <= PX_PER_DAY_MAX);
+    }
+  assert.ok(ZOOM_SCALE_MIN < 1 && ZOOM_SCALE_MAX > 1 && ZOOM_SCALE_STEP > 1);
+  // O layout usa a escala efetiva.
+  const input = {
+    data: { locals: [local('L1', 0)], services: [service('ALV', 0)], activities: [act('a', 'ALV', 'L1', '2026-11-02', 5)] },
+    zoom: 'mes' as const,
+    availableWidth: 1200,
+    today: '2026-11-11',
+  };
+  const base = lobLayout(input),
+    doubled = lobLayout({ ...input, zoomScale: 2 });
+  assert.equal(doubled.pxPerDay, base.pxPerDay * 2);
+  assert.equal(doubled.innerW, base.innerW * 2);
+});
+
+// ─── Cabeçalho do tempo ─────────────────────────────────────────────────────────
+
+test('cabeçalho: a escala efetiva escolhe semanas, meses ou trimestres', () => {
+  assert.equal(headerScaleFor(ZOOM_PX.semana), 'week');
+  assert.equal(headerScaleFor(ZOOM_PX.mes), 'month');
+  assert.equal(headerScaleFor(ZOOM_PX.trimestre), 'quarter');
+  assert.equal(headerScaleFor(HEADER_SCALE_PX.week), 'week');
+  assert.equal(headerScaleFor(HEADER_SCALE_PX.month), 'month');
+  assert.equal(headerScaleFor(HEADER_SCALE_PX.month - 0.01), 'quarter');
+  // O ajuste fino atravessa os níveis: semana bem afastada vira cabeçalho de meses.
+  assert.equal(headerScaleFor(pxPerDayFor('semana', 730, 1200, ZOOM_SCALE_MIN)), 'month');
+});
+
+test('cabeçalho de semanas: meses por extenso em cima, dia da segunda-feira embaixo', () => {
+  // 21/10/2026 é quarta-feira; a janela vai até 15/12 (exclusivo).
+  const h = lobHeader('2026-10-21', '2026-12-15', 16, 100);
+  assert.equal(h.scale, 'week');
+  // Outubro aparece cortado (11 dias = 176 px), novembro inteiro (480 px), dezembro até o dia 14.
+  assert.deepEqual(h.top, [
+    { x: 100, w: 176, label: 'outubro 2026', strong: false },
+    { x: 276, w: 480, label: 'novembro 2026', strong: false },
+    { x: 756, w: 224, label: 'dezembro 2026', strong: false },
+  ]);
+  // A semana cortada pela borda esquerda fica sem número; as outras levam o dia da segunda. A última
+  // (só o dia 14, 16 px) é estreita demais para o rótulo.
+  assert.deepEqual(
+    h.bottom.map(c => c.label),
+    ['', '26', '02', '09', '16', '23', '30', '07', ''],
+  );
+  assert.deepEqual([h.bottom[0].x, h.bottom[0].w], [100, 5 * 16]);
+  assert.deepEqual([h.bottom[1].x, h.bottom[1].w], [180, 7 * 16]);
+  // A última semana é recortada no fim da janela.
+  const last = h.bottom.at(-1)!;
+  assert.equal(last.x + last.w, 100 + 55 * 16);
+  // Grade: forte no dia 1 de cada mês, leve nas segundas-feiras.
+  assert.deepEqual(
+    h.lines.filter(l => l.strong).map(l => l.x),
+    [276, 756],
+  );
+  assert.equal(h.lines.filter(l => !l.strong).length, 8);
+  assert.ok(h.lines.every((l, i) => i === 0 || l.x > h.lines[i - 1].x));
+  assert.deepEqual(h.ticks, []);
+});
+
+test('cabeçalho de semanas: mês que começa numa segunda-feira ganha uma linha só, a forte', () => {
+  // 01/06/2026 é segunda-feira.
+  const h = lobHeader('2026-05-28', '2026-06-15', 10, 0);
+  assert.deepEqual(h.lines, [
+    { x: 40, strong: true },
+    { x: 110, strong: false },
+  ]);
+  // Célula estreita (4 dias de maio = 40 px): o nome do mês encolhe até caber.
+  assert.deepEqual(
+    h.top.map(c => c.label),
+    ['mai', 'junho 2026'],
+  );
+});
+
+test('cabeçalho de meses: anos em cima, meses embaixo, com "jan/27" na virada', () => {
+  const h = lobHeader('2026-10-21', '2027-03-11', 4.5, 100);
+  assert.equal(h.scale, 'month');
+  assert.deepEqual(
+    h.top.map(c => [c.label, c.x]),
+    [
+      ['2026', 100],
+      ['2027', 100 + 72 * 4.5],
+    ],
+  );
+  assert.deepEqual(
+    h.bottom.map(c => c.label),
+    ['out', 'nov', 'dez', 'jan/27', 'fev', 'mar'],
+  );
+  assert.deepEqual(
+    h.bottom.map(c => !!c.strong),
+    [false, false, false, true, false, false],
+  );
+  // Novembro: 30 dias a 4,5 px, a partir de 1º/11 (11 dias depois do início).
+  assert.deepEqual([h.bottom[1].x, h.bottom[1].w], [100 + 11 * 4.5, 135]);
+  // Grade por mês, forte só em janeiro; traço curto em cada segunda-feira.
+  assert.deepEqual(
+    h.lines.map(l => l.strong),
+    [false, false, true, false, false],
+  );
+  assert.equal(h.ticks[0], 100 + 5 * 4.5);
+  assert.equal(h.ticks.length, 20);
+  // As células cobrem a janela inteira, sem buraco nem sobra.
+  const right = 100 + Math.round(141 * 4.5);
+  for (const band of [h.top, h.bottom]) {
+    assert.equal(band[0].x, 100);
+    assert.ok(Math.abs(band.at(-1)!.x + band.at(-1)!.w - right) < 0.02);
+    for (let i = 1; i < band.length; i++) assert.ok(Math.abs(band[i].x - (band[i - 1].x + band[i - 1].w)) < 0.02);
+  }
+});
+
+test('cabeçalho de trimestres: anos em cima, T1…T4 embaixo, grade forte por trimestre', () => {
+  const h = lobHeader('2026-08-10', '2027-08-10', 1.5, 100);
+  assert.equal(h.scale, 'quarter');
+  assert.deepEqual(
+    h.top.map(c => c.label),
+    ['2026', '2027'],
+  );
+  assert.deepEqual(
+    h.bottom.map(c => c.label),
+    ['T3', 'T4', 'T1/27', 'T2', 'T3'],
+  );
+  // Uma linha por mês; forte em outubro, janeiro, abril e julho.
+  assert.equal(h.lines.length, 12);
+  assert.deepEqual(
+    h.lines.map(l => l.strong),
+    [false, true, false, false, true, false, false, true, false, false, true, false],
+  );
+  assert.deepEqual(h.ticks, []);
+});
+
+test('cabeçalho de trimestres bem afastado: rótulo que não cabe some, a célula fica', () => {
+  // 0,3 px/dia: o trimestre tem ~27 px ("T1/27" não cabe, "T1" cabe); o resto de 2026 tem 12 px e
+  // fica sem rótulo; o pedaço de 2028 (31,5 px) só comporta o ano abreviado.
+  const h = lobHeader('2026-11-21', '2028-04-15', PX_PER_DAY_MIN, 0);
+  assert.deepEqual(
+    h.top.map(c => c.label),
+    ['', '2027', "'28"],
+  );
+  assert.deepEqual(
+    h.bottom.map(c => c.label),
+    ['', 'T1', 'T2', 'T3', 'T4', 'T1', ''],
+  );
+  assert.equal(h.top.length + h.bottom.length, 10);
+});
+
+test('layout: expõe o cabeçalho da escala efetiva e reserva as duas faixas no topo', () => {
+  const input = {
+    data: { locals: [local('L1', 0)], services: [service('ALV', 0)], activities: [act('a', 'ALV', 'L1', '2026-11-02', 5)] },
+    availableWidth: 1200,
+    today: '2026-11-11',
+  };
+  assert.equal(GEOMETRY.top, 2 * GEOMETRY.band);
+  const scales = (['semana', 'mes', 'trimestre'] as const).map(zoom => lobLayout({ ...input, zoom }).header.scale);
+  assert.deepEqual(scales, ['week', 'month', 'quarter']);
+  const layout = lobLayout({ ...input, zoom: 'semana' });
+  assert.deepEqual(layout.header, lobHeader(layout.start, layout.end, layout.pxPerDay));
+  assert.equal(layout.header.top[0].x, layout.left);
+  const last = layout.header.bottom.at(-1)!;
+  assert.ok(Math.abs(last.x + last.w - (layout.left + layout.innerW)) < 0.02);
+  // A semana aproximada o bastante continua com cabeçalho de semanas; afastada, passa a meses.
+  assert.equal(lobLayout({ ...input, zoom: 'semana', zoomScale: 0.5 }).header.scale, 'month');
+  assert.equal(lobLayout({ ...input, zoom: 'trimestre', zoomScale: 2 }).header.scale, 'month');
 });

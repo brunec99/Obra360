@@ -1789,3 +1789,41 @@ A tela do cronograma abria no cronograma do **mês corrente**. Quando a obra já
 - A consulta de leitura aos cronogramas de produção (mês e data de criação por obra), para ver o caso real da equipe, foi barrada pela permissão desta sessão. A causa foi deduzida do código.
 - **Não validado:** uso logado no servidor da ATR.
 
+## Longo prazo e Quadro de Restrições: retorno do Atmos (16/11/2026)
+
+### Pedido
+
+O coordenador de obras do Atmos testou o longo prazo e o Quadro de Restrições e mandou um retorno por e-mail em 16/11/2026. O pedido do gerente foi resolver os pontos e responder, com uma orientação: usar a Claudia para pré-preencher o vínculo entre o orçamento (execução) e os pacotes de serviço (planejamento), deixando para o engenheiro da obra só validar e corrigir. A diferença de avanço e de IDP em relação ao Prevision (20% lá, 7,3% aqui) vem do peso: o Prevision pondera pelo financeiro, e o Obra 360 só faz isso depois que todos os pacotes com blocos têm custo apropriado; até lá pesa pela duração.
+
+A parte do Quadro de Restrições está em [Lista de pendência](lista-pendencia.md), seção "Retorno do Atmos (16/11/2026)".
+
+### Comportamento entregue (implementado; **sem migração**)
+
+- **Menu "⋯" cortado.** A barra quebra em várias linhas, e o botão "⋯", alinhado à direita, podia cair no começo de uma linha: aberto para a esquerda, o menu sumia atrás do menu lateral. O painel flutuante agora mede o espaço ao abrir e troca de lado quando não cabe (`Popover`, em `lob-view.tsx`).
+- **Barra reorganizada.** Em cima ficam as ações da obra: "Lançar fluxo", "Nova medição", "Custos", "Salvar linha de base", "Atrasos", "Desfazer" e "⋯". Os controles de visualização foram para o cabeçalho do quadro do gráfico: "Serviços", "Locais", "Período", "Linha de base", zoom, "Hoje", "Caminho crítico", o cadeado e "Tabela".
+- **Filtro no lugar da legenda.** A legenda de chips embaixo do gráfico saiu. Esconder e mostrar serviços é pelo filtro "Serviços", que mostra a cor de cada um e ganhou busca pelo nome (em listas com mais de 8 itens; vale também para "Locais").
+- **Zoom.** Quatro escalas, cada uma com o seu cabeçalho de tempo em duas faixas: "Semana" (16 px por dia; meses em cima, uma coluna por semana com o dia da segunda-feira), "Mês" (4,5 px por dia; anos em cima, meses embaixo), "Trimestre" (1,5 px por dia; anos em cima, T1 a T4 embaixo) e "Obra inteira" (encaixa a obra na largura da tela; é como a tela abre). Os botões "−" e "+" multiplicam a escala em passos de 1,25 (de 0,25 a 6 vezes), e Ctrl + roda do mouse (ou a pinça do trackpad) sobre o gráfico faz o mesmo, mantendo parado o ponto sob o ponteiro. Antes, "Mês" (encaixado, 1,5 a 4 px por dia) e "Trimestre" (1 px) ficavam quase iguais numa obra de dois anos. Geometria e cabeçalho em `lob-model.ts` (`pxPerDayFor`, `lobHeader`), desenho em `lob-chart.tsx`.
+- **Datas travadas.** O gráfico abre com as datas travadas: arrastar e as setas não mudam nada. O cadeado no cabeçalho do gráfico libera e trava; a escolha fica guardada no navegador (`localStorage`, chave `obra360.lob.datas-travadas`). O painel do bloco selecionado continua editando início e duração, porque ali a mudança é deliberada. Perfil de consulta não vê o cadeado.
+- **Caminho crítico.** O botão "Caminho crítico" destaca com contorno roxo os blocos sem folga e esmaece os demais; o selo mostra quantos são, a dica do bloco mostra a folga em dias úteis e uma linha abaixo do gráfico explica o destaque. A conta está em `src/domain/lob-critical.ts` (`lobCriticalPath`): passagem de volta do CPM sobre as dependências entre blocos ("depois de" e "equipe segue", com a espera, inclusive negativa), a partir do fim da obra. Como a Linha de Balanço não reagenda para o mais cedo, a folga sai da data atual de cada bloco: quantos dias úteis ele pode atrasar sem empurrar o término. Folga zero ou negativa (dependência violada) é crítico; bloco preso num ciclo fica de fora.
+- **Claudia sugere o vínculo dos custos.** Na visão Custos, o botão "Sugerir com a Claudia" aparece para quem pode editar quando há itens do orçamento sem pacote. A Claudia lê o código e a descrição de cada item não apropriado (o valor em reais não é enviado) e propõe o pacote de serviço; custos indiretos (administração, canteiro, taxas) ficam sem pacote. Vai em lotes de 300 itens, com andamento na tela e cancelamento entre lotes, até 3.000 itens por clique. As sugestões entram só no rascunho: cada item ganha o selo "Sugestão da Claudia" ("confira" quando ela ficou em dúvida) e todos aparecem no quadro "Sugestões da Claudia", com os duvidosos primeiro e um seletor de pacote por linha. O engenheiro confere, corrige e clica em "Salvar"; "Desfazer sugestões" devolve tudo a não apropriado. Rota `POST /api/lob/costs/suggest` (módulo longo prazo, consulta recusada), que confere o teto de gasto da IA antes de chamar e grava o uso depois, como uma pergunta; a resposta do modelo vem em saída estruturada (JSON com esquema) e é validada no servidor (`suggestCostLinks` e `parseCostLinks`, em `src/infrastructure/agent/chat.ts`; teto em `src/infrastructure/agent/budget.ts`, extraído da rota da Claudia sem mudar comportamento).
+- **Sienge.** Não existe integração direta com o Sienge. O texto de "Colar do orçamento" passou a dizer que a planilha pode ser a exportação do orçamento do Sienge (código, descrição e valor).
+
+### O que já existia e foi só esclarecido
+
+- **Avanço menor que o da medição anterior.** A trava já existe na tela e no servidor (`validateMeasurementValue`): o acumulado não pode ficar abaixo do valor da medição fechada anterior. O que continua permitido é corrigir, para cima ou para baixo, um valor dentro da última medição, que é a única editável; na primeira medição da obra não há anterior. Não foi possível ver nos dados de produção qual foi o caso do Atmos (a leitura do banco foi barrada pela permissão da sessão).
+- **Versões do cronograma.** São as linhas de base ("Salvar linha de base": guardar com nome, comparar no gráfico, restaurar).
+
+### Validação (16/11/2026)
+
+- Testes: `tests/lob-critical.test.ts` (7, novo), `tests/lob-model.test.ts` (14, com 10 novos de zoom e cabeçalho), `tests/lob-costs-model.test.ts` (5 novos), `tests/agent-cost-links.test.ts` (7, novo), manual e tour.
+- Chamada real à IA com 24 itens e 12 pacotes fictícios: 18 itens ligados ao pacote certo, 6 indiretos ou sem pacote correspondente deixados de fora, 3,5 s e US$ 0,008 no Sonnet 5.5. Estimativa para um orçamento de 1.500 itens: de US$ 0,25 a 0,45 (não medido).
+- Navegador (Playwright, `next dev` local com Supabase falso e APIs respondidas pelo script, obra de exemplo com 16 locais, 12 serviços e 192 blocos; 1500, 1100 e 390 px): o menu "⋯" abre inteiro dentro da área da página nas três larguras; as quatro escalas dão larguras bem diferentes (8.342, 2.443, 904 e 1.144 px); "+" duas vezes leva de 2.443 a 3.741 px; caminho crítico com 16 blocos em destaque; arrastar com as datas travadas não manda comando e, liberado, manda um `update_activity`; busca no filtro de serviços; na visão Custos, a sugestão manda só id, código e descrição e o resumo e o quadro de revisão aparecem. Sem erro de console.
+- **Não validado:** uso logado no servidor da ATR; a sugestão da Claudia com o orçamento real do Atmos (qualidade dos vínculos e tempo de um lote de 300); o zoom pela pinça do trackpad; a rota de sugestão de ponta a ponta com o banco (autorização, teto e gravação do uso têm só as funções puras testadas).
+
+### Próximas etapas (não implementadas)
+
+- **Calendário com feriados e recessos na Linha de Balanço.** Hoje o calendário é de segunda a sexta. Ligar feriados muda o término calculado de todos os blocos (a duração é em dias úteis), então pede cadastro por obra, migração e a conversão das durações já gravadas; fica para uma etapa própria, com modelo antes.
+- **Cenários.** Simular mudanças sem alterar o planejamento vigente e guardar o cenário com nome. Hoje o caminho é salvar uma linha de base antes de mexer e restaurá-la.
+- **Sienge direto.** Buscar o orçamento pela API do Sienge depende de credenciais de API da ATR.
+- Levar o caminho crítico para a tabela e para o relatório da Claudia.
+

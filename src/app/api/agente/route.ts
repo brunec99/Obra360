@@ -22,17 +22,8 @@ import {
 import type { ToolContext } from '@/application/use-cases/agent-tools';
 import { AGENT } from '@/modules/agente/agent-identity';
 import { isManualScreen } from '@/modules/agente/manual';
-import {
-  countActiveWorks,
-  monthUsage,
-  readInsight,
-  recordUsage,
-  saveInsight,
-  userSettings,
-  type MonthUsage,
-  type StoredInsight,
-  type UserAgentSettings,
-} from '@/infrastructure/agent/ledger';
+import { recordUsage, saveInsight, type StoredInsight } from '@/infrastructure/agent/ledger';
+import { budgetState, loadLedger } from '@/infrastructure/agent/budget';
 import { answerQuestion, generateReading, isAgentModelError, type ChatTurn } from '@/infrastructure/agent/chat';
 
 export const runtime = 'nodejs';
@@ -93,34 +84,6 @@ async function loadContext(workId: string, access: Access): Promise<Context> {
 
 // ─── Livro-razão e orçamento ───────────────────────────────────────────────────
 
-type Ledger =
-  | { missing: true }
-  | { missing: false; usage: MonthUsage; activeWorks: number; settings: UserAgentSettings | null; insight: StoredInsight | null };
-async function loadLedger(workId: string, actorId: string, month: string): Promise<Ledger | string> {
-  const [usage, works, settings, insight] = await Promise.all([
-    monthUsage(month),
-    countActiveWorks(),
-    userSettings(actorId),
-    readInsight(workId),
-  ]);
-  if (!usage.ok) return usage.missing ? { missing: true } : usage.error;
-  if (!settings.ok) return settings.missing ? { missing: true } : settings.error;
-  if (!insight.ok) return insight.missing ? { missing: true } : insight.error;
-  if (!works.ok) return works.error;
-  return { missing: false, usage: usage.value, activeWorks: works.value, settings: settings.value, insight: insight.value };
-}
-
-function budgetState(ledger: Extract<Ledger, { missing: false }>, workId: string, actorId: string, budgetUsd: number): BudgetState {
-  return {
-    budgetUsd,
-    monthUsd: ledger.usage.totalUsd,
-    workUsd: ledger.usage.byWork.get(workId)?.usd ?? 0,
-    activeWorks: ledger.activeWorks,
-    userUsd: ledger.usage.byUser.get(actorId)?.usd ?? 0,
-    userLimitUsd: ledger.settings?.monthlyLimitUsd ?? null,
-    userBlocked: ledger.settings?.blocked ?? false,
-  };
-}
 const usagePayload = (state: BudgetState, model: string, spent = 0) => ({
   monthUsd: round6(state.monthUsd + spent),
   budgetUsd: state.budgetUsd,

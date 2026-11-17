@@ -1,20 +1,25 @@
 'use client';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Building2,
   ChevronDown,
   Coins,
   Download,
   Flag,
+  Lock,
+  LockOpen,
+  Minus,
   MoreHorizontal,
   Plus,
   Ruler,
+  Search,
   Table2,
   TriangleAlert,
   Undo2,
   Upload,
+  Waypoints,
 } from 'lucide-react';
 import {
   activityFinish,
@@ -23,6 +28,7 @@ import {
   isLate,
   lobSpan,
   measuredPercents,
+  normalizeName,
   plannedPercent,
   type LobActivity,
   type LobCommand,
@@ -39,6 +45,7 @@ import {
   type IdpTone,
   type LobPerformance,
 } from '@/domain/lob-performance';
+import { lobCriticalPath } from '@/domain/lob-critical';
 import { addDays, daysBetween, isLocalDate } from '@/domain/long-term-plan';
 import { useDeveloper, useModules, usePlanning } from '@/modules/planejamento/planning-provider';
 import { hasSectionAccess } from '@/application/module-access';
@@ -49,7 +56,8 @@ import { useToast } from '@/modules/layout/toast';
 import { HelpNote } from '@/modules/layout/help-note';
 import { formatDate, workPath } from '@/shared/format';
 import { useLob } from './lob-api';
-import { LobChart, LobLegend, type LobZoom } from './lob-chart';
+import { LobChart, type LobZoom } from './lob-chart';
+import { CRITICAL_COLOR, ZOOM_SCALE_MAX, ZOOM_SCALE_MIN, ZOOM_SCALE_STEP } from './lob-model';
 import { LobTable } from './lob-table';
 import { LobActivityPanel } from './lob-activity-panel';
 import { LobLocalsPanel } from './lob-locals-panel';
@@ -73,7 +81,17 @@ const ZOOMS: { id: LobZoom; label: string }[] = [
   { id: 'semana', label: 'Semana' },
   { id: 'mes', label: 'Mês' },
   { id: 'trimestre', label: 'Trimestre' },
+  { id: 'obra', label: 'Obra inteira' },
 ];
+/** Trava das datas (16/11/2026): guardada por navegador; sem nada guardado, a tela abre travada. */
+const LOCK_KEY = 'obra360.lob.datas-travadas';
+const readLock = () => {
+  try {
+    return window.localStorage.getItem(LOCK_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
 
 const pct = (value: number) => `${value.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 /** "11/11". */
@@ -113,7 +131,23 @@ function Popover({
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // Lado para o qual o painel abre. A barra quebra em várias linhas, e um botão alinhado à direita
+  // pode cair no começo da linha: aberto para a esquerda, o painel sumia atrás do menu lateral
+  // (retorno do Atmos, 16/11/2026). Ao abrir, mede e troca de lado se não couber.
+  const [side, setSide] = useState(align);
   const root = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!open || !root.current || !panel.current) return;
+    const button = root.current.getBoundingClientRect();
+    const width = panel.current.offsetWidth;
+    const bounds = root.current.closest('main')?.getBoundingClientRect();
+    const min = (bounds?.left ?? 0) + 8;
+    const max = Math.min(bounds?.right ?? window.innerWidth, window.innerWidth) - 8;
+    const fitsEnd = button.right - width >= min;
+    const fitsStart = button.left + width <= max;
+    setSide(align === 'end' ? (fitsEnd || !fitsStart ? 'end' : 'start') : fitsStart || !fitsEnd ? 'start' : 'end');
+  }, [open, align]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -144,7 +178,8 @@ function Popover({
       </button>
       {open && (
         <div
-          className={`absolute z-40 mt-1 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${align === 'end' ? 'right-0' : 'left-0'}`}
+          ref={panel}
+          className={`absolute z-40 mt-1 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${side === 'end' ? 'right-0' : 'left-0'}`}
         >
           {children(() => setOpen(false))}
         </div>
@@ -169,9 +204,25 @@ function CheckList({
   onNone: () => void;
   empty: string;
 }) {
+  const [query, setQuery] = useState('');
   if (!items.length) return <p className="px-2 py-1.5 text-xs text-slate-500">{empty}</p>;
+  const wanted = normalizeName(query);
+  const shown = wanted ? items.filter(item => normalizeName(item.label).includes(wanted)) : items;
   return (
     <div>
+      {items.length > 8 && (
+        <label className="relative mb-1.5 block">
+          <span className="sr-only">Buscar na lista</span>
+          <Search size={14} aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            className="field py-1.5 pl-8 text-sm"
+            placeholder="Buscar"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+          />
+        </label>
+      )}
       <div className="flex gap-3 px-2 pb-1.5 text-xs">
         <button type="button" className="text-link" onClick={onAll}>
           Todos
@@ -181,7 +232,8 @@ function CheckList({
         </button>
       </div>
       <ul className="custom-scrollbar max-h-64 overflow-y-auto">
-        {items.map(item => (
+        {!shown.length && <li className="px-2 py-1.5 text-xs text-slate-500">Nada encontrado.</li>}
+        {shown.map(item => (
           <li key={item.id}>
             <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
               <input type="checkbox" className="accent-primary" checked={isChecked(item.id)} onChange={() => onToggle(item.id)} />
@@ -379,7 +431,12 @@ function LobViewInner({ workId }: { workId: string }) {
   const [period, setPeriod] = useState<Period>('all');
   const [custom, setCustom] = useState({ start: '', end: '' });
   const [baselineId, setBaselineId] = useState('');
-  const [zoom, setZoom] = useState<LobZoom>('mes');
+  const [zoom, setZoom] = useState<LobZoom>('obra');
+  // Ajuste fino do zoom (botões − e +, Ctrl+roda no gráfico): multiplica a escala do nível escolhido.
+  const [zoomScale, setZoomScale] = useState(1);
+  // Datas travadas: o gráfico não arrasta nem move pelas setas. Evita reprogramar sem querer.
+  const [locked, setLocked] = useState(true);
+  const [showCritical, setShowCritical] = useState(false);
   const [showTable, setShowTable] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
   // `?lancar=<fluxo>` (vindo da visão Fluxos) já abre o diálogo com o fluxo escolhido; o efeito
@@ -426,6 +483,30 @@ function LobViewInner({ workId }: { workId: string }) {
       return { start: custom.start, end: custom.end };
     return undefined;
   }, [period, custom, today]);
+
+  useEffect(() => {
+    // Lido depois da montagem (o servidor não conhece o navegador): um quadro travado a mais não faz mal.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLocked(readLock());
+  }, []);
+  const toggleLock = () =>
+    setLocked(current => {
+      try {
+        window.localStorage.setItem(LOCK_KEY, current ? '0' : '1');
+      } catch {
+        // Navegador sem armazenamento: a trava vale só nesta visita.
+      }
+      return !current;
+    });
+  const stepZoom = (direction: 1 | -1) =>
+    setZoomScale(scale =>
+      Math.min(ZOOM_SCALE_MAX, Math.max(ZOOM_SCALE_MIN, direction > 0 ? scale * ZOOM_SCALE_STEP : scale / ZOOM_SCALE_STEP)),
+    );
+  // Caminho crítico: só calcula com o destaque ligado (a obra chega a 600 blocos e 1.200 dependências).
+  const critical = useMemo(
+    () => (data && showCritical ? lobCriticalPath(data.activities, data.dependencies) : undefined),
+    [data, showCritical],
+  );
 
   // Teclas: H rola até hoje; Ctrl+Z / Cmd+Z desfaz. Fora de campos e com nenhum diálogo aberto.
   useEffect(() => {
@@ -563,7 +644,7 @@ function LobViewInner({ workId }: { workId: string }) {
       return next.size === locals.length ? undefined : next;
     });
   const move = (id: string, start: LocalDate) => {
-    if (readOnly || busy) return;
+    if (readOnly || busy || locked) return;
     run({ type: 'update_activity', activityId: id, start }).catch(fail);
   };
   const openLaunch = (flowId?: string) => {
@@ -652,142 +733,17 @@ function LobViewInner({ workId }: { workId: string }) {
 
   return (
     <section aria-label="Linha de Balanço" className="space-y-4">
-      {/* Barra de ferramentas */}
-      <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Ferramentas da Linha de Balanço">
-        <Popover
-          tourId="longo-lob-filtros"
-          label={visibleServices === services.length ? 'Serviços: todos' : `Serviços: ${visibleServices} de ${services.length}`}
-        >
-          {() => (
-            <CheckList
-              items={services.map(s => ({ id: s.id, label: s.name, color: s.color }))}
-              isChecked={id => !hiddenServiceIds.has(id)}
-              onToggle={toggleService}
-              onAll={() => setHiddenServiceIds(new Set())}
-              onNone={() => setHiddenServiceIds(new Set(services.map(s => s.id)))}
-              empty="Nenhum serviço ainda: lance um fluxo."
-            />
-          )}
-        </Popover>
-        <Popover label={!localFilter ? 'Locais: todos' : `Locais: ${visibleLocals} de ${locals.length}`}>
-          {() => (
-            <CheckList
-              items={[...locals].reverse().map(l => ({ id: l.id, label: l.name }))}
-              isChecked={id => !localFilter || localFilter.has(id)}
-              onToggle={toggleLocal}
-              onAll={() => setLocalFilter(undefined)}
-              onNone={() => setLocalFilter(new Set())}
-              empty="Nenhum local cadastrado."
-            />
-          )}
-        </Popover>
-        <label htmlFor="lob-period" className="sr-only">
-          Período
-        </label>
-        <select id="lob-period" className="field w-auto py-2" value={period} onChange={event => setPeriod(event.target.value as Period)}>
-          <option value="all">Período: obra inteira</option>
-          <option value="3m">Período: próximos 3 meses</option>
-          <option value="6m">Período: próximos 6 meses</option>
-          <option value="custom">Período: personalizado</option>
-        </select>
-        {period === 'custom' && (
-          <>
-            <input
-              type="date"
-              className="field w-auto py-2"
-              aria-label="Início do período"
-              value={custom.start}
-              onChange={event => setCustom(c => ({ ...c, start: event.target.value }))}
-            />
-            <input
-              type="date"
-              className="field w-auto py-2"
-              aria-label="Fim do período"
-              value={custom.end}
-              onChange={event => setCustom(c => ({ ...c, end: event.target.value }))}
-            />
-          </>
-        )}
-        <label htmlFor="lob-baseline" className="sr-only">
-          Linha de base
-        </label>
-        <select id="lob-baseline" className="field w-auto py-2" value={baselineId} onChange={event => setBaselineId(event.target.value)}>
-          {/* Vazio = nada no gráfico; o IDP cai na regra 4 (manual mais recente) e diz qual usa na dica. */}
-          <option value="">
-            {defaultIdpBaseline ? `Linha de base: nenhuma no gráfico (IDP: “${defaultIdpBaseline.name}”)` : 'Linha de base: nenhuma'}
-          </option>
-          {[...data.baselines]
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-            .map(b => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-                {b.automatic ? ' (automática)' : ''}
-              </option>
-            ))}
-        </select>
-        <span className="hidden flex-1 lg:block" />
-        <div
-          data-tour="longo-lob-zoom"
-          role="group"
-          aria-label="Zoom"
-          className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5"
-        >
-          {ZOOMS.map(z => (
-            <button
-              key={z.id}
-              type="button"
-              aria-pressed={zoom === z.id}
-              onClick={() => setZoom(z.id)}
-              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${zoom === z.id ? 'bg-white text-primary-ink shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              {z.label}
-            </button>
-          ))}
-        </div>
-        <button
-          data-tour="longo-lob-hoje"
-          type="button"
-          className="button-ghost"
-          title="Rolar até hoje (tecla H)"
-          onClick={() => setTodayToken(t => t + 1)}
-        >
-          Hoje <kbd className="rounded border border-slate-200 bg-slate-50 px-1 text-[10px] font-semibold text-slate-400">H</kbd>
-        </button>
+      {/* Ações da obra. Os controles de visualização (filtros, zoom, trava, caminho crítico e tabela)
+          ficam no cabeçalho do quadro do gráfico, mais abaixo (16/11/2026, retorno do Atmos). */}
+      <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Ações da Linha de Balanço">
         {!readOnly && (
-          <button
-            data-tour="longo-lob-desfazer"
-            type="button"
-            className="button-ghost"
-            disabled={!undoStack.length || busy}
-            title="Ctrl+Z"
-            onClick={undo}
-          >
-            <Undo2 size={15} aria-hidden /> Desfazer
+          <button data-tour="longo-lob-lancar" type="button" className="button" disabled={busy} onClick={() => openLaunch()}>
+            <Plus size={16} aria-hidden /> Lançar fluxo
           </button>
         )}
-        <button
-          data-tour="longo-lob-tabela"
-          type="button"
-          className="button-ghost"
-          aria-pressed={showTable}
-          onClick={() => setShowTable(v => !v)}
-        >
-          <Table2 size={15} aria-hidden /> Tabela
-        </button>
-        <button
-          data-tour="longo-lob-atrasos"
-          type="button"
-          className="button-ghost"
-          disabled={!lateActivities.length}
-          onClick={() => setPanel('late')}
-        >
-          <TriangleAlert size={15} aria-hidden className={lateActivities.length ? 'text-danger' : undefined} /> Atrasos
-          {lateActivities.length > 0 && <b className="tabular-nums text-danger">{lateActivities.length}</b>}
-        </button>
-        <button data-tour="longo-lob-linha-base" type="button" className="button-ghost" onClick={() => setPanel('baselines')}>
-          <Flag size={15} aria-hidden /> {readOnly ? 'Linhas de base' : 'Salvar linha de base'}
-          {data.baselines.length > 0 && <span className="badge-muted px-2 py-0">{data.baselines.length}</span>}
-        </button>
+        <Link data-tour="longo-lob-nova-medicao" href={`${base}?visao=medicoes`} className="button-secondary">
+          <Ruler size={15} aria-hidden /> Nova medição
+        </Link>
         {/* Custos por pacote (11/11/2026): o selo diz quantos pacotes com blocos já têm custo (regra 6). */}
         <Link
           data-tour="longo-lob-custos"
@@ -808,12 +764,31 @@ function LobViewInner({ workId }: { workId: string }) {
             </span>
           )}
         </Link>
-        <Link data-tour="longo-lob-nova-medicao" href={`${base}?visao=medicoes`} className="button-secondary">
-          <Ruler size={15} aria-hidden /> Nova medição
-        </Link>
+        <button data-tour="longo-lob-linha-base" type="button" className="button-ghost" onClick={() => setPanel('baselines')}>
+          <Flag size={15} aria-hidden /> {readOnly ? 'Linhas de base' : 'Salvar linha de base'}
+          {data.baselines.length > 0 && <span className="badge-muted px-2 py-0">{data.baselines.length}</span>}
+        </button>
+        <button
+          data-tour="longo-lob-atrasos"
+          type="button"
+          className="button-ghost"
+          disabled={!lateActivities.length}
+          onClick={() => setPanel('late')}
+        >
+          <TriangleAlert size={15} aria-hidden className={lateActivities.length ? 'text-danger' : undefined} /> Atrasos
+          {lateActivities.length > 0 && <b className="tabular-nums text-danger">{lateActivities.length}</b>}
+        </button>
+        <span className="flex-1" />
         {!readOnly && (
-          <button data-tour="longo-lob-lancar" type="button" className="button" disabled={busy} onClick={() => openLaunch()}>
-            <Plus size={16} aria-hidden /> Lançar fluxo
+          <button
+            data-tour="longo-lob-desfazer"
+            type="button"
+            className="button-ghost"
+            disabled={!undoStack.length || busy}
+            title="Ctrl+Z"
+            onClick={undo}
+          >
+            <Undo2 size={15} aria-hidden /> Desfazer
           </button>
         )}
         <Popover tourId="longo-lob-mais" label={<MoreHorizontal size={16} aria-hidden />} ariaLabel="Mais ações" align="end">
@@ -865,13 +840,20 @@ function LobViewInner({ workId }: { workId: string }) {
             contorno vermelho marca atraso (previsto até hoje acima do medido).
           </p>
           <p>
-            <strong>Arraste</strong> um bloco para mudar a data: ele nunca entra antes do fim das predecessoras, e as sucessoras acompanham.{' '}
+            As datas abrem <strong>travadas</strong>, para ninguém reprogramar sem querer. Clique no cadeado para liberar e então{' '}
+            <strong>arraste</strong> um bloco: ele nunca entra antes do fim das predecessoras, e as sucessoras acompanham.{' '}
             <strong>Desfazer</strong> (Ctrl+Z) devolve as datas na sessão. Duração, dependências, equipe e datas reais se editam no painel
-            ao lado.
+            do bloco selecionado.
+          </p>
+          <p>
+            <strong>Zoom:</strong> Semana, Mês, Trimestre ou a obra inteira na largura da tela; os botões − e + (ou Ctrl + roda do mouse
+            sobre o gráfico) fazem o ajuste fino. <strong>Caminho crítico</strong> destaca os blocos sem folga: os que, se atrasarem,
+            empurram o término da obra pelas dependências.
           </p>
           <p>
             <strong>Lançar fluxo</strong> cria os blocos a partir de um fluxo da empresa nos locais marcados; antes de cada lançamento numa
-            obra que já tem blocos, uma linha de base automática guarda o cronograma.
+            obra que já tem blocos, uma linha de base automática guarda o cronograma. <strong>Salvar linha de base</strong> guarda uma
+            versão do cronograma com nome, para comparar no gráfico ou restaurar depois.
           </p>
           <p>
             O <strong>IDP</strong> (desempenho de prazo) é o avanço real ÷ o planejado na última medição fechada, contra a linha de base
@@ -969,7 +951,11 @@ function LobViewInner({ workId }: { workId: string }) {
             <p className="eyebrow">Atividade selecionada</p>
             <p className="mt-2">Clique num bloco para ver detalhes: datas, duração, dependências, equipe, situação e fotos da medição.</p>
             {!readOnly && (
-              <p className="mt-2 text-xs">Arraste um bloco para mudar a data; as sucessoras acompanham. H leva até hoje; Ctrl+Z desfaz.</p>
+              <p className="mt-2 text-xs">
+                {locked
+                  ? 'As datas estão travadas. Para reprogramar arrastando, libere a edição no cadeado acima do gráfico.'
+                  : 'Arraste um bloco para mudar a data; as sucessoras acompanham. H leva até hoje; Ctrl+Z desfaz.'}
+              </p>
             )}
           </div>
         ) : (
@@ -994,8 +980,179 @@ function LobViewInner({ workId }: { workId: string }) {
           </div>
         )}
       </aside>
-      {/* Gráfico (ou tabela), na largura toda */}
+      {/* Gráfico (ou tabela), na largura toda, com os controles de visualização no cabeçalho */}
       <div className="panel p-4" data-tour="longo-lob-grafico">
+        <div className="mb-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Visualização da Linha de Balanço">
+          <Popover
+            tourId="longo-lob-filtros"
+            label={<>{visibleServices === services.length ? 'Serviços: todos' : `Serviços: ${visibleServices} de ${services.length}`}</>}
+          >
+            {() => (
+              <CheckList
+                items={services.map(s => ({ id: s.id, label: s.name, color: s.color }))}
+                isChecked={id => !hiddenServiceIds.has(id)}
+                onToggle={toggleService}
+                onAll={() => setHiddenServiceIds(new Set())}
+                onNone={() => setHiddenServiceIds(new Set(services.map(s => s.id)))}
+                empty="Nenhum serviço ainda: lance um fluxo."
+              />
+            )}
+          </Popover>
+          <Popover label={!localFilter ? 'Locais: todos' : `Locais: ${visibleLocals} de ${locals.length}`}>
+            {() => (
+              <CheckList
+                items={[...locals].reverse().map(l => ({ id: l.id, label: l.name }))}
+                isChecked={id => !localFilter || localFilter.has(id)}
+                onToggle={toggleLocal}
+                onAll={() => setLocalFilter(undefined)}
+                onNone={() => setLocalFilter(new Set())}
+                empty="Nenhum local cadastrado."
+              />
+            )}
+          </Popover>
+          <label htmlFor="lob-period" className="sr-only">
+            Período
+          </label>
+          <select id="lob-period" className="field w-auto py-2" value={period} onChange={event => setPeriod(event.target.value as Period)}>
+            <option value="all">Período: obra inteira</option>
+            <option value="3m">Período: próximos 3 meses</option>
+            <option value="6m">Período: próximos 6 meses</option>
+            <option value="custom">Período: personalizado</option>
+          </select>
+          {period === 'custom' && (
+            <>
+              <input
+                type="date"
+                className="field w-auto py-2"
+                aria-label="Início do período"
+                value={custom.start}
+                onChange={event => setCustom(c => ({ ...c, start: event.target.value }))}
+              />
+              <input
+                type="date"
+                className="field w-auto py-2"
+                aria-label="Fim do período"
+                value={custom.end}
+                onChange={event => setCustom(c => ({ ...c, end: event.target.value }))}
+              />
+            </>
+          )}
+          <label htmlFor="lob-baseline" className="sr-only">
+            Linha de base
+          </label>
+          <select
+            id="lob-baseline"
+            className="field w-auto max-w-[16rem] py-2"
+            value={baselineId}
+            onChange={event => setBaselineId(event.target.value)}
+          >
+            {/* Vazio = nada no gráfico; o IDP cai na regra 4 (manual mais recente) e diz qual usa na dica. */}
+            <option value="">
+              {defaultIdpBaseline ? `Linha de base: nenhuma no gráfico (IDP: “${defaultIdpBaseline.name}”)` : 'Linha de base: nenhuma'}
+            </option>
+            {[...data.baselines]
+              .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+              .map(b => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                  {b.automatic ? ' (automática)' : ''}
+                </option>
+              ))}
+          </select>
+          <span className="hidden flex-1 lg:block" />
+          {!showTable && (
+            <>
+              <div data-tour="longo-lob-zoom" className="flex items-center gap-1">
+                <div
+                  role="group"
+                  aria-label="Escala do tempo"
+                  className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5"
+                >
+                  {ZOOMS.map(z => (
+                    <button
+                      key={z.id}
+                      type="button"
+                      aria-pressed={zoom === z.id}
+                      onClick={() => {
+                        setZoom(z.id);
+                        setZoomScale(1);
+                      }}
+                      className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${zoom === z.id ? 'bg-white text-primary-ink shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      {z.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="button-ghost px-2"
+                  aria-label="Diminuir o zoom"
+                  title="Diminuir o zoom (Ctrl + roda do mouse)"
+                  disabled={zoomScale <= ZOOM_SCALE_MIN}
+                  onClick={() => stepZoom(-1)}
+                >
+                  <Minus size={15} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="button-ghost px-2"
+                  aria-label="Aumentar o zoom"
+                  title="Aumentar o zoom (Ctrl + roda do mouse)"
+                  disabled={zoomScale >= ZOOM_SCALE_MAX}
+                  onClick={() => stepZoom(1)}
+                >
+                  <Plus size={15} aria-hidden />
+                </button>
+              </div>
+              <button
+                data-tour="longo-lob-hoje"
+                type="button"
+                className="button-ghost"
+                title="Rolar até hoje (tecla H)"
+                onClick={() => setTodayToken(t => t + 1)}
+              >
+                Hoje <kbd className="rounded border border-slate-200 bg-slate-50 px-1 text-[10px] font-semibold text-slate-400">H</kbd>
+              </button>
+              <button
+                data-tour="longo-lob-critico"
+                type="button"
+                className="button-ghost"
+                aria-pressed={showCritical}
+                title="Destaca os blocos sem folga: se atrasarem, empurram o término da obra"
+                onClick={() => setShowCritical(v => !v)}
+              >
+                <Waypoints size={15} aria-hidden style={showCritical ? { color: CRITICAL_COLOR } : undefined} /> Caminho crítico
+                {critical && <span className="badge-muted px-2 py-0 tabular-nums">{critical.criticalIds.size}</span>}
+              </button>
+              {!readOnly && (
+                <button
+                  data-tour="longo-lob-trava"
+                  type="button"
+                  className="button-ghost"
+                  aria-pressed={locked}
+                  title={
+                    locked
+                      ? 'As datas estão travadas: arrastar e as setas não mudam nada. Clique para liberar a edição.'
+                      : 'A edição das datas está liberada: arrastar um bloco reprograma. Clique para travar.'
+                  }
+                  onClick={toggleLock}
+                >
+                  {locked ? <Lock size={15} aria-hidden /> : <LockOpen size={15} aria-hidden className="text-warning" />}
+                  {locked ? 'Datas travadas' : 'Datas liberadas'}
+                </button>
+              )}
+            </>
+          )}
+          <button
+            data-tour="longo-lob-tabela"
+            type="button"
+            className="button-ghost"
+            aria-pressed={showTable}
+            onClick={() => setShowTable(v => !v)}
+          >
+            <Table2 size={15} aria-hidden /> Tabela
+          </button>
+        </div>
         {!data.activities.length ? (
           <p className="py-12 text-center text-sm text-slate-500">
             A Linha de Balanço desta obra ainda não tem blocos.
@@ -1022,17 +1179,23 @@ function LobViewInner({ workId }: { workId: string }) {
             visibleLocalIds={localFilter}
             range={range}
             zoom={zoom}
+            zoomScale={zoomScale}
+            onZoomStep={stepZoom}
+            criticalIds={critical?.criticalIds}
+            floatDays={critical?.floatDays}
             selectedId={selectedId}
-            readOnly={readOnly || busy}
+            readOnly={readOnly || busy || locked}
             onSelect={setSelectedId}
             onMove={move}
             scrollToTodayToken={todayToken}
           />
         )}
-        {services.length > 0 && (
-          <div data-tour="longo-lob-legenda" className="mt-3 border-t border-slate-100 pt-3">
-            <LobLegend services={services} hidden={hiddenServiceIds} onToggle={toggleService} />
-          </div>
+        {showCritical && critical && !showTable && data.activities.length > 0 && (
+          <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
+            {critical.criticalIds.size
+              ? `${plural(critical.criticalIds.size, 'bloco crítico', 'blocos críticos')} em destaque: não têm folga até o término da obra${critical.end ? ` (${formatDate(addDays(critical.end, -1))})` : ''}, pelas dependências cadastradas. Os demais ficam esmaecidos.`
+              : 'Nenhum bloco crítico: sem dependências entre os blocos não há caminho para calcular.'}
+          </p>
         )}
       </div>
 

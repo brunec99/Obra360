@@ -387,6 +387,8 @@ O card **não trava vagão**. Ele é acompanhamento e cobrança. O que bloqueia 
 - **Pausado continua contando prazo**: a pausa não para o relógio.
 - **Concluir com item de checklist ainda aberto** pede confirmação antes.
 
+Desde 16/11/2026 o quadro ocupa a altura da janela e **cada coluna rola os próprios cards**: o cabeçalho, os filtros, os contadores, o título da coluna e o "+ Nova pendência" do pé de "A fazer" ficam parados. No celular a página inteira continua rolando.
+
 ## Prazo em dias úteis
 
 Todo prazo do quadro conta só de segunda a sexta, sem feriados.
@@ -405,15 +407,21 @@ Cards em "Concluído" e "Cancelado" não têm sinal de prazo.
 
 ## As três formas de criar um card
 
-1. **"+ Nova pendência"**, no próprio quadro. Em "Ligar a" você escolhe: "Sem ligação" (card manual: título, data de término, tempo de execução e responsável), "Tarefa do médio prazo" ou "Serviço do longo prazo". Nas duas últimas você escolhe a tarefa ou o serviço numa lista (com busca pelo nome quando a lista é longa) e o card nasce igual ao criado pelos botões abaixo: a entrega vem da tarefa ou do serviço e só o lead time é digitado. A lista de tarefas é a do cronograma vivo mais recente do médio prazo; tarefa-resumo aparece, mas não pode ser escolhida. A lista de serviços traz os que já têm bloco lançado na Linha de Balanço.
+1. **"+ Nova pendência"**, no próprio quadro. Em "Ligar a" você escolhe "Tarefa do médio prazo" (o padrão desde 16/11/2026), "Serviço do longo prazo" ou "Sem ligação" (card avulso: título, data de término, tempo de execução e responsável). Nas duas primeiras você escolhe depois a tarefa ou o serviço numa lista (com busca pelo nome quando a lista é longa). O card nasce igual ao criado pelos botões abaixo: a entrega vem da tarefa ou do serviço e só o lead time é digitado. A lista de tarefas é a do cronograma vivo mais recente do médio prazo; tarefa-resumo aparece, mas não pode ser escolhida. A lista de serviços traz os que já têm bloco lançado na Linha de Balanço.
 2. **Numa tarefa do médio prazo** (aba 1.2): selecione a tarefa e use "Criar pendência" na barra de ferramentas do cronograma, ou o mesmo botão no rodapé de "Informações da tarefa".
 3. **Num serviço do longo prazo** (aba 1.1, visão "Linha de Balanço"): clique num bloco do serviço e use "Criar pendência do serviço" no painel do bloco.
 
 Nos cards criados pelo médio ou pelo longo prazo você informa só o título, o tempo de execução e o responsável. A **entrega é o dia útil anterior ao início** da tarefa (ou ao primeiro início do serviço na obra) e **acompanha a reprogramação**: se a tarefa ou o serviço mudar de data, a entrega do card muda junto, sem ninguém editar. Nesses cards a data não é digitada. Se a tarefa ou o serviço de origem for excluído, o card fica com a última data conhecida.
 
-Cada card mostra a origem: "Manual", "Médio prazo", "Longo prazo" ou "Restrição". Os de origem **"Restrição"** são as restrições do antigo quadro do longo prazo, copiadas para cá; a entrega deles pode ser editada como a de um card manual.
+O formulário abre em "Tarefa do médio prazo" para a restrição nascer ligada ao cronograma; se a obra não tem tarefas no cronograma do mês, abre em "Serviço do longo prazo", e sem nenhum dos dois, em "Sem ligação". Qualquer pessoa com o quadro pode criar card avulso.
 
-O responsável é escolhido entre as pessoas que têm a obra liberada.
+**Anotações da tarefa**: o card criado de uma tarefa do médio prazo sem descrição recebe as anotações da tarefa como descrição (cortadas em 4.000 caracteres). É uma cópia feita na criação: mudar a anotação depois não muda o card.
+
+Cada card mostra a origem: "Médio prazo", "Longo prazo", "Avulsa (sem ligação)" ou "Restrição de vagão (antiga)". Os de origem **"Restrição de vagão (antiga)"** são as restrições de vagão do antigo quadro do longo prazo, copiadas para cá uma única vez em 10/11/2026; nenhum card novo nasce com essa origem, e o filtro "Origem" só a lista quando o quadro da obra tem algum. A entrega deles pode ser editada como a de um card avulso.
+
+## Responsável
+
+O responsável é escolhido entre as pessoas que têm a obra liberada. **Trocar o responsável** de um card (desde 16/11/2026) pede confirmação ("Passar a responsabilidade de X para Y?") antes de gravar; qualquer pessoa com o quadro pode trocar. O novo responsável recebe um e-mail.
 
 ## Conversa, menções e e-mail
 

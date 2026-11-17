@@ -21,15 +21,17 @@ export const PENDING_STATUS_LABELS: Record<PendingStatus, string> = {
 export const statusNeedsReason = (status: PendingStatus) => status === 'paused' || status === 'cancelled';
 export const isPendingStatus = (value: unknown): value is PendingStatus => PENDING_STATUSES.includes(value as PendingStatus);
 
-/** De onde o card veio. `restricao` são as restrições do antigo "Módulo de restrições" do longo prazo,
- * copiadas pela migração 0043 (regra 9). */
+/** De onde o card veio. `restricao` são as restrições de vagão do antigo "Módulo de restrições" do longo
+ * prazo, copiadas UMA vez pela migração 0043 (regra 9): nenhum card novo nasce com ela, e o filtro do quadro
+ * só a oferece quando existe algum. `manual` é o card avulso, sem ligação com o cronograma, que qualquer
+ * pessoa do quadro cria. */
 export const PENDING_ORIGINS = ['manual', 'medio_prazo', 'longo_prazo', 'restricao'] as const;
 export type PendingOrigin = (typeof PENDING_ORIGINS)[number];
 export const PENDING_ORIGIN_LABELS: Record<PendingOrigin, string> = {
-  manual: 'Manual',
+  manual: 'Avulsa (sem ligação)',
   medio_prazo: 'Médio prazo',
   longo_prazo: 'Longo prazo',
-  restricao: 'Restrição',
+  restricao: 'Restrição de vagão (antiga)',
 };
 
 export interface PendingCard {

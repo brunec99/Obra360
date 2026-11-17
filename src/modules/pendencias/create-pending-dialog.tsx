@@ -35,13 +35,16 @@ const SOURCE_HINT: Record<PendingSource['origin'], string> = {
   medio_prazo: 'Só o lead time é digitado; a data vem da tarefa e muda junto com ela.',
   longo_prazo: 'Só o lead time é digitado; a data vem do serviço e muda junto com ele.',
 };
-/** Ligação escolhida no formulário da aba 2: nenhuma (data digitada), tarefa ou serviço. */
+/** Ligação escolhida no formulário do quadro: tarefa, serviço ou nenhuma (data digitada). Desde 16/11/2026
+ * o formulário abre em "Tarefa do médio prazo", para a restrição nascer ligada ao cronograma; "Sem ligação"
+ * (card avulso) continua à mão para todos. */
 type LinkKind = 'manual' | PendingSource['origin'];
 const LINK_KINDS: { kind: LinkKind; label: string }[] = [
-  { kind: 'manual', label: 'Sem ligação' },
   { kind: 'medio_prazo', label: 'Tarefa do médio prazo' },
   { kind: 'longo_prazo', label: 'Serviço do longo prazo' },
+  { kind: 'manual', label: 'Sem ligação' },
 ];
+const NOTES_HINT = 'As anotações da tarefa entram na descrição do card.';
 const LINK_EMPTY: Record<PendingSource['origin'], string> = {
   medio_prazo: 'Esta obra não tem cronograma do médio prazo com tarefas.',
   longo_prazo: 'Esta obra não tem serviço lançado na Linha de Balanço.',
@@ -61,10 +64,12 @@ type Load =
   | { status: 'ready'; people: PendingPerson[]; actorId: string; knownIds: Set<string> };
 
 /** Criação de um card da lista de pendência (10/11/2026). Serve às três entradas do modelo aprovado: o
- * botão "+ Nova pendência" da aba 2 (sem `source`: tudo é digitado) e os botões na tarefa do médio prazo
- * e no serviço do longo prazo (com `source`: a entrega é a véspera útil do início e só o lead time é
- * digitado). Na aba 2 a pessoa também pode ligar o card a uma tarefa do médio prazo ou a um serviço do longo
- * prazo, escolhidos numa lista: o card nasce igual ao criado pelo botão daquelas telas. É autossuficiente — busca as pessoas e grava sozinho —, para abrir em qualquer tela sem o
+ * botão "+ Nova pendência" do quadro (sem `source`) e os botões na tarefa do médio prazo e no serviço do
+ * longo prazo (com `source`: a entrega é a véspera útil do início e só o lead time é digitado). No quadro a
+ * pessoa liga o card a uma tarefa do médio prazo ou a um serviço do longo prazo, escolhidos numa lista: o
+ * card nasce igual ao criado pelo botão daquelas telas. Desde 16/11/2026 o formulário abre em "Tarefa do
+ * médio prazo" (sem tarefas, "Serviço do longo prazo"; sem nenhum dos dois, "Sem ligação", com a data
+ * digitada). É autossuficiente — busca as pessoas e grava sozinho —, para abrir em qualquer tela sem o
  * quadro montado. */
 export function CreatePendingDialog(props: {
   workId: string;
@@ -101,14 +106,20 @@ function CreateForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState<{ title: string; cardId?: string }>();
-  // Ligação escolhida na aba 2 (sem `source` vindo de fora).
-  const [linkKind, setLinkKind] = useState<LinkKind>('manual');
+  // Ligação escolhida no quadro (sem `source` vindo de fora). Enquanto a pessoa não escolhe, vale o padrão.
+  const [chosenKind, setChosenKind] = useState<LinkKind>();
   const [linkId, setLinkId] = useState('');
   const [search, setSearch] = useState('');
   const [options, setOptions] = useState<Options>({ status: 'idle' });
   const [optionsAttempt, setOptionsAttempt] = useState(0);
-  // A lista é lida uma vez por abertura (ou a cada "Tentar de novo"), na primeira vez que for pedida.
-  const needOptions = !fixed && linkKind !== 'manual' && options.status !== 'ready' && options.status !== 'error';
+  const hasTasks = options.status === 'ready' && options.data.tasks.length > 0;
+  const hasServices = options.status === 'ready' && options.data.services.length > 0;
+  // Padrão: tarefa do médio prazo; sem tarefas, serviço do longo prazo; sem nenhum dos dois, "Sem ligação".
+  // Se a lista não carregar, fica na tarefa, com o erro e o "Tentar de novo" à vista.
+  const defaultKind: LinkKind = hasTasks || options.status !== 'ready' ? 'medio_prazo' : hasServices ? 'longo_prazo' : 'manual';
+  const linkKind = chosenKind ?? defaultKind;
+  // A lista é lida uma vez por abertura (ou a cada "Tentar de novo"), assim que o formulário abre.
+  const needOptions = !fixed && load.status === 'ready' && options.status !== 'ready' && options.status !== 'error';
 
   useEffect(() => {
     if (!needOptions) return;
@@ -316,7 +327,7 @@ function CreateForm({
                           }`}
                           onClick={() => {
                             if (kind === linkKind) return;
-                            setLinkKind(kind);
+                            setChosenKind(kind);
                             setLinkId('');
                             setSearch('');
                             setError('');
@@ -451,6 +462,9 @@ function CreateForm({
                   'Precisa começar até: a entrega menos o tempo de execução, em dias úteis.'
                 )}
                 {source && <span className="block">{SOURCE_HINT[source.origin]}</span>}
+                {(source ? source.origin : picking && linkKind) === 'medio_prazo' && (
+                  <span className="block">{fixed ? NOTES_HINT : `${NOTES_HINT} Vale quando a descrição fica em branco.`}</span>
+                )}
               </p>
               {load.people.length === 0 && (
                 <Callout tone="warning">

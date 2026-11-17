@@ -350,3 +350,130 @@ export function columnFill(
 
 /** Quantas linhas tem um texto colado, sem a quebra final: com 2 ou mais, a colagem num campo é uma coluna. */
 export const pastedRows = (text: string) => text.replace(/(\r\n|\r|\n)+$/, '').split(/\r\n|\r|\n/).length;
+
+// ─── Sugestão da Claudia ────────────────────────────────────────────────────────
+
+/** Sugestão de vínculo entre o orçamento e os pacotes (16/11/2026): a Claudia propõe o pacote de cada
+ * item não apropriado, a tela aplica só no rascunho e marca o item até a pessoa mexer nele ou salvar. */
+export type SuggestionConfidence = 'alta' | 'media' | 'baixa';
+export interface CostSuggestion {
+  itemId: LobId;
+  /** `null` = a Claudia não achou pacote (custo indireto, por exemplo). */
+  serviceId: LobId | null;
+  confidence: SuggestionConfidence;
+}
+/** O que vai ao servidor de cada item: nunca o valor em reais. */
+export interface SuggestionCandidate {
+  id: LobId;
+  code?: string;
+  description: string;
+}
+/** Item sugerido → o pacote que a Claudia propôs e a confiança dela. */
+export type SuggestionMarks = ReadonlyMap<LobId, { serviceId: LobId; confidence: SuggestionConfidence }>;
+
+/** Itens por chamada ao modelo e teto de itens por clique em "Sugerir com a Claudia". */
+export const SUGGEST_BATCH = 300;
+export const SUGGEST_MAX = 3000;
+
+const isUnassigned = (item: DraftCost, serviceIds: ReadonlySet<LobId>) => !item.serviceId || !serviceIds.has(item.serviceId);
+
+/** Os itens não apropriados do rascunho, na ordem do orçamento, só com id, código e descrição. Item sem
+ * descrição fica de fora (não há o que ler). */
+export function suggestionCandidates(draft: readonly DraftCost[], serviceIds: ReadonlySet<LobId>): SuggestionCandidate[] {
+  return draft
+    .filter(item => isUnassigned(item, serviceIds) && cleanText(item.description))
+    .sort(byItemOrder)
+    .map(item => ({ id: item.id, ...(item.code ? { code: item.code } : {}), description: cleanText(item.description) }));
+}
+
+/** Corta a lista em lotes de até `size` itens, na ordem. */
+export function suggestionBatches<T>(items: readonly T[], size: number = SUGGEST_BATCH): T[][] {
+  const step = Math.max(1, Math.floor(size));
+  const batches: T[][] = [];
+  for (let start = 0; start < items.length; start += step) batches.push(items.slice(start, start + step));
+  return batches;
+}
+
+/** As sugestões que valem para o rascunho: item que existe e continua não apropriado, pacote que existe
+ * na obra; item repetido fica com a primeira. O resto (sem pacote, item que a pessoa já apontou enquanto
+ * a Claudia lia, pacote desconhecido) é descartado. */
+export function usableSuggestions(
+  draft: readonly DraftCost[],
+  suggestions: readonly CostSuggestion[],
+  serviceIds: ReadonlySet<LobId>,
+): Map<LobId, { serviceId: LobId; confidence: SuggestionConfidence }> {
+  const open = new Set(draft.filter(item => isUnassigned(item, serviceIds)).map(item => item.id));
+  const usable = new Map<LobId, { serviceId: LobId; confidence: SuggestionConfidence }>();
+  for (const s of suggestions) {
+    if (!s.serviceId || !serviceIds.has(s.serviceId) || !open.has(s.itemId) || usable.has(s.itemId)) continue;
+    usable.set(s.itemId, { serviceId: s.serviceId, confidence: s.confidence });
+  }
+  return usable;
+}
+
+/** Aplica as sugestões no rascunho: cada item ainda não apropriado vai para o pacote sugerido. Nada além
+ * do pacote muda, e item já apropriado não é tocado. */
+export function applySuggestions(
+  draft: readonly DraftCost[],
+  suggestions: readonly CostSuggestion[],
+  serviceIds: ReadonlySet<LobId>,
+): DraftCost[] {
+  const usable = usableSuggestions(draft, suggestions, serviceIds);
+  if (!usable.size) return [...draft];
+  return draft.map(item => {
+    const hit = usable.get(item.id);
+    return hit ? { ...item, serviceId: hit.serviceId } : item;
+  });
+}
+
+/** As marcas que ainda valem: o item existe e continua no pacote que a Claudia sugeriu. */
+export function liveMarks(
+  draft: readonly DraftCost[],
+  marks: SuggestionMarks,
+): Map<LobId, { serviceId: LobId; confidence: SuggestionConfidence }> {
+  const live = new Map<LobId, { serviceId: LobId; confidence: SuggestionConfidence }>();
+  for (const item of draft) {
+    const mark = marks.get(item.id);
+    if (mark && item.serviceId === mark.serviceId) live.set(item.id, mark);
+  }
+  return live;
+}
+
+/** "Desfazer sugestões": os itens que continuam no pacote sugerido voltam a não apropriados. Item que a
+ * pessoa já moveu para outro pacote fica onde ela pôs. */
+export function undoSuggestions(draft: readonly DraftCost[], marks: SuggestionMarks): DraftCost[] {
+  return moveItems(draft, liveMarks(draft, marks).keys(), null);
+}
+
+export interface SuggestionSummary {
+  /** Itens enviados à Claudia. */
+  asked: number;
+  /** Itens que ganharam pacote. */
+  linked: number;
+  /** Itens que ficaram sem pacote. */
+  unlinked: number;
+  /** Dos que ganharam pacote, quantos com confiança baixa ("confira"). */
+  lowConfidence: number;
+}
+
+/** Conta o resumo de uma rodada: `asked` itens enviados e as marcas aplicadas a partir deles. */
+export function suggestionSummary(asked: number, marks: SuggestionMarks): SuggestionSummary {
+  const linked = Math.min(asked, marks.size);
+  let lowConfidence = 0;
+  for (const mark of marks.values()) if (mark.confidence === 'baixa') lowConfidence += 1;
+  return { asked, linked, unlinked: asked - linked, lowConfidence };
+}
+
+const CONFIDENCE_ORDER: Record<SuggestionConfidence, number> = { baixa: 0, media: 1, alta: 2 };
+
+/** Itens sugeridos para a revisão: confiança baixa primeiro, depois a ordem do orçamento. */
+export function suggestedItems(
+  draft: readonly DraftCost[],
+  marks: SuggestionMarks,
+): { item: DraftCost; confidence: SuggestionConfidence }[] {
+  const live = liveMarks(draft, marks);
+  return draft
+    .filter(item => live.has(item.id))
+    .map(item => ({ item, confidence: live.get(item.id)!.confidence }))
+    .sort((a, b) => CONFIDENCE_ORDER[a.confidence] - CONFIDENCE_ORDER[b.confidence] || byItemOrder(a.item, b.item));
+}

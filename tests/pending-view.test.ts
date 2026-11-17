@@ -13,6 +13,7 @@ import {
   dueLabel,
   extractMentions,
   filterCards,
+  filterOrigins,
   hasFilters,
   initials,
   isSamePlace,
@@ -122,12 +123,18 @@ test('colunas na ordem do quadro, cada uma pela posição', () => {
   assert.deepEqual(columns.paused, []);
 });
 
+test('filtro de origem: "Restrição de vagão (antiga)" só entra quando há card com ela', () => {
+  assert.deepEqual(filterOrigins([]), ['manual', 'medio_prazo', 'longo_prazo']);
+  assert.deepEqual(filterOrigins([card('a'), card('b', { origin: 'medio_prazo' })]), ['manual', 'medio_prazo', 'longo_prazo']);
+  assert.deepEqual(filterOrigins([card('a', { origin: 'restricao' })]), ['manual', 'medio_prazo', 'longo_prazo', 'restricao']);
+});
+
 test('origem: tarefa e serviço levam o nome; data só é digitada fora deles', () => {
   assert.equal(originLabel(card('a', { origin: 'medio_prazo', sourceLabel: 'Piso do térreo' })), 'Médio prazo · Piso do térreo');
   assert.equal(originLabel(card('a', { origin: 'longo_prazo', sourceLabel: 'Esquadrias' })), 'Longo prazo · Esquadrias');
   assert.equal(originLabel(card('a', { origin: 'longo_prazo' })), 'Longo prazo');
-  assert.equal(originLabel(card('a')), 'Manual');
-  assert.equal(originLabel(card('a', { origin: 'restricao', sourceLabel: 'x' })), 'Restrição');
+  assert.equal(originLabel(card('a')), 'Avulsa (sem ligação)');
+  assert.equal(originLabel(card('a', { origin: 'restricao', sourceLabel: 'x' })), 'Restrição de vagão (antiga)');
   assert.equal(dueDateEditable(card('a')), true);
   assert.equal(dueDateEditable(card('a', { origin: 'restricao' })), true);
   assert.equal(dueDateEditable(card('a', { origin: 'medio_prazo' })), false);

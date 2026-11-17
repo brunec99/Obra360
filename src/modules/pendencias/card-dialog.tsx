@@ -359,6 +359,21 @@ export function PendingCardDialog({
   };
   const update = (fields: Omit<Extract<PendingCommand, { type: 'update_card' }>, 'type' | 'cardId'>) =>
     run({ type: 'update_card', cardId: card.id, ...fields });
+  /** Trocar o responsável pede confirmação (16/11/2026): o campo gravava na hora, e um toque errado passava
+   * a tarefa para outra pessoa, com e-mail. O campo segue mostrando o responsável gravado enquanto a
+   * pergunta está aberta; cancelar não muda nada. Qualquer pessoa do quadro troca (decisão do gerente, no
+   * mesmo dia): a proteção é só a pergunta. */
+  const reassign = async (responsibleId: string) => {
+    if (responsibleId === card.responsibleId) return;
+    const to = nameOf(responsibleId);
+    const self = responsibleId === data.actorId;
+    const ok = await confirm({
+      title: 'Trocar o responsável?',
+      description: `Passar a responsabilidade de ${nameOf(card.responsibleId)} para ${to}?${self ? '' : ` ${to} recebe um e-mail avisando.`}`,
+      confirmLabel: 'Trocar responsável',
+    });
+    if (ok) await update({ responsibleId });
+  };
   const move = async (status: PendingStatus) => {
     if (status === card.status) return;
     setError('');
@@ -505,7 +520,7 @@ export function PendingCardDialog({
                   className={FACT_INPUT}
                   aria-label="Responsável"
                   value={card.responsibleId}
-                  onChange={event => void update({ responsibleId: event.target.value })}
+                  onChange={event => void reassign(event.target.value)}
                 >
                   {!people.some(p => p.id === card.responsibleId) && (
                     <option value={card.responsibleId}>{nameOf(card.responsibleId)}</option>

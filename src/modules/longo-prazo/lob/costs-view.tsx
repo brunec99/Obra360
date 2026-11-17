@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent } from 'react';
-import { ClipboardPaste, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { ClipboardPaste, Plus, RefreshCw, Sparkles, Trash2, Undo2 } from 'lucide-react';
 import { LOB_LIMITS, type LobCostAccess, type LobId, type LobService } from '@/domain/lob';
 import {
   formatIdp,
@@ -27,8 +27,10 @@ import { useLob } from './lob-api';
 import { CommitField } from './lob-activity-panel';
 import { Pill } from './measurement-sheet';
 import { CostsImportDialog } from './costs-import-dialog';
+import { requestCostSuggestions } from './costs-suggest-api';
 import {
   addItems,
+  applySuggestions,
   byItemOrder,
   columnFill,
   columnValues,
@@ -36,15 +38,27 @@ import {
   diffSize,
   importBudget,
   itemsOf,
+  liveMarks,
   moveItems,
   pastedRows,
   readAmount,
   removeItems,
   saveBlocker,
   setPackageAmount,
+  SUGGEST_BATCH,
+  SUGGEST_MAX,
+  suggestedItems,
+  suggestionBatches,
+  suggestionCandidates,
+  suggestionSummary,
+  undoSuggestions,
   updateItem,
+  usableSuggestions,
   type DraftContext,
   type DraftCost,
+  type SuggestionConfidence,
+  type SuggestionMarks,
+  type SuggestionSummary,
 } from './costs-model';
 
 /** Visão "Custos" da aba 1 (11/11/2026, pedida junto com o IDP ponderado por custo): o orçamento
@@ -53,7 +67,11 @@ import {
  *
  * Toda edição vai para um rascunho local (os mesmos `LobCostItem` do servidor), e os cartões, o peso
  * e o IDP já saem dele; "Salvar" manda um único `save_costs` com o que mudou. Quem só consulta recebe
- * cada valor como % do total (regra 9) e vê a tela sem campos. */
+ * cada valor como % do total (regra 9) e vê a tela sem campos.
+ *
+ * "Sugerir com a Claudia" (16/11/2026): manda os itens não apropriados (id, código e descrição, nunca o
+ * valor) em lotes, aplica os pacotes sugeridos só no rascunho e marca cada item com o selo "Sugestão da
+ * Claudia" até a pessoa mexer nele ou salvar. Quem confere e grava é o engenheiro. */
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString('pt-BR')} ${n === 1 ? one : many}`;
 const pct = (value: number) => `${value.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
@@ -68,6 +86,22 @@ const NONE = '__none__';
 const Dot = ({ color }: { color: string }) => (
   <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
 );
+
+/** Selo do item que a Claudia apontou e ninguém conferiu ainda; "confira" na confiança baixa. */
+function SuggestionBadge({ confidence }: { confidence: SuggestionConfidence }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 text-[11px] leading-4 font-semibold">
+      <span className="inline-flex items-center gap-1 rounded-full bg-primary-soft px-2 py-0.5 text-primary">
+        <Sparkles size={11} aria-hidden />
+        Sugestão da Claudia
+      </span>
+      {confidence === 'baixa' && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-warning">confira</span>}
+    </span>
+  );
+}
+
+/** Resumo da última rodada de sugestões: o que sobrou fora do teto do clique e por que parou antes. */
+type SuggestionRun = SuggestionSummary & { left: number; stopped?: 'cancel' | 'error' };
 
 // ─── Campo de valor ─────────────────────────────────────────────────────────────
 
@@ -172,6 +206,19 @@ export function CostsView({ workId }: { workId: string }) {
   const [importing, setImporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  /** Itens que a Claudia apontou nesta sessão (pacote e confiança); o selo vale enquanto o item seguir lá. */
+  const [marks, setMarks] = useState<SuggestionMarks>(() => new Map());
+  const [suggesting, setSuggesting] = useState<{ batch: number; batches: number; done: number; total: number } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [suggestionRun, setSuggestionRun] = useState<SuggestionRun | null>(null);
+  const cancelRef = useRef(false);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
 
   const ready = planning.state === 'ready' ? planning : undefined;
   const actor = ready?.planning.data.users.find(u => u.id === ready.actorId);
@@ -188,6 +235,13 @@ export function CostsView({ workId }: { workId: string }) {
     serverRef.current = server;
   }, [server]);
   const costs = draft ?? server;
+  const costsRef = useRef(costs);
+  useEffect(() => {
+    costsRef.current = costs;
+  }, [costs]);
+  const serviceIds = useMemo(() => new Set((data?.services ?? []).map(s => s.id)), [data]);
+  /** Itens não apropriados do rascunho, como vão à Claudia: id, código e descrição. */
+  const candidates = useMemo(() => suggestionCandidates(costs, serviceIds), [costs, serviceIds]);
   const diff = useMemo(() => (draft ? costsDiff(server, draft) : { upsert: [], remove: [] }), [server, draft]);
   const changes = diffSize(diff);
   const dirty = changes > 0;
@@ -203,6 +257,61 @@ export function CostsView({ workId }: { workId: string }) {
     (change: (current: DraftCost[]) => DraftCost[]) => setDraft(current => change(current ?? serverRef.current)),
     [],
   );
+  const unmark = (ids: readonly LobId[]) =>
+    setMarks(current => {
+      if (!ids.some(id => current.has(id))) return current;
+      const next = new Map(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  const clearSuggestions = () => {
+    setMarks(new Map());
+    setSuggestionRun(null);
+  };
+  /** Manda os itens não apropriados à Claudia, um lote por vez, e aplica cada resposta no rascunho. */
+  const suggest = async () => {
+    if (suggesting || !candidates.length) return;
+    const sent = candidates.slice(0, SUGGEST_MAX);
+    const batches = suggestionBatches(sent, SUGGEST_BATCH);
+    const applied = new Map<LobId, { serviceId: LobId; confidence: SuggestionConfidence }>();
+    let asked = 0;
+    let stopped: SuggestionRun['stopped'];
+    cancelRef.current = false;
+    setCancelling(false);
+    setSuggestionRun(null);
+    for (let index = 0; index < batches.length; index++) {
+      if (cancelRef.current) {
+        stopped = 'cancel';
+        break;
+      }
+      const batch = batches[index];
+      setSuggesting({ batch: index + 1, batches: batches.length, done: asked, total: sent.length });
+      try {
+        const response = await requestCostSuggestions(workId, batch);
+        if (!aliveRef.current) return;
+        // Só valem respostas sobre itens deste lote que continuam sem pacote no rascunho de agora.
+        const askedIds = new Set(batch.map(item => item.id));
+        const suggestions = response.suggestions.filter(s => askedIds.has(s.itemId));
+        const usable = usableSuggestions(costsRef.current, suggestions, serviceIds);
+        for (const [id, mark] of usable) applied.set(id, mark);
+        setMarks(current => new Map([...current, ...usable]));
+        edit(current => applySuggestions(current, suggestions, serviceIds));
+        asked += batch.length;
+      } catch (error) {
+        if (!aliveRef.current) return;
+        toast({
+          title: 'A Claudia não conseguiu sugerir',
+          description: `${errorMessage(error)}${asked ? ' O que já foi sugerido continua na tela.' : ''}`,
+          tone: 'danger',
+        });
+        stopped = 'error';
+        break;
+      }
+    }
+    setSuggesting(null);
+    setCancelling(false);
+    if (asked) setSuggestionRun({ ...suggestionSummary(asked, applied), left: candidates.length - asked, stopped });
+  };
   const draftContext = (): DraftContext => ({
     workId,
     actorId: actor?.id ?? '',
@@ -263,6 +372,12 @@ export function CostsView({ workId }: { workId: string }) {
       <p>
         Faixas: 1,00 ou mais é <strong>em dia</strong>; de 0,90 a 0,99, <strong>atenção</strong>; abaixo de 0,90, <strong>atrasado</strong>.
       </p>
+      <p>
+        <strong>Sugerir com a Claudia</strong>: a assistente lê o código e a descrição dos itens não apropriados e propõe o pacote de cada
+        um. Ela só propõe: os itens entram na tela com o selo <strong>Sugestão da Claudia</strong> (e <strong>confira</strong> quando ela
+        tem dúvida), e quem confere, corrige e clica em Salvar é o engenheiro da obra. Custo indireto (administração, canteiro, taxas) ela
+        deixa sem pacote. O valor em reais não é enviado à IA.
+      </p>
       <p>Quem só consulta vê o peso de cada pacote em %, nunca o valor em reais.</p>
     </HelpNote>
   );
@@ -278,10 +393,30 @@ export function CostsView({ workId }: { workId: string }) {
         </p>
       </div>
       {editable && data && data.services.length > 0 && (
-        <button data-tour="longo-custos-colar" type="button" className="button-ghost" disabled={saving} onClick={() => setImporting(true)}>
-          <ClipboardPaste size={15} aria-hidden />
-          Colar do orçamento
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {(candidates.length > 0 || suggesting) && (
+            <button
+              type="button"
+              className="button-ghost"
+              disabled={saving || !!suggesting}
+              title="A Claudia propõe o pacote de cada item não apropriado. Nada é gravado: você confere e salva."
+              onClick={suggest}
+            >
+              <Sparkles size={15} aria-hidden />
+              {suggesting ? 'A Claudia está sugerindo…' : 'Sugerir com a Claudia'}
+            </button>
+          )}
+          <button
+            data-tour="longo-custos-colar"
+            type="button"
+            className="button-ghost"
+            disabled={saving || !!suggesting}
+            onClick={() => setImporting(true)}
+          >
+            <ClipboardPaste size={15} aria-hidden />
+            Colar do orçamento
+          </button>
+        </div>
       )}
     </div>
   );
@@ -358,6 +493,18 @@ export function CostsView({ workId }: { workId: string }) {
   const missing = weights.missingServiceIds.length;
   const money = (value: number) => (masked ? `${pct(value)} do total` : formatMoney(value));
   const pending = dirty ? ' (não salvo)' : '';
+  const live = liveMarks(costs, marks);
+  const suggested = suggestedItems(costs, marks);
+  const undoAll = () => {
+    const count = live.size;
+    edit(current => undoSuggestions(current, marks));
+    clearSuggestions();
+    toast({
+      title: 'Sugestões desfeitas',
+      description: `${plural(count, 'item voltou', 'itens voltaram')} a não apropriado.`,
+      tone: 'info',
+    });
+  };
 
   const setAmount = (serviceId: LobId, amount: number | null) =>
     edit(current => setPackageAmount(current, serviceId, amount, draftContext()));
@@ -394,7 +541,9 @@ export function CostsView({ workId }: { workId: string }) {
       confirmLabel: 'Descartar',
       tone: 'danger',
     });
-    if (ok) setDraft(null);
+    if (!ok) return;
+    setDraft(null);
+    clearSuggestions();
   };
   const save = async () => {
     if (!draft || !dirty || saving) return;
@@ -407,6 +556,8 @@ export function CostsView({ workId }: { workId: string }) {
     try {
       await execute({ type: 'save_costs', workId, upsert: diff.upsert, remove: diff.remove });
       setDraft(null);
+      // Salvou: o engenheiro conferiu, e os selos saem.
+      clearSuggestions();
       const parts = [
         created && plural(created, 'item novo', 'itens novos'),
         changed && plural(changed, 'item alterado', 'itens alterados'),
@@ -525,8 +676,61 @@ export function CostsView({ workId }: { workId: string }) {
         </Callout>
       )}
 
+      {suggesting && (
+        <Callout tone="info" role="status">
+          A Claudia está lendo os itens não apropriados: lote {suggesting.batch} de {suggesting.batches} (
+          {suggesting.done.toLocaleString('pt-BR')} de {plural(suggesting.total, 'item', 'itens')} prontos). Cada lote pode levar cerca de
+          um minuto.{' '}
+          {suggesting.batch < suggesting.batches &&
+            (cancelling ? (
+              <span className="font-semibold">Ela para ao fim deste lote.</span>
+            ) : (
+              <button
+                type="button"
+                className="text-link"
+                onClick={() => {
+                  cancelRef.current = true;
+                  setCancelling(true);
+                }}
+              >
+                Cancelar os próximos lotes
+              </button>
+            ))}
+        </Callout>
+      )}
+      {suggestionRun && !suggesting && (
+        <Callout tone={suggestionRun.linked ? 'info' : 'warning'} role="status">
+          A Claudia sugeriu pacote para {suggestionRun.linked.toLocaleString('pt-BR')} de {plural(suggestionRun.asked, 'item', 'itens')};{' '}
+          {suggestionRun.unlinked === 1 ? '1 ficou' : `${suggestionRun.unlinked.toLocaleString('pt-BR')} ficaram`} sem pacote. Confira antes
+          de salvar.
+          {suggestionRun.lowConfidence > 0 &&
+            ` ${plural(suggestionRun.lowConfidence, 'sugestão tem', 'sugestões têm')} o selo “confira”: ela ficou em dúvida.`}
+          {suggestionRun.stopped === 'cancel' && ' Você cancelou antes do fim.'}
+          {suggestionRun.stopped === 'error' && ' Ela parou antes do fim por causa de um erro.'}
+          {suggestionRun.left > 0 &&
+            ` ${plural(suggestionRun.left, 'item não foi lido', 'itens não foram lidos')}: clique em “Sugerir com a Claudia” de novo para continuar.`}{' '}
+          {live.size > 0 && (
+            <button type="button" className="text-link" disabled={saving} onClick={undoAll}>
+              Desfazer sugestões
+            </button>
+          )}
+        </Callout>
+      )}
+
       <fieldset disabled={saving} className="m-0 min-w-0 space-y-4 border-0 p-0">
         <legend className="sr-only">Apropriação dos custos</legend>
+        {editable && suggested.length > 0 && (
+          <SuggestionsPanel
+            rows={suggested}
+            services={services}
+            money={money}
+            onMove={(id, serviceId) => {
+              unmark([id]);
+              edit(current => moveItems(current, [id], serviceId));
+            }}
+            onUndo={undoAll}
+          />
+        )}
         {/* Itens ao lado da tabela só em tela bem larga (2xl): abaixo disso a tabela de 9 colunas não
             caberia ao lado do painel e rolaria de lado. */}
         <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -552,8 +756,15 @@ export function CostsView({ workId }: { workId: string }) {
               hasBlocks={!!rowById.get(selected.id)?.blocks}
               editable={editable}
               money={money}
-              onUpdate={(id, patch) => edit(current => updateItem(current, id, patch))}
-              onMove={(id, serviceId) => edit(current => moveItems(current, [id], serviceId))}
+              marks={live}
+              onUpdate={(id, patch) => {
+                unmark([id]);
+                edit(current => updateItem(current, id, patch));
+              }}
+              onMove={(id, serviceId) => {
+                unmark([id]);
+                edit(current => moveItems(current, [id], serviceId));
+              }}
               onRemove={id => edit(current => removeItems(current, [id]))}
               onAdd={fields => edit(current => addItems(current, [{ ...fields, serviceId: selected.id }], draftContext()))}
             />
@@ -601,6 +812,7 @@ export function CostsView({ workId }: { workId: string }) {
           currentCount={costs.length}
           onImport={(lines, replace) => {
             edit(current => importBudget(current, lines, replace, draftContext()));
+            if (replace) clearSuggestions();
             const recognized = lines.filter(l => l.serviceId).length;
             toast({
               title: `${plural(lines.length, 'linha entrou', 'linhas entraram')} na tela`,
@@ -792,6 +1004,7 @@ function ItemsPanel({
   services,
   items,
   hasBlocks,
+  marks,
   editable,
   money,
   onUpdate,
@@ -803,6 +1016,8 @@ function ItemsPanel({
   services: LobService[];
   items: DraftCost[];
   hasBlocks: boolean;
+  /** Itens deste pacote que vieram de sugestão da Claudia e ainda não foram conferidos. */
+  marks: SuggestionMarks;
   editable: boolean;
   money: (value: number) => string;
   onUpdate: (id: LobId, patch: { code?: string; description?: string; amount?: number }) => void;
@@ -858,6 +1073,7 @@ function ItemsPanel({
               <li key={item.id} className="rounded-lg border border-slate-200 p-2">
                 {editable ? (
                   <div className="space-y-1.5">
+                    {marks.has(item.id) && <SuggestionBadge confidence={marks.get(item.id)!.confidence} />}
                     <div className="flex gap-1.5">
                       <CommitField
                         value={item.code ?? ''}
@@ -980,6 +1196,103 @@ function ItemsPanel({
         <span className="font-bold text-slate-900 tabular-nums">{items.length ? money(total) : 'sem custo'}</span>
       </div>
     </aside>
+  );
+}
+
+// ─── Sugestões da Claudia ───────────────────────────────────────────────────────
+
+/** Revisão das sugestões num lugar só: os itens que a Claudia apontou e ninguém conferiu, com a
+ * confiança baixa primeiro. Trocar o pacote aqui (ou mexer no item no painel do pacote) tira o selo. */
+function SuggestionsPanel({
+  rows,
+  services,
+  money,
+  onMove,
+  onUndo,
+}: {
+  rows: { item: DraftCost; confidence: SuggestionConfidence }[];
+  services: LobService[];
+  money: (value: number) => string;
+  onMove: (id: LobId, serviceId: LobId | null) => void;
+  onUndo: () => void;
+}) {
+  const [limit, setLimit] = useState(PAGE);
+  const th = 'px-3 py-2.5 text-[11px] font-bold tracking-wider whitespace-nowrap text-brand-800 uppercase';
+  const td = 'px-3 py-2 align-middle';
+  return (
+    <section aria-labelledby="custos-sugestoes-titulo" className="panel min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+        <div className="min-w-0">
+          <h3 id="custos-sugestoes-titulo" className="flex items-center gap-2 text-sm font-bold text-slate-900">
+            <Sparkles size={15} aria-hidden className="text-primary" />
+            Sugestões da Claudia
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {plural(rows.length, 'item com pacote sugerido', 'itens com pacote sugerido')}, ainda não salvos; os marcados com “confira” vêm
+            primeiro. Se o pacote estiver errado, troque aqui. O selo sai quando você mexe no item ou salva.
+          </p>
+        </div>
+        <button type="button" className="button-ghost py-1" onClick={onUndo}>
+          <Undo2 size={14} aria-hidden /> Desfazer sugestões
+        </button>
+      </div>
+      <div className="custom-scrollbar overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-brand-100 bg-brand-50">
+            <tr>
+              <th scope="col" className={th}>
+                Código
+              </th>
+              <th scope="col" className={th}>
+                Descrição
+              </th>
+              <th scope="col" className={`${th} text-right`}>
+                Valor
+              </th>
+              <th scope="col" className={th}>
+                Pacote sugerido
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, limit).map(({ item, confidence }) => (
+              <tr key={item.id} className="border-t border-slate-100 text-slate-700 hover:bg-brand-50/60">
+                <td className={`${td} text-xs whitespace-nowrap text-slate-500 tabular-nums`}>{item.code ?? '—'}</td>
+                <td className={`${td} min-w-56 text-slate-800`}>
+                  {item.description}
+                  {confidence === 'baixa' && (
+                    <span className="ml-2 rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning">confira</span>
+                  )}
+                </td>
+                <td className={`${td} text-right whitespace-nowrap tabular-nums`}>{money(item.amount)}</td>
+                <td className={`${td} min-w-48`}>
+                  <select
+                    className="field py-1 text-xs"
+                    aria-label={`Pacote sugerido para ${item.description}`}
+                    value={item.serviceId ?? NONE}
+                    onChange={event => onMove(item.id, event.target.value === NONE ? null : event.target.value)}
+                  >
+                    {services.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                    <option value={NONE}>Não apropriado</option>
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > limit && (
+        <div className="border-t border-slate-100 px-4 py-2.5">
+          <button type="button" className="text-link text-sm" onClick={() => setLimit(l => l + PAGE)}>
+            Mostrar mais {Math.min(PAGE, rows.length - limit)} de {rows.length.toLocaleString('pt-BR')}
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

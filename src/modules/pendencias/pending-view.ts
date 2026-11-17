@@ -1,4 +1,5 @@
 import {
+  PENDING_ORIGINS,
   PENDING_ORIGIN_LABELS,
   PENDING_STATUSES,
   checklistProgress,
@@ -73,6 +74,12 @@ export function cardsByStatus(cards: readonly PendingCard[]): Record<PendingStat
   for (const status of PENDING_STATUSES) columns[status].sort(byPosition);
   return columns;
 }
+
+/** As origens que o filtro do quadro oferece (16/11/2026): "Restrição de vagão (antiga)" só entra quando há
+ * algum card com ela — são cópias feitas uma única vez pela migração 0043, e a maioria das obras não tem
+ * nenhuma. As demais aparecem sempre. */
+export const filterOrigins = (cards: readonly Pick<PendingCard, 'origin'>[]): PendingOrigin[] =>
+  PENDING_ORIGINS.filter(origin => origin !== 'restricao' || cards.some(card => card.origin === 'restricao'));
 
 /** "Médio prazo · Forro de gesso 5º pav." nos cards ligados a tarefa ou serviço; nos demais, só a origem. */
 export function originLabel(card: Pick<PendingCard, 'origin' | 'sourceLabel'>): string {

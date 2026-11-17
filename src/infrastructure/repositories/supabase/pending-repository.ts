@@ -440,16 +440,33 @@ export async function loadPendingCards(workId: string): Promise<PendingCard[]> {
   return cards;
 }
 
+/** Anotações (`plan_tasks.notes`) de uma tarefa do médio prazo. Só é chamada depois de a tarefa ter sido
+ * achada na obra. Falha de leitura não derruba a criação do card: ele nasce sem a descrição herdada. */
+async function fetchTaskNotes(taskId: string): Promise<string | undefined> {
+  try {
+    const { data, error } = await getServiceClient().from('plan_tasks').select('notes').eq('id', taskId).maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as { notes: string | null } | null)?.notes?.trim() || undefined;
+  } catch (error) {
+    logRouteError('pending resolveSourceForCreate (anotações)', error, { taskId });
+    return undefined;
+  }
+}
+
 /** Início e nome atuais da tarefa do médio prazo ou do serviço da Linha de Balanço, para `create_card`.
- * `null` = não existe nesta obra (ou é de outra, ou o serviço ainda não tem bloco lançado). */
+ * `null` = não existe nesta obra (ou é de outra, ou o serviço ainda não tem bloco lançado). Na tarefa do
+ * médio prazo vão junto as anotações dela (16/11/2026), que viram a descrição do card criado sem descrição:
+ * são as da tarefa escolhida (`sourceId`), não as de uma cópia dela num mês seguinte. */
 export async function resolveSourceForCreate(
   workId: string,
   origin: 'medio_prazo' | 'longo_prazo',
   sourceId: string,
-): Promise<{ start: string; label: string } | null> {
+): Promise<{ start: string; label: string; notes?: string } | null> {
   const probe = { origin, sourceId, dueDate: '' } as PendingCard;
   const [resolved] = resolvePendingSources([probe], await loadPendingSources(workId, [probe]));
-  return resolved.sourceStart ? { start: resolved.sourceStart, label: resolved.sourceLabel ?? '' } : null;
+  if (!resolved.sourceStart) return null;
+  const notes = origin === 'medio_prazo' ? await fetchTaskNotes(sourceId) : undefined;
+  return { start: resolved.sourceStart, label: resolved.sourceLabel ?? '', ...(notes ? { notes } : {}) };
 }
 
 /** Obra de um card, checklist ou item, para a rota conferir o acesso antes de carregar tudo. `null` = não existe. */

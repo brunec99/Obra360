@@ -106,3 +106,47 @@ O código novo sem a 0043 não quebra nada (a visão fica indisponível). A cóp
 - O botão "Gerar restrição" do curto prazo (só desenvolvedor) continua criando restrição de vagão, não card.
 - Sem feriados no calendário de dias úteis; sem anexos no card; sem aviso por e-mail de prazo vencendo.
 - Passeio guiado do quadro tem só três passos.
+
+## Retorno do Atmos (16/11/2026)
+
+O coordenador de obras do Atmos testou o Quadro de Restrições (aba 1.4) e pediu quatro coisas; a quinta (anotações) veio junto. **No mesmo dia o gerente decidiu manter abertas a todos a restrição avulsa e a troca de responsável**: as duas travas por pessoa que chegaram a ser implementadas de manhã (avulsa só para admin; troca só por criador, responsável atual ou admin) foram desfeitas, e da troca ficou só a confirmação. O texto abaixo descreve o estado final. **Tudo está implementado no código, sem commit e sem publicação nesta data; nenhuma migração foi criada nem é necessária.** Onde este trecho contradiz o texto de 10/11 acima (por exemplo os rótulos "Manual" e "Restrição"), vale este.
+
+### Comportamento entregue
+
+1. **Rolagem só na área dos cards.** A partir de 640 px de largura, o quadro ganha a altura que falta até o pé da janela e cada coluna rola os próprios cards. O cabeçalho, os filtros, os contadores, o título de cada coluna e o "+ Nova pendência" do pé de A fazer ficam parados. Altura mínima de 24 rem: em janela baixa a página volta a rolar. Abaixo de 640 px nada mudou (a página inteira rola). A rolagem de lado da grade continua.
+2. **Troca de responsável com confirmação.** O campo "Responsável" do card aberto não grava mais na hora: pergunta "Passar a responsabilidade de X para Y? Y recebe um e-mail avisando." e só grava com a confirmação (cancelar deixa como estava). Qualquer pessoa com o quadro continua podendo trocar; o servidor não mudou nesse ponto.
+3. **Formulário abre ligado ao cronograma.** Em "+ Nova pendência", "Ligar a" abre em "Tarefa do médio prazo"; sem tarefas no cronograma do mês, em "Serviço do longo prazo"; sem nenhum dos dois, em "Sem ligação". A opção "Sem ligação" (card avulso, data digitada) continua para todos, agora como a última das três. O servidor aceita `create_card` de origem `manual` de qualquer pessoa, como antes.
+4. **Filtro "Origem".** "Restrição" virou **"Restrição de vagão (antiga)"** e só é listada quando o quadro da obra tem algum card com essa origem (são cópias feitas uma única vez pela 0043; em produção não há nenhum). "Manual" virou **"Avulsa (sem ligação)"**. Os rótulos saem de `PENDING_ORIGIN_LABELS`, usado só pelo chip do card e pelo filtro; PDF, dashboards, e-mail e Claudia não mostram a origem do card (conferido por busca).
+5. **Anotações do médio prazo no card.** Card criado com origem `medio_prazo` e sem descrição recebe as anotações da tarefa (`plan_tasks.notes`) como descrição, cortadas em 4.000 caracteres. Vale para o botão "Criar pendência" do cronograma (que não tem campo de descrição) e para o "+ Nova pendência" do quadro com a descrição em branco. O formulário mostra "As anotações da tarefa entram na descrição do card.".
+
+### Decisões
+
+- **Troca de responsável e avulsa abertas a todos (decisão do gerente, 16/11/2026).** A primeira versão do dia restringia as duas; o gerente preferiu não travar por pessoa. Foram removidos `canChangeResponsible`, `RESPONSIBLE_LOCKED` e `UNLINKED_REFUSED`, o campo desabilitado, o rótulo "Sem ligação (só administrador)" e o aviso de "nada a que ligar". A única trava por pessoa do quadro segue sendo a exclusão do card (criador ou admin).
+- **O incentivo a ligar é só o padrão do formulário**: quem quer uma restrição avulsa precisa escolher "Sem ligação" de propósito.
+- **A lista de origens é lida ao abrir o formulário** (antes, só quando a pessoa escolhia ligar): é ela que decide o padrão. Se a leitura falhar, o formulário fica em "Tarefa do médio prazo" com o erro e o "Tentar de novo"; "Sem ligação" continua clicável.
+- **Anotações:** são as da tarefa escolhida (`sourceId`), lidas na criação. É cópia, não vínculo: editar a anotação depois não muda o card. Falha ao ler a anotação não derruba a criação (o card nasce sem descrição e a falha vai para o log). O serviço do longo prazo não tem anotação copiada.
+- **Altura do quadro:** medida no navegador (`useFitHeight` em `pending-board.tsx`): altura visível do contêiner do layout que rola, menos o topo do quadro e o respiro de baixo. O layout (`src/app/(app)/layout.tsx`) não foi alterado. A linha da coluna usa `minmax(0,1fr)` para a coluna mais cheia não esticar o quadro.
+- **Confirmação ao trocar para si mesmo** também é pedida, sem a frase do e-mail (quem pega para si não recebe aviso).
+
+### Arquivos
+
+`src/domain/pending-board.ts` (rótulos), `src/application/use-cases/pending-commands.ts` (cópia das anotações), `src/infrastructure/repositories/supabase/pending-repository.ts` (`resolveSourceForCreate` devolve `notes`), `src/modules/pendencias/pending-board.tsx`, `card-dialog.tsx`, `create-pending-dialog.tsx`, `pending-view.ts` (`filterOrigins`), manual da Claudia (`vagoes-lista-de-pendencia`) e passeio guiado (`tour/pages/restricoes.ts`). As props do `CreatePendingDialog` não mudaram: os botões do médio e do longo prazo seguem sem alteração.
+
+### Validação (16/11/2026)
+
+- `node --import tsx --test tests/pending-*.test.ts tests/agent-manual.test.ts tests/tour*.test.ts`: passou, depois da reversão. Testes novos em `tests/pending-commands.test.ts` (avulsa aceita de quem não é admin, troca de responsável por quem não criou nem é responsável, anotações copiadas e cortadas, rótulos) e em `tests/pending-view.test.ts` (`filterOrigins`).
+- `npx eslint` e `npx prettier --check` nos arquivos alterados: sem erro.
+- `npx tsc --noEmit -p .`: sem erros.
+
+### Não verificado
+
+- **Nada foi aberto no navegador.** A rolagem por coluna, a altura medida, o arrastar e soltar com a coluna rolada ou vazia, a confirmação da troca de responsável e o padrão do formulário não foram vistos em tela, nem em 1500 px nem no celular.
+- Nada rodou contra o banco real: a leitura de `plan_tasks.notes` pela rota.
+- `npm run build` e o e2e não foram rodados.
+
+### Pendências e próximas etapas (não implementado)
+
+- Conferir no navegador os cinco itens acima antes de publicar, em especial arrastar um card para o fim de uma coluna rolada.
+- O texto de 10/11 deste documento e a tabela "Estado" não foram reescritos; continuam descrevendo a entrega original.
+- Os cards avulsos antigos não foram convertidos nem marcados; se o coordenador quiser ligá-los a uma tarefa, não há ação de "ligar depois" no card.
+- A descrição herdada não acompanha mudanças posteriores nas anotações da tarefa.

@@ -50,22 +50,27 @@ export const steps: TourStep[] = [
   {
     target: 'longo-lob-filtros',
     title: 'Filtros',
-    body: 'Escolha os serviços, os locais e o período que aparecem, e uma linha de base para sobrepor em cinza. Os indicadores e a contagem de atrasos continuam sendo da obra inteira.',
+    body: 'No cabeçalho do gráfico: escolha os serviços (com a cor de cada um e busca pelo nome), os locais e o período que aparecem, e uma linha de base para sobrepor em cinza. Os indicadores e a contagem de atrasos continuam sendo da obra inteira.',
   },
   {
     target: 'longo-lob-zoom',
     title: 'Zoom do tempo',
-    body: 'Semana, Mês ou Trimestre. "Hoje" (ou a tecla H) leva o gráfico até hoje.',
+    body: 'Semana, Mês, Trimestre ou a obra inteira na largura da tela; cada escala tem o seu cabeçalho de tempo. Os botões − e + fazem o ajuste fino, e Ctrl + roda do mouse sobre o gráfico também. "Hoje" (ou a tecla H) leva o gráfico até hoje.',
   },
   {
     target: 'longo-lob-grafico',
     title: 'Linha de Balanço',
-    body: 'Locais de baixo para cima e o tempo na horizontal. Cada bloco é um serviço num local: a parte cheia é o que já foi medido, a clara o que falta, e o contorno vermelho marca atraso. Arraste um bloco para mudar a data: as sucessoras acompanham, e ele nunca entra antes das predecessoras. Com um bloco selecionado, as setas movem um dia útil.',
+    body: 'Locais de baixo para cima e o tempo na horizontal. Cada bloco é um serviço num local: a parte cheia é o que já foi medido, a clara o que falta, e o contorno vermelho marca atraso. Com as datas liberadas no cadeado, arraste um bloco para mudar a data: as sucessoras acompanham, e ele nunca entra antes das predecessoras. Com um bloco selecionado, as setas movem um dia útil.',
   },
   {
-    target: 'longo-lob-legenda',
-    title: 'Legenda',
-    body: 'Cada serviço com a cor e a duração por local. Clique para esconder ou mostrar o serviço no gráfico.',
+    target: 'longo-lob-critico',
+    title: 'Caminho crítico',
+    body: 'Destaca os blocos sem folga: os que, se atrasarem, empurram o término da obra pelas dependências cadastradas. Os demais ficam esmaecidos, e a dica de cada bloco mostra a folga em dias úteis.',
+  },
+  {
+    target: 'longo-lob-trava',
+    title: 'Datas travadas',
+    body: 'A tela abre com as datas travadas, para ninguém reprogramar sem querer: arrastar e as setas não mudam nada. Clique no cadeado para liberar a edição e de novo para travar. A escolha fica guardada neste navegador.',
   },
   {
     target: 'longo-lob-painel',

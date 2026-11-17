@@ -384,15 +384,18 @@ Passe o mouse sobre um bloco para ver serviço, local, início e término, dura�
 No alto: Serviços (com quantos lançamentos e blocos), Locais, Término previsto (e a diferença em dias para a linha de base escolhida no filtro), Avanço físico (média dos blocos no peso que vale na aba, por duração ou por custo, com o previsto até hoje e quantos blocos estão atrasados) e "IDP · desempenho de prazo" (real ÷ planejado na última medição fechada; veja a seção "IDP e custos").
 
 ## Arrastar, desfazer e teclado
-- Arraste um bloco para a direita ou para a esquerda para mudar a data de início. As sucessoras (os blocos que dependem dele, inclusive o mesmo serviço no local seguinte) acompanham. Um bloco nunca entra antes do fim das predecessoras mais a espera: puxar para trás só vai até essa folga.
+- A tela abre com as **datas travadas** (botão do cadeado, "Datas travadas", no cabeçalho do gráfico), para ninguém reprogramar sem querer: travada, arrastar e as setas não mudam nada. Clique no cadeado para liberar ("Datas liberadas") e de novo para travar; a escolha fica guardada no navegador. O painel do bloco selecionado continua editando início e duração mesmo com a trava.
+- Com as datas liberadas, arraste um bloco para a direita ou para a esquerda para mudar a data de início. As sucessoras (os blocos que dependem dele, inclusive o mesmo serviço no local seguinte) acompanham. Um bloco nunca entra antes do fim das predecessoras mais a espera: puxar para trás só vai até essa folga.
 - "Desfazer" (ou Ctrl+Z fora de um campo) volta a última mudança de datas.
 - Com um bloco selecionado, as setas esquerda e direita do teclado movem um dia útil. A tecla H (ou o botão "Hoje") leva o gráfico para hoje.
 - Perfil de consulta vê o gráfico e não arrasta.
 
 ## Filtros, zoom e tabela
-- "Serviços", "Locais" e "Período" filtram o que aparece; a legenda embaixo do gráfico também esconde ou mostra um serviço com um clique.
+- Os controles de visualização ficam no cabeçalho do quadro do gráfico. "Serviços" (lista com a cor de cada serviço, busca pelo nome, "Todos" e "Nenhum"), "Locais" e "Período" filtram o que aparece. Não há mais legenda embaixo do gráfico: esconder ou mostrar um serviço é pelo filtro "Serviços".
 - "Linha de base" sobrepõe em cinza as datas de uma linha de base salva (as automáticas, gravadas antes de cada lançamento, aparecem marcadas).
-- Zoom "Semana", "Mês" e "Trimestre" muda a escala do tempo; "Tabela" troca o gráfico por uma lista com local, serviço, início, término, duração, previsto, medido, situação e datas reais, ordenável pelos cabeçalhos.
+- Zoom: "Semana" (uma coluna por semana, com o dia da segunda-feira), "Mês", "Trimestre" (trimestres T1 a T4 de cada ano) e "Obra inteira" (encaixa a obra toda na largura da tela). Os botões "−" e "+" fazem o ajuste fino, e Ctrl + roda do mouse sobre o gráfico também.
+- "Caminho crítico" destaca os blocos sem folga, isto é, os que, se atrasarem, empurram o término da obra; os outros ficam esmaecidos e o selo do botão diz quantos são críticos. A folga sai das dependências entre os blocos ("depois de" e "equipe segue", com a espera) e da data atual de cada bloco; a dica do bloco mostra a folga em dias úteis. Sem dependências cadastradas, só os blocos que terminam no último dia aparecem como críticos.
+- "Tabela" troca o gráfico por uma lista com local, serviço, início, término, duração, previsto, medido, situação e datas reais, ordenável pelos cabeçalhos.
 - "Atrasos" abre a lista dos blocos atrasados (previsto, medido e atraso em dias úteis); clicar num deles seleciona o bloco no gráfico.
 
 ## Painel do bloco selecionado
@@ -403,6 +406,7 @@ Início e duração (em dias úteis) editáveis, término calculado, equipe e un
 ## Locais, linhas de base e outras ações
 - "Lançar fluxo" abre o lançamento de um fluxo de serviços (veja "Lançar um fluxo"). Sem locais cadastrados, a tela pede para cadastrá-los primeiro.
 - No menu "⋯": "Locais da obra" (cadastrar em lote, um nome por linha, renomear, reordenar com as setas e excluir; "Usar os locais dos vagões" traz os locais já importados do Prevision em ordem de altura; um local com blocos não pode ser excluído; é a mesma lista da seção "Locais da obra" das Configurações da obra e da coluna Local do curto prazo), "Importar do Planejador" (converte o plano do Planejador em blocos: cada pavimento vira um local e cada serviço × pavimento um bloco; só funciona com a Linha de Balanço ainda sem blocos) e "Exportar CSV".
+- Versões do cronograma: são as linhas de base. Não existe ainda um modo de simular cenários sem alterar o planejamento vigente; o caminho hoje é salvar uma linha de base antes de mexer e restaurá-la depois se a mudança não servir. O calendário da Linha de Balanço conta de segunda a sexta e ainda não considera feriados nem recessos.
 - "Salvar linha de base" abre a gaveta de linhas de base: criar com nome, "Comparar" (sobrepõe no gráfico), "Restaurar" (volta as datas dos blocos para as da foto) e "Excluir". Antes de cada lançamento de fluxo o sistema grava sozinho a linha de base "Antes do lançamento <data>".
 - "Nova medição" leva à visão "Medições".
 - "Custos" leva à visão Custos, com o selo de quantos pacotes com blocos já têm custo (por exemplo, "38/50").
@@ -626,7 +630,11 @@ Aberta pelo botão "Custos" da Linha de Balanço (o selo mostra quantos pacotes 
 - Planejador, gestor e admin apropriam. O perfil de consulta vê a visão com as porcentagens de cada item e pacote, nunca os valores em reais; o peso e o IDP saem iguais.
 
 ## Fora desta etapa
-Os Dashboards (aba 0 e o geral) ainda não mostram o IDP.`,
+Os Dashboards (aba 0 e o geral) ainda não mostram o IDP.
+
+## Sugerir com a Claudia
+Na visão Custos, o botão "Sugerir com a Claudia" aparece para quem pode editar, sempre que há itens do orçamento sem pacote. Ao clicar, a Claudia lê o código e a descrição de cada item não apropriado e propõe o pacote de serviço da Linha de Balanço a que ele pertence; o valor em reais não é enviado à IA. Custos indiretos, como administração, canteiro e taxas, ela deixa sem pacote. Orçamentos grandes vão em lotes de 300 itens, com o andamento na tela ("lote 2 de 5") e a opção de cancelar os lotes seguintes; cada clique lê até 3.000 itens. As sugestões entram só na tela, sem gravar nada: cada item sugerido ganha o selo "Sugestão da Claudia", com "confira" quando ela ficou em dúvida, e todos aparecem juntos no quadro "Sugestões da Claudia", com os duvidosos primeiro. O engenheiro da obra confere, troca o pacote onde estiver errado (ou devolve o item a "Não apropriado") e clica em "Salvar"; "Desfazer sugestões" devolve de uma vez os itens sugeridos a não apropriados. O selo some quando a pessoa mexe no item ou salva. A planilha do orçamento continua entrando por "Colar do orçamento" e pode ser a exportação do Sienge com as colunas código, descrição e valor; não existe ligação direta com o Sienge. O uso da Claudia aqui conta no mesmo limite mensal de IA da obra e da pessoa.
+- Se o avanço físico ou o IDP não batem com o Prevision: o Prevision pesa pelo financeiro; aqui o peso só vira custo quando todos os pacotes com blocos têm custo apropriado. Até lá vale a duração, e os números ficam diferentes.`,
   },
   {
     id: 'longo-prazo-gantt-legalizacao',

@@ -8,7 +8,8 @@ import { parseBudgetPaste, type BudgetLine } from './costs-model';
 
 /** Diálogo "Colar do orçamento" da tela Custos (11/11/2026): a pessoa cola as linhas do orçamento
  * copiadas do Excel, vê o que foi lido (código, descrição, valor e o pacote reconhecido pelo nome) e
- * joga no rascunho da tela. Nada é gravado aqui: só o "Salvar" da tela grava. */
+ * joga no rascunho da tela. Nada é gravado aqui: só o "Salvar" da tela grava. A planilha costuma ser a
+ * exportação do orçamento do Sienge (não existe integração direta; 16/11/2026). */
 
 /** A prévia mostra até este número de linhas; o resto entra igual na importação. */
 const PREVIEW_ROWS = 300;
@@ -66,8 +67,10 @@ export function CostsImportDialog({
             Colar do orçamento
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Copie as linhas do orçamento no Excel (código, descrição e valor, em qualquer ordem) e cole abaixo. Uma coluna com o nome do
-            pacote de serviço já aponta o item a ele; o resto fica como não apropriado, para apontar depois.
+            Copie as linhas do orçamento no Excel (código, descrição e valor, em qualquer ordem) e cole abaixo. A planilha pode ser a
+            exportação do orçamento do Sienge, com as colunas código, descrição e valor: não há ligação direta com o Sienge, o caminho é
+            exportar e colar. Uma coluna com o nome do pacote de serviço já aponta o item a ele; o resto fica como não apropriado, para
+            apontar depois, à mão ou com “Sugerir com a Claudia”.
           </p>
         </header>
 
