@@ -31,6 +31,6 @@ export const steps: TourStep[] = [
   {
     target: 'checklist-models',
     title: 'Modelos de checklist',
-    body: 'A ficha de cada tipo de equipamento e periodicidade, com os itens a conferir. A lista é a mesma para todas as obras, e só administradores criam e editam. Editar um modelo vale daqui em diante: as inspeções já feitas guardam os itens como estavam.',
+    body: 'A ficha de cada tipo de equipamento e periodicidade (diário, semanal, mensal ou liberação, feita uma única vez), com os itens a conferir. O modelo pode pedir o nº do equipamento ou o pavimento a quem preenche. A lista é a mesma para todas as obras, e só administradores criam e editam. Editar um modelo vale daqui em diante: as inspeções já feitas guardam os itens como estavam.',
   },
 ];

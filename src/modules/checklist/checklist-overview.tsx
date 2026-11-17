@@ -18,7 +18,9 @@ import {
   ANSWER_LABEL,
   CHECKLIST_FREQUENCIES,
   CHECKLIST_LIMITS,
+  doneLocations,
   FREQUENCY_LABEL,
+  FREQUENCY_OPTION_LABEL,
   FREQUENCY_PERIOD,
   checklistBoard,
   checklistKey,
@@ -345,8 +347,11 @@ function dueText(due: ChecklistDue): string {
   if (due.status === 'pending')
     return `pendente ${FREQUENCY_PERIOD[due.model.frequency]}${due.lastDoneOn ? ` · último em ${formatChecklistDay(due.lastDoneOn)}` : ''}`;
   const day = formatChecklistDay(due.run!.doneOn);
-  const nc = nonConformities(due.run!);
-  return nc ? `${nc} não conforme${nc > 1 ? 's' : ''} · ${day}` : `feito em ${day}`;
+  const nc = due.periodRuns.reduce((sum, run) => sum + nonConformities(run), 0);
+  // Com local, o período pode ter várias inspeções: a linha lista os locais já feitos.
+  const places = due.model.asksLocation ? doneLocations(due.periodRuns) : [];
+  const where = places.length ? ` · ${places.join(', ')}` : '';
+  return nc ? `${nc} não conforme${nc > 1 ? 's' : ''} · ${day}${where}` : `feito em ${day}${where}`;
 }
 
 type Filling = { equipment: ChecklistEquipment; model?: ChecklistModel; run?: ChecklistRun };
@@ -375,6 +380,10 @@ function RunForm({
   const items = run ? run.answers.map(a => ({ id: a.itemId, text: a.text })) : (model?.items ?? []);
   const [doneOn, setDoneOn] = useState(run?.doneOn ?? today);
   const [note, setNote] = useState(run?.note ?? '');
+  const [location, setLocation] = useState(run?.location ?? '');
+  // O local aparece quando o modelo pede ou quando a inspeção já guarda um.
+  const asksLocation = !!model?.asksLocation;
+  const showLocation = asksLocation || !!run?.location;
   const [answers, setAnswers] = useState<AnswerDraft>(() =>
     Object.fromEntries((run?.answers ?? []).map(a => [a.itemId, { answer: a.answer, note: a.note }])),
   );
@@ -399,6 +408,7 @@ function RunForm({
         equipmentId: equipment.id,
         modelId: run?.modelId ?? model!.id,
         doneOn,
+        ...(showLocation ? { location } : {}),
         answers: items.map(item => ({ itemId: item.id, answer: answers[item.id]!.answer!, note: answers[item.id]?.note ?? '' })),
         note,
         operatorName,
@@ -416,6 +426,7 @@ function RunForm({
         <div>
           <h2 id="ck-form-title" className="text-base font-bold text-slate-900">
             {title} · {equipment.name}
+            {run?.location ? ` · ${run.location}` : ''}
           </h2>
           <p className="text-sm text-slate-500">
             {FREQUENCY_LABEL[run?.frequency ?? model!.frequency]} · {equipment.equipmentType}
@@ -434,6 +445,19 @@ function RunForm({
               Data da inspeção
               <input type="date" className="field mt-1" value={doneOn} max={today} onChange={e => setDoneOn(e.target.value)} required />
             </label>
+            {showLocation && (
+              <label className="text-sm font-medium text-slate-700">
+                Nº do equipamento ou pavimento
+                <input
+                  className="field mt-1"
+                  value={location}
+                  maxLength={CHECKLIST_LIMITS.location}
+                  placeholder="Ex.: 3º pavimento, Betoneira 02"
+                  required={asksLocation}
+                  onChange={e => setLocation(e.target.value)}
+                />
+              </label>
+            )}
             {canEdit && (
               <button
                 type="button"
@@ -548,6 +572,7 @@ function ModelEditor({
   const [name, setName] = useState(model?.name ?? '');
   const [equipmentType, setEquipmentType] = useState(model?.equipmentType ?? '');
   const [frequency, setFrequency] = useState<ChecklistFrequency>(model?.frequency ?? 'daily');
+  const [asksLocation, setAsksLocation] = useState(model?.asksLocation ?? false);
   const [items, setItems] = useState<ItemDraft[]>(() => (model ? model.items.map(item => newDraft(item.text, item.id)) : [newDraft()]));
   const [paste, setPaste] = useState('');
 
@@ -567,6 +592,7 @@ function ModelEditor({
         name,
         equipmentType,
         frequency,
+        asksLocation,
         items: items.filter(item => item.text.trim()).map(item => ({ ...(item.id ? { id: item.id } : {}), text: item.text })),
       },
       model ? 'Checklist atualizado' : 'Checklist criado',
@@ -606,12 +632,27 @@ function ModelEditor({
             <select className="field mt-1" value={frequency} onChange={e => setFrequency(e.target.value as ChecklistFrequency)}>
               {CHECKLIST_FREQUENCIES.map(option => (
                 <option key={option} value={option}>
-                  {FREQUENCY_LABEL[option]}
+                  {FREQUENCY_OPTION_LABEL[option]}
                 </option>
               ))}
             </select>
           </label>
         </div>
+        {frequency === 'once' && (
+          <p className="text-xs text-slate-600">
+            Liberação: preenchida uma única vez por equipamento. Fica pendente até ser feita e não volta a ser cobrada.
+          </p>
+        )}
+        <label className="flex items-start gap-2 text-sm text-slate-700">
+          <input type="checkbox" className="mt-0.5" checked={asksLocation} onChange={e => setAsksLocation(e.target.checked)} />
+          <span>
+            <span className="font-medium">Pedir o nº do equipamento ou o pavimento a quem preenche</span>
+            <span className="block text-xs text-slate-500">
+              Para o checklist que vale para vários lugares (por pavimento, por máquina): o campo fica obrigatório e o checklist pode ser
+              preenchido de novo no período, uma vez por local.
+            </span>
+          </span>
+        </label>
         <datalist id="ck-types">
           {types.map(type => (
             <option key={type} value={type} />
@@ -854,17 +895,16 @@ export function ChecklistOverview({ workId }: { workId: string }) {
   const deleteRun = async (run: ChecklistRun) => {
     const ok = await confirm({
       title: 'Excluir esta inspeção?',
-      description: `${run.modelName} · ${equipmentById.get(run.equipmentId)?.name ?? 'equipamento'} · ${formatChecklistDay(run.doneOn)}. Não dá para desfazer.`,
+      description: `${run.modelName} · ${equipmentById.get(run.equipmentId)?.name ?? 'equipamento'}${run.location ? ` (${run.location})` : ''} · ${formatChecklistDay(run.doneOn)}. Não dá para desfazer.`,
       confirmLabel: 'Excluir',
       tone: 'danger',
     });
     if (ok) await execute({ type: 'delete_run', id: run.id }, 'Inspeção excluída');
   };
 
+  const PLURAL: Record<ChecklistFrequency, string> = { daily: 'diários', weekly: 'semanais', monthly: 'mensais', once: 'liberações' };
   const pendingHint = (frequency: ChecklistFrequency) =>
-    summary.due[frequency].total
-      ? `de ${summary.due[frequency].total} ${FREQUENCY_LABEL[frequency].toLowerCase()}s`
-      : 'nenhum checklist devido';
+    summary.due[frequency].total ? `de ${summary.due[frequency].total} ${PLURAL[frequency]}` : 'nenhum checklist devido';
 
   return (
     <>
@@ -878,7 +918,10 @@ export function ChecklistOverview({ workId }: { workId: string }) {
         </div>
       )}
 
-      <div data-tour="checklist-cards" className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        data-tour="checklist-cards"
+        className={`mb-6 grid gap-4 sm:grid-cols-2 ${summary.due.once.total ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
+      >
         <StatCard
           label="Pendentes hoje"
           value={summary.due.daily.pending}
@@ -897,6 +940,14 @@ export function ChecklistOverview({ workId }: { workId: string }) {
           tone={summary.due.monthly.pending ? 'warning' : 'default'}
           hint={pendingHint('monthly')}
         />
+        {summary.due.once.total > 0 && (
+          <StatCard
+            label="Liberações pendentes"
+            value={summary.due.once.pending}
+            tone={summary.due.once.pending ? 'warning' : 'default'}
+            hint={pendingHint('once')}
+          />
+        )}
         <StatCard
           label="Com não conformidade"
           value={summary.nonconforming}
@@ -1014,7 +1065,18 @@ export function ChecklistOverview({ workId }: { workId: string }) {
                         key={due.model.id}
                         type="button"
                         disabled={disabled}
-                        onClick={() => setFilling({ equipmentId: row.equipment.id, modelId: due.model.id, runId: due.run?.id })}
+                        title={
+                          due.model.asksLocation && canEdit && due.run ? 'Preencher para outro nº de equipamento ou pavimento' : undefined
+                        }
+                        onClick={() =>
+                          setFilling({
+                            equipmentId: row.equipment.id,
+                            modelId: due.model.id,
+                            // Com local, o checklist se repete: quem registra abre uma inspeção nova (as feitas
+                            // ficam em "Últimas inspeções"); quem só consulta abre a mais recente.
+                            runId: due.model.asksLocation && canEdit ? undefined : due.run?.id,
+                          })
+                        }
                         className={`min-h-11 rounded-lg border px-3 py-1.5 text-left transition-shadow enabled:hover:shadow-sm ${STATUS_STYLE[due.status]}`}
                       >
                         <span className="block text-xs font-bold">
@@ -1135,6 +1197,7 @@ export function ChecklistOverview({ workId }: { workId: string }) {
                     <span className="w-24 text-sm tabular-nums text-slate-600">{formatChecklistDay(run.doneOn)}</span>
                     <span className="min-w-0 flex-1 text-sm text-slate-800">
                       <strong>{equipmentById.get(run.equipmentId)?.name ?? 'Equipamento'}</strong> · {run.modelName}
+                      {run.location ? ` · ${run.location}` : ''}
                       {author && <span className="text-slate-500"> · {author}</span>}
                       {run.source === 'link' && (
                         <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary-ink">
@@ -1247,7 +1310,8 @@ export function ChecklistOverview({ workId }: { workId: string }) {
                     <strong>{model.name}</strong>
                     <span className="text-slate-500">
                       {' '}
-                      · {model.equipmentType} · {FREQUENCY_LABEL[model.frequency]} · {model.items.length}{' '}
+                      · {model.equipmentType} · {FREQUENCY_LABEL[model.frequency]}
+                      {model.asksLocation ? ' · pede nº do equipamento ou pavimento' : ''} · {model.items.length}{' '}
                       {model.items.length === 1 ? 'item' : 'itens'}
                     </span>
                     {!model.active && <span className="ml-2 text-xs font-bold text-slate-500">Desativado</span>}

@@ -5,6 +5,7 @@ import {
   checklistSummary,
   equipmentTypes,
   CHECKLIST_TOKEN,
+  doneLocations,
   modelsFor,
   operatorDues,
   periodKey,
@@ -23,6 +24,7 @@ import {
   planChecklistCommand,
   planOperatorRun,
 } from '../src/application/use-cases/checklist-commands';
+import { checklistNcEmail, checklistNcKey } from '../src/infrastructure/email/checklist-nc';
 import { hasSectionAccess, isRestrictedApi, MODULES } from '../src/application/module-access';
 
 const NOW = '2026-11-11T12:00:00.000Z';
@@ -40,6 +42,7 @@ const model = (over: Partial<ChecklistModel> = {}): ChecklistModel => ({
     { id: 'i1', text: 'Proteção das partes móveis' },
     { id: 'i2', text: 'Aterramento' },
   ],
+  asksLocation: false,
   active: true,
   createdBy: 'tst-1',
   createdAt: NOW,
@@ -68,6 +71,7 @@ const run = (over: Partial<ChecklistRun> = {}): ChecklistRun => ({
   modelName: 'Betoneira — diário',
   frequency: 'daily',
   doneOn: TODAY,
+  location: '',
   answers: [
     { itemId: 'i1', text: 'Proteção das partes móveis', answer: 'c', note: '' },
     { itemId: 'i2', text: 'Aterramento', answer: 'c', note: '' },
@@ -350,7 +354,7 @@ test('checklist pelo QR: exige nome completo e assinatura, e só aceita o que es
   // Semanal feito na segunda: na quarta da mesma semana o link não aceita de novo.
   const weekly = model({ id: 'm-sem', name: 'Betoneira — semanal', frequency: 'weekly' });
   const done = run({ id: 'r-sem', modelId: 'm-sem', frequency: 'weekly', doneOn: '2026-11-09' });
-  assert.throws(() => send(data({ models: [weekly], runs: [done] }), { ...base, modelId: 'm-sem' }), /já foi preenchido neste período/);
+  assert.throws(() => send(data({ models: [weekly], runs: [done] }), { ...base, modelId: 'm-sem' }), /já foi preenchido nesta semana/);
   // A tela logada segue podendo repetir o semanal em outro dia da semana.
   const again = plan(data({ models: [weekly], runs: [done] }), {
     type: 'save_run',
@@ -496,4 +500,209 @@ test('checklists do QR: inspeção nova só do que está ligado ao QR; a antiga 
   // A inspeção feita antes de tirar o modelo continua editável.
   const edited = plan(data({ models: [model(), serra], equipment: [hidden], runs: [run()] }), { ...base, id: 'r1', modelId: 'm-dia' });
   assert.equal(edited.update.runs[0].id, 'r1');
+});
+
+// ─── 17/11/2026: nº do equipamento ou pavimento, liberação e aviso ao TST ─────────────────────────────
+
+const SIGNATURE = `iVBORw0KGgo${'A'.repeat(40)}`;
+const redeU = () => model({ id: 'm-rede', name: 'Rede U (piso a piso)', frequency: 'weekly', asksLocation: true });
+const fill = (over: Record<string, unknown> = {}) => ({
+  type: 'save_run',
+  workId: 'obra-1',
+  equipmentId: 'e1',
+  modelId: 'm-rede',
+  doneOn: TODAY,
+  answers: answersOk,
+  ...over,
+});
+
+test('checklist com local: o modelo pede o nº do equipamento ou pavimento e a inspeção o guarda', () => {
+  const created = plan(data(), {
+    type: 'save_model',
+    name: 'Rede U (piso a piso)',
+    equipmentType: 'Betoneira',
+    frequency: 'weekly',
+    asksLocation: true,
+    items: [{ text: 'Redes íntegras' }],
+  });
+  assert.equal(created.insert.models[0].asksLocation, true);
+  // Sem o campo no comando, o modelo mantém o que tinha; modelo novo nasce sem pedir.
+  const kept = plan(data({ models: [redeU()] }), {
+    type: 'save_model',
+    id: 'm-rede',
+    name: 'Rede U',
+    equipmentType: 'Betoneira',
+    frequency: 'weekly',
+    items: [{ id: 'i1', text: 'Redes íntegras' }],
+  });
+  assert.equal(kept.update.models[0].asksLocation, true);
+  assert.equal(
+    plan(data(), { type: 'save_model', name: 'Outro', equipmentType: 'Betoneira', frequency: 'daily', items: [{ text: 'x' }] }).insert
+      .models[0].asksLocation,
+    false,
+  );
+  assert.throws(() => parseChecklistCommand({ ...fill(), location: 3 }), /location/);
+
+  const d = data({ models: [redeU()] });
+  assert.throws(() => plan(d, fill()), /Informe o nº do equipamento ou o pavimento/);
+  assert.throws(() => plan(d, fill({ location: '   ' })), /Informe o nº/);
+  assert.throws(() => plan(d, fill({ location: 'x'.repeat(61) })), /até 60/);
+  assert.equal(plan(d, fill({ location: '  3º   pavimento ' })).insert.runs[0].location, '3º pavimento');
+  // Modelo que não pede não guarda local, mesmo que o comando traga um.
+  assert.equal(plan(data(), fill({ modelId: 'm-dia', location: 'Térreo' })).insert.runs[0].location, '');
+});
+
+test('checklist com local: repete no período, uma vez por local, na tela e pelo QR', () => {
+  const done = run({ id: 'r-3', modelId: 'm-rede', frequency: 'weekly', doneOn: '2026-11-09', location: '3º Pavimento' });
+  const d = data({ models: [redeU()], runs: [done] });
+  // Outro pavimento no mesmo dia e na mesma semana: aceito.
+  assert.equal(plan(d, fill({ doneOn: '2026-11-09', location: '4º pavimento' })).insert.runs[0].location, '4º pavimento');
+  // O mesmo pavimento no mesmo dia (sem acento nem maiúsculas): recusado.
+  assert.throws(
+    () => plan(d, fill({ doneOn: '2026-11-09', location: '3º pavimento' })),
+    /já foi preenchido para Betoneira 01 \(3º pavimento\) neste dia/,
+  );
+  // Pela tela, o mesmo pavimento em outro dia da semana segue permitido, como antes.
+  assert.equal(plan(d, fill({ location: '3º pavimento' })).insert.runs.length, 1);
+
+  const viaQr = (location: string) =>
+    planOperatorRun(
+      d,
+      parseOperatorRun({ modelId: 'm-rede', location, answers: answersOk, operatorName: 'José da Silva', signature: SIGNATURE }),
+      ctx(),
+      {
+        id: 'e1',
+        workId: 'obra-1',
+      },
+    );
+  assert.throws(() => viaQr('3º PAVIMENTO'), /"Rede U \(piso a piso\)" \(3º PAVIMENTO\) já foi preenchido nesta semana/);
+  assert.equal(viaQr('5º pavimento').insert.runs[0].location, '5º pavimento');
+  assert.equal(
+    parseOperatorRun({ modelId: 'm-rede', location: 'Térreo', answers: answersOk, operatorName: 'a b', signature: 'x' }).location,
+    'Térreo',
+  );
+
+  // O quadro soma as inspeções do período; o operador vê os locais feitos e pode preencher outro.
+  const bad = run({
+    id: 'r-4',
+    modelId: 'm-rede',
+    frequency: 'weekly',
+    location: '4º pavimento',
+    answers: [
+      { itemId: 'i1', text: 'Proteção das partes móveis', answer: 'nc', note: 'Rede rasgada' },
+      { itemId: 'i2', text: 'Aterramento', answer: 'c', note: '' },
+    ],
+  });
+  const both = data({ models: [redeU()], runs: [done, bad] });
+  const due = checklistBoard(both, TODAY)[0].dues[0];
+  assert.equal(due.status, 'nonconforming');
+  assert.equal(due.periodRuns.length, 2);
+  const [seen] = operatorDues(both, 'e1', TODAY);
+  assert.equal(seen.asksLocation, true);
+  assert.deepEqual(seen.doneLocations, ['3º Pavimento', '4º pavimento']);
+  assert.deepEqual(doneLocations([done, done, bad, run({ location: '' })]), ['3º Pavimento', '4º pavimento']);
+  // Editar a inspeção mantém o local quando o comando não o traz, e aceita a troca.
+  const edit = { ...fill({ id: 'r-3', doneOn: '2026-11-09' }) };
+  assert.equal(plan(both, edit).update.runs[0].location, '3º Pavimento');
+  assert.equal(plan(both, { ...edit, location: '6º pavimento' }).update.runs[0].location, '6º pavimento');
+  assert.throws(() => plan(both, { ...edit, doneOn: TODAY, location: '4º pavimento' }), /neste dia/);
+});
+
+test('liberação: periodicidade feita uma única vez, pendente até ser preenchida e depois feita para sempre', () => {
+  assert.equal(periodKey('once', '2026-11-11'), 'once');
+  assert.equal(periodKey('once', '2025-01-02'), 'once');
+  const release = model({ id: 'm-lib', name: 'Liberação da betoneira', frequency: 'once' });
+  assert.equal(
+    plan(data(), { type: 'save_model', name: 'Liberação', equipmentType: 'Betoneira', frequency: 'once', items: [{ text: 'x' }] }).insert
+      .models[0].frequency,
+    'once',
+  );
+  const empty = data({ models: [release] });
+  let summary = checklistSummary(checklistBoard(empty, TODAY));
+  assert.deepEqual(summary.due.once, { total: 1, pending: 1 });
+  const first = plan(empty, fill({ modelId: 'm-lib' }));
+  assert.equal(first.insert.runs[0].frequency, 'once');
+
+  // Liberado no ano anterior: segue feito, e não se registra de novo, nem pela tela nem pelo QR.
+  const old = run({ id: 'r-lib', modelId: 'm-lib', frequency: 'once', doneOn: '2025-03-10' });
+  const released = data({ models: [release], runs: [old] });
+  const due = checklistBoard(released, TODAY)[0].dues[0];
+  assert.equal(due.status, 'done');
+  assert.equal(due.run?.id, 'r-lib');
+  summary = checklistSummary(checklistBoard(released, TODAY));
+  assert.deepEqual(summary.due.once, { total: 1, pending: 0 });
+  assert.throws(() => plan(released, fill({ modelId: 'm-lib' })), /já foi registrada em 10\/03\/2025\. Abra a inspeção para editar/);
+  assert.throws(
+    () =>
+      planOperatorRun(
+        released,
+        parseOperatorRun({ modelId: 'm-lib', answers: answersOk, operatorName: 'José da Silva', signature: SIGNATURE }),
+        ctx(),
+        {
+          id: 'e1',
+          workId: 'obra-1',
+        },
+      ),
+    /já foi registrada em 10\/03\/2025\. Procure o técnico de segurança/,
+  );
+  // A própria liberação segue editável.
+  assert.equal(plan(released, fill({ id: 'r-lib', modelId: 'm-lib', doneOn: '2025-03-11' })).update.runs[0].doneOn, '2025-03-11');
+
+  // Com local, a liberação é uma por nº de equipamento ou pavimento.
+  const perPlace = model({ id: 'm-lib', name: 'Liberação da betoneira', frequency: 'once', asksLocation: true });
+  const some = data({ models: [perPlace], runs: [{ ...old, location: 'Betoneira 02' }] });
+  assert.throws(() => plan(some, fill({ modelId: 'm-lib', location: 'betoneira 02' })), /\(betoneira 02\) já foi registrada/);
+  assert.equal(plan(some, fill({ modelId: 'm-lib', location: 'Betoneira 03' })).insert.runs[0].location, 'Betoneira 03');
+});
+
+test('aviso ao TST: o e-mail da não conformidade leva o checklist, o local, quem preencheu e os itens', () => {
+  const ok = run();
+  assert.equal(checklistNcEmail(ok, { workName: 'Atmos', equipment: { name: 'GERAL' }, origin: 'https://site' }), null);
+  const bad = run({
+    id: 'r-nc',
+    modelName: 'Grua grande porte — operador',
+    location: 'Grua 02',
+    operatorName: 'Paulo Sampaio',
+    source: 'link',
+    createdBy: 'qr',
+    answers: [
+      { itemId: 'i1', text: 'Cabos de aço íntegros', answer: 'nc', note: 'Fio rompido no cabo de elevação' },
+      { itemId: 'i2', text: 'Aterramento', answer: 'c', note: '' },
+      { itemId: 'i3', text: 'Limitador de carga', answer: 'nc', note: 'Sem lacre' },
+    ],
+  });
+  const email = checklistNcEmail(bad, { workName: 'Atmos', equipment: { name: 'GERAL' }, origin: 'https://site' })!;
+  assert.equal(email.subject, 'Não conformidade no checklist: GERAL (Grua 02) · Grua grande porte — operador (Atmos)');
+  assert.deepEqual(email.payload, {
+    obra: 'Atmos',
+    equipamento: 'GERAL',
+    checklist: 'Grua grande porte — operador',
+    periodicidade: 'Diário',
+    local: 'Grua 02',
+    operador: 'Paulo Sampaio',
+    origem: 'qr',
+    data: '11/11/2026',
+    total: 2,
+    itens: [
+      { texto: 'Cabos de aço íntegros', descricao: 'Fio rompido no cabo de elevação' },
+      { texto: 'Limitador de carga', descricao: 'Sem lacre' },
+    ],
+    link: 'https://site/obras/obra-1/checklist',
+  });
+  assert.equal(checklistNcKey('r-nc', 'u1'), 'obra360.checklist_nc:r-nc:u1');
+
+  // Sessenta itens não conformes com texto no limite: o payload fica abaixo do teto da fila (4096 bytes).
+  const many = run({
+    answers: Array.from({ length: 60 }, (_, i) => ({
+      itemId: `i${i}`,
+      text: 'ç'.repeat(200),
+      answer: 'nc' as const,
+      note: 'ã'.repeat(300),
+    })),
+  });
+  const big = checklistNcEmail(many, { workName: 'Atmos', equipment: { name: 'GERAL' }, origin: 'https://site' })!;
+  assert.equal(big.payload.total, 60);
+  assert.ok(big.payload.itens.length >= 1 && big.payload.itens.length <= 10);
+  assert.ok(new TextEncoder().encode(JSON.stringify({ primeiroNome: 'x'.repeat(40), ...big.payload })).length < 4096);
+  assert.ok(big.subject.length <= 200);
 });

@@ -15,6 +15,7 @@ import {
   CHECKLIST_ADMIN_ONLY_MESSAGE,
   CHECKLIST_TST_ONLY_MESSAGE,
   CHECKLIST_WINDOW_DAYS,
+  nonConformities,
   shiftDay,
   type ChecklistCommand,
 } from '@/domain/equipment-checklist';
@@ -24,8 +25,11 @@ import {
   ChecklistUnavailableError,
   findChecklistRun,
   findChecklistWorkId,
+  findWorkLabel,
   loadChecklist,
 } from '@/infrastructure/repositories/supabase/checklist-repository';
+import { notifyChecklistNc } from '@/infrastructure/email/checklist-nc';
+import { publicOrigin } from '@/infrastructure/public-origin';
 import { commandContext } from '@/infrastructure/clock';
 import { logRouteError } from '@/infrastructure/log';
 
@@ -82,6 +86,20 @@ export async function POST(request: NextRequest) {
     // Defesa extra: a gravação de equipamento e inspeção não pode sair da obra aberta.
     if (mutation.workId !== undefined && mutation.workId !== workId) return responseError('Você não tem acesso a esta obra.', 403);
     await applyChecklistMutation(mutation);
+    // Inspeção nova com item não conforme: avisa por e-mail os TSTs da obra (17/11/2026). O aviso nunca
+    // derruba a gravação; a edição de uma inspeção já feita não avisa de novo.
+    const created = mutation.insert.runs[0];
+    if (created && nonConformities(created) > 0) {
+      const equipment = current.equipment.find(e => e.id === created.equipmentId);
+      const work = await findWorkLabel(workId).catch(() => null);
+      await notifyChecklistNc({
+        run: created,
+        equipment: { name: equipment?.name ?? '' },
+        workName: work?.name ?? '',
+        origin: publicOrigin(request.headers, request.nextUrl.origin, process.env.PUBLIC_SITE_URL),
+        route: 'POST /api/checklist/commands',
+      });
+    }
     const fresh = await loadChecklist(workId, since);
     return NextResponse.json(
       { available: true, canEdit: true, canManage: canManageChecklist(profile), today: context.today, ...fresh },

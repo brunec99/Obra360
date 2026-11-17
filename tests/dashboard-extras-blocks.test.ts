@@ -352,6 +352,7 @@ const model = (over: Partial<ChecklistModel> = {}): ChecklistModel => ({
     { id: 'i1', text: 'Proteção das partes móveis' },
     { id: 'i2', text: 'Aterramento' },
   ],
+  asksLocation: false,
   active: true,
   createdBy: 'tst-1',
   createdAt: NOW,
@@ -380,6 +381,7 @@ const run = (over: Partial<ChecklistRun> = {}): ChecklistRun => ({
   modelName: 'Betoneira — diário',
   frequency: 'daily',
   doneOn: '2026-11-11',
+  location: '',
   answers: [
     { itemId: 'i1', text: 'Proteção das partes móveis', answer: 'c', note: '' },
     { itemId: 'i2', text: 'Aterramento', answer: 'c', note: '' },

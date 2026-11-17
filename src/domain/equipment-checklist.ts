@@ -4,11 +4,30 @@
  * INSPEÇÃO, o preenchimento de um modelo num equipamento num dia, com a resposta de cada item. A inspeção
  * guarda o texto dos itens como estava no dia: editar o modelo não reescreve o histórico. Puro, sem banco. */
 
-export type ChecklistFrequency = 'daily' | 'weekly' | 'monthly';
-export const CHECKLIST_FREQUENCIES: readonly ChecklistFrequency[] = ['daily', 'weekly', 'monthly'];
-export const FREQUENCY_LABEL: Record<ChecklistFrequency, string> = { daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal' };
-/** "pendente hoje", "pendente nesta semana", "pendente neste mês". */
-export const FREQUENCY_PERIOD: Record<ChecklistFrequency, string> = { daily: 'hoje', weekly: 'nesta semana', monthly: 'neste mês' };
+/** 'once' é a LIBERAÇÃO do equipamento (17/11/2026, migração 0053): feita uma única vez, sem período. Fica
+ * pendente até ser preenchida e, depois, feita para sempre (ou até a inspeção ser excluída). */
+export type ChecklistFrequency = 'daily' | 'weekly' | 'monthly' | 'once';
+export const CHECKLIST_FREQUENCIES: readonly ChecklistFrequency[] = ['daily', 'weekly', 'monthly', 'once'];
+export const FREQUENCY_LABEL: Record<ChecklistFrequency, string> = {
+  daily: 'Diário',
+  weekly: 'Semanal',
+  monthly: 'Mensal',
+  once: 'Liberação',
+};
+/** O nome por extenso, para a lista de escolha do modelo. */
+export const FREQUENCY_OPTION_LABEL: Record<ChecklistFrequency, string> = {
+  ...FREQUENCY_LABEL,
+  once: 'Liberação (uma única vez)',
+};
+/** "pendente hoje", "pendente nesta semana", "pendente neste mês", "pendente de liberação". */
+export const FREQUENCY_PERIOD: Record<ChecklistFrequency, string> = {
+  daily: 'hoje',
+  weekly: 'nesta semana',
+  monthly: 'neste mês',
+  once: 'de liberação',
+};
+/** "já foi preenchido hoje", "... nesta semana", "... neste mês", "já foi preenchido" (a liberação). */
+export const FREQUENCY_DONE: Record<ChecklistFrequency, string> = { daily: 'hoje', weekly: 'nesta semana', monthly: 'neste mês', once: '' };
 
 /** Conforme, não conforme e não se aplica. */
 export type ChecklistAnswer = 'c' | 'nc' | 'na';
@@ -27,6 +46,10 @@ export interface ChecklistModel {
   equipmentType: string;
   frequency: ChecklistFrequency;
   items: ChecklistModelItem[];
+  /** Quem preenche informa o nº do equipamento ou o pavimento (17/11/2026, migração 0053): o mesmo checklist
+   * vale para vários lugares ("Rede U, piso a piso") e pode ser preenchido mais de uma vez no período, uma
+   * por local. */
+  asksLocation: boolean;
   active: boolean;
   createdBy: string;
   createdAt: string;
@@ -74,6 +97,8 @@ export interface ChecklistRun {
   modelName: string;
   frequency: ChecklistFrequency;
   doneOn: string;
+  /** O nº do equipamento ou o pavimento a que a inspeção se refere; vazio quando o modelo não pede. */
+  location: string;
   answers: ChecklistRunAnswer[];
   note: string;
   /** Quem operou e respondeu (nome digitado). Obrigatório pelo link do operador; opcional na tela logada. */
@@ -115,6 +140,8 @@ export type ChecklistCommand =
       name: string;
       equipmentType: string;
       frequency: ChecklistFrequency;
+      /** Pedir o nº do equipamento ou o pavimento a quem preenche. Ausente mantém o que o modelo tem. */
+      asksLocation?: boolean;
       /** Item com `id` é um item existente (mantém o id); sem, é novo. A ordem é a da lista. */
       items: { id?: string; text: string }[];
     }
@@ -132,6 +159,8 @@ export type ChecklistCommand =
       equipmentId: string;
       modelId: string;
       doneOn: string;
+      /** Nº do equipamento ou pavimento. Ausente mantém o que a inspeção já tem. */
+      location?: string;
       answers: { itemId: string; answer: ChecklistAnswer; note?: string }[];
       note?: string;
       operatorName?: string;
@@ -150,6 +179,7 @@ export const CHECKLIST_LIMITS = {
   item: 200,
   items: 60,
   note: 300,
+  location: 60,
   operator: 80,
   photos: 4,
   /** Tamanho em base64 (caracteres): ~900 KB de JPEG por foto e ~220 KB de PNG na assinatura. */
@@ -179,6 +209,10 @@ export interface OperatorChecklistDue {
   status: ChecklistStatus;
   doneOn: string | null;
   doneBy: string;
+  /** O checklist pede o nº do equipamento ou o pavimento: pode ser preenchido de novo para outro local. */
+  asksLocation: boolean;
+  /** Os locais já preenchidos no período corrente (só quando `asksLocation`). */
+  doneLocations: string[];
 }
 export type OperatorChecklistView =
   | { available: false; reason: 'not_found' | 'inactive' | 'unavailable' }
@@ -191,6 +225,7 @@ export type OperatorChecklistView =
     };
 export interface OperatorRunInput {
   modelId: string;
+  location?: string;
   answers: { itemId: string; answer: ChecklistAnswer; note?: string }[];
   note?: string;
   operatorName: string;
@@ -217,8 +252,10 @@ export function shiftDay(day: string, amount: number): string {
 }
 export const formatChecklistDay = (day: string) => `${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}`;
 
-/** O período a que um dia pertence: o próprio dia, a segunda-feira da semana ou o mês ("2026-11"). */
+/** O período a que um dia pertence: o próprio dia, a segunda-feira da semana ou o mês ("2026-11"). A
+ * liberação não tem período: toda inspeção dela cai na mesma chave. */
 export function periodKey(frequency: ChecklistFrequency, day: string): string {
+  if (frequency === 'once') return 'once';
   if (frequency === 'daily') return day;
   if (frequency === 'monthly') return day.slice(0, 7);
   const weekday = new Date(`${day}T00:00:00Z`).getUTCDay(); // 0 = domingo
@@ -286,6 +323,9 @@ export interface ChecklistDue {
   status: ChecklistStatus;
   /** A inspeção mais recente do período corrente, quando há. */
   run: ChecklistRun | null;
+  /** Todas as inspeções do período corrente, da mais recente para a mais antiga: mais de uma quando o modelo
+   * pede o local (uma por nº de equipamento ou pavimento). */
+  periodRuns: ChecklistRun[];
   /** A última inspeção deste modelo neste equipamento, de qualquer período (dentro da janela carregada). */
   lastDoneOn: string | null;
 }
@@ -310,11 +350,15 @@ export function checklistBoard(data: ChecklistData, today: string): ChecklistBoa
     .map(equipment => ({
       equipment,
       dues: modelsFor(equipment, data.models).map(model => {
-        const runs = (byPair.get(`${equipment.id}|${model.id}`) ?? []).slice().sort((a, b) => b.doneOn.localeCompare(a.doneOn));
+        const runs = (byPair.get(`${equipment.id}|${model.id}`) ?? [])
+          .slice()
+          .sort((a, b) => b.doneOn.localeCompare(a.doneOn) || b.createdAt.localeCompare(a.createdAt));
         const current = periodKey(model.frequency, today);
-        const run = runs.find(r => periodKey(model.frequency, r.doneOn) === current) ?? null;
-        const status: ChecklistStatus = !run ? 'pending' : nonConformities(run) > 0 ? 'nonconforming' : 'done';
-        return { equipment, model, status, run, lastDoneOn: runs[0]?.doneOn ?? null };
+        const periodRuns = runs.filter(r => periodKey(model.frequency, r.doneOn) === current);
+        const run = periodRuns[0] ?? null;
+        // Com mais de uma inspeção no período (uma por local), basta uma não conforme para o checklist ficar vermelho.
+        const status: ChecklistStatus = !run ? 'pending' : periodRuns.some(r => nonConformities(r) > 0) ? 'nonconforming' : 'done';
+        return { equipment, model, status, run, periodRuns, lastDoneOn: runs[0]?.doneOn ?? null };
       }),
     }));
 }
@@ -331,7 +375,12 @@ export interface ChecklistSummary {
 export function checklistSummary(board: readonly ChecklistBoardRow[]): ChecklistSummary {
   const summary: ChecklistSummary = {
     equipment: board.length,
-    due: { daily: { total: 0, pending: 0 }, weekly: { total: 0, pending: 0 }, monthly: { total: 0, pending: 0 } },
+    due: {
+      daily: { total: 0, pending: 0 },
+      weekly: { total: 0, pending: 0 },
+      monthly: { total: 0, pending: 0 },
+      once: { total: 0, pending: 0 },
+    },
     nonconforming: 0,
     withoutModel: 0,
   };
@@ -344,6 +393,13 @@ export function checklistSummary(board: readonly ChecklistBoardRow[]): Checklist
     }
   }
   return summary;
+}
+
+/** Os locais (nº do equipamento ou pavimento) de um conjunto de inspeções, sem repetir, em ordem. */
+export function doneLocations(runs: readonly Pick<ChecklistRun, 'location'>[]): string[] {
+  const seen = new Map<string, string>();
+  for (const run of runs) if (run.location && !seen.has(checklistKey(run.location))) seen.set(checklistKey(run.location), run.location);
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
 }
 
 /** As inspeções mais recentes primeiro (dia, depois hora de gravação). */
@@ -361,5 +417,7 @@ export function operatorDues(data: ChecklistData, equipmentId: string, today: st
     status: due.status,
     doneOn: due.run?.doneOn ?? null,
     doneBy: due.run?.operatorName ?? '',
+    asksLocation: due.model.asksLocation,
+    doneLocations: due.model.asksLocation ? doneLocations(due.periodRuns) : [],
   }));
 }

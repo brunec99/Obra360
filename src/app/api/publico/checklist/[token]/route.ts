@@ -18,6 +18,8 @@ import {
   findWorkLabel,
   loadChecklist,
 } from '@/infrastructure/repositories/supabase/checklist-repository';
+import { notifyChecklistNc } from '@/infrastructure/email/checklist-nc';
+import { publicOrigin } from '@/infrastructure/public-origin';
 import { commandContext } from '@/infrastructure/clock';
 import { logRouteError } from '@/infrastructure/log';
 
@@ -115,10 +117,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     await applyChecklistMutation(mutation);
     const saved = mutation.insert.runs[0];
+    // Com item não conforme, os TSTs da obra recebem um e-mail (17/11/2026). `notified` diz ao operador se o
+    // aviso saiu; com zero (nenhum TST marcado na obra, fila fora do ar), a tela manda avisar pessoalmente.
+    let notified = 0;
+    if (nonConformities(saved) > 0) {
+      const work = await findWorkLabel(equipment.workId).catch(() => null);
+      notified = await notifyChecklistNc({
+        run: saved,
+        equipment,
+        workName: work?.name ?? '',
+        origin: publicOrigin(request.headers, request.nextUrl.origin, process.env.PUBLIC_SITE_URL),
+        route: 'POST /api/publico/checklist',
+      });
+    }
     return NextResponse.json(
       {
         view: await viewFor(equipment, context.today),
-        saved: { modelName: saved.modelName, at: context.now, nonConformities: nonConformities(saved) },
+        saved: {
+          modelName: saved.modelName,
+          at: context.now,
+          nonConformities: nonConformities(saved),
+          location: saved.location,
+          notified: notified > 0,
+        },
       },
       { headers },
     );

@@ -7,6 +7,8 @@ import {
   checklistSignaturePath,
   cleanChecklistText,
   equipmentModelLinks,
+  formatChecklistDay,
+  FREQUENCY_DONE,
   isIsoDay,
   isJpegBase64,
   isPngBase64,
@@ -92,12 +94,14 @@ export function parseChecklistCommand(body: unknown): ChecklistCommand {
         const itemId = optionalText(item.id, 'items.id');
         return { ...(itemId ? { id: itemId } : {}), text: text(item.text, 'items.text') };
       });
+      const asksLocation = body.asksLocation === undefined ? undefined : bool(body.asksLocation, 'asksLocation');
       return {
         type: 'save_model',
         ...(id ? { id } : {}),
         name: text(body.name, 'name'),
         equipmentType: text(body.equipmentType, 'equipmentType'),
         frequency,
+        ...(asksLocation !== undefined ? { asksLocation } : {}),
         items,
       };
     }
@@ -133,6 +137,7 @@ export function parseChecklistCommand(body: unknown): ChecklistCommand {
       const operatorName = optionalText(body.operatorName, 'operatorName');
       const signature = optionalText(body.signature, 'signature');
       const photos = parsePhotos(body.photos);
+      const location = optionalText(body.location, 'location');
       return {
         type: 'save_run',
         ...(id ? { id } : {}),
@@ -140,6 +145,7 @@ export function parseChecklistCommand(body: unknown): ChecklistCommand {
         equipmentId: text(body.equipmentId, 'equipmentId'),
         modelId: text(body.modelId, 'modelId'),
         doneOn: text(body.doneOn, 'doneOn'),
+        ...(location !== undefined ? { location } : {}),
         answers,
         ...(note !== undefined ? { note } : {}),
         ...(operatorName !== undefined ? { operatorName } : {}),
@@ -173,6 +179,7 @@ export function parseOperatorRun(body: unknown): OperatorRunInput {
   if (parsed.type !== 'save_run') return fail('Envio inválido.');
   return {
     modelId: parsed.modelId,
+    ...(parsed.location !== undefined ? { location: parsed.location } : {}),
     answers: parsed.answers,
     ...(parsed.note !== undefined ? { note: parsed.note } : {}),
     operatorName: text(body.operatorName, 'operatorName'),
@@ -261,8 +268,17 @@ export function planChecklistCommand(
         usedIds.add(id);
         return { id, text: itemText };
       });
+      const asksLocation = command.asksLocation ?? current?.asksLocation ?? false;
       if (current)
-        mutation.update.models.push({ ...current, name, equipmentType, frequency: command.frequency, items, updatedAt: ctx.now });
+        mutation.update.models.push({
+          ...current,
+          name,
+          equipmentType,
+          frequency: command.frequency,
+          items,
+          asksLocation,
+          updatedAt: ctx.now,
+        });
       else
         mutation.insert.models.push({
           id: ctx.newId(),
@@ -270,6 +286,7 @@ export function planChecklistCommand(
           equipmentType,
           frequency: command.frequency,
           items,
+          asksLocation,
           active: true,
           createdBy: ctx.actorId,
           createdAt: ctx.now,
@@ -377,20 +394,42 @@ export function planChecklistCommand(
       if (!isIsoDay(command.doneOn)) fail('Data inválida.');
       if (command.doneOn > today) fail('Data no futuro: a inspeção é registrada no dia ou depois dele.');
       if (command.doneOn < '2020-01-01') fail('Data anterior a 2020: confira o ano.');
+      // O local (nº do equipamento ou pavimento, 17/11/2026): obrigatório quando o modelo pede; a inspeção que
+      // já tem um o mantém; fora isso não se guarda. Com local, o checklist se repete no período, um por local.
+      const keepsLocation = model.asksLocation || !!current?.location;
+      const location = !keepsLocation
+        ? ''
+        : command.location === undefined
+          ? (current?.location ?? '')
+          : cleanChecklistText(command.location);
+      if (location.length > CHECKLIST_LIMITS.location) fail(`Nº do equipamento ou pavimento: até ${CHECKLIST_LIMITS.location} caracteres.`);
+      if (model.asksLocation && !location) fail('Informe o nº do equipamento ou o pavimento.');
+      const where = location ? ` (${location})` : '';
+      const sameSpot = (r: ChecklistRun) =>
+        r.id !== command.id &&
+        r.equipmentId === equipment.id &&
+        r.modelId === model.id &&
+        checklistKey(r.location) === checklistKey(location);
+
       if (ctx.viaLink) {
         // Pelo link do operador: só inspeção nova, de hoje, e só o que ainda está pendente no período.
         if (current) fail('Pelo link não se edita uma inspeção. Procure o técnico de segurança.');
         if (command.doneOn !== today) fail('Pelo link só se registra a inspeção de hoje.');
         const period = periodKey(model.frequency, today);
-        const done = data.runs.find(
-          r => r.equipmentId === equipment.id && r.modelId === model.id && periodKey(model.frequency, r.doneOn) === period,
-        );
-        if (done) fail(`"${model.name}" já foi preenchido neste período. Atualize a página.`);
+        if (model.frequency !== 'once' && data.runs.some(r => sameSpot(r) && periodKey(model.frequency, r.doneOn) === period))
+          fail(`"${model.name}"${where} já foi preenchido ${FREQUENCY_DONE[model.frequency]}. Atualize a página.`);
       }
-      if (
-        data.runs.some(r => r.id !== command.id && r.equipmentId === equipment.id && r.modelId === model.id && r.doneOn === command.doneOn)
-      )
-        fail(`"${model.name}" já foi preenchido para ${equipment.name} neste dia. Abra a inspeção para editar.`);
+      // A liberação é feita uma única vez (por local, quando o modelo pede): vale para a tela e para o link.
+      if (model.frequency === 'once') {
+        const released = data.runs.find(sameSpot);
+        if (released)
+          fail(
+            `A liberação "${model.name}" de ${equipment.name}${where} já foi registrada em ${formatChecklistDay(released.doneOn)}. ` +
+              (ctx.viaLink ? 'Procure o técnico de segurança.' : 'Abra a inspeção para editar.'),
+          );
+      }
+      if (data.runs.some(r => sameSpot(r) && r.doneOn === command.doneOn))
+        fail(`"${model.name}" já foi preenchido para ${equipment.name}${where} neste dia. Abra a inspeção para editar.`);
 
       // Na edição valem os itens que a inspeção guardou; na nova, os do modelo de hoje.
       const expected = current ? current.answers.map(a => ({ id: a.itemId, text: a.text })) : model.items;
@@ -454,6 +493,7 @@ export function planChecklistCommand(
         mutation.update.runs.push({
           ...current,
           doneOn: command.doneOn,
+          location,
           answers,
           note,
           operatorName,
@@ -471,6 +511,7 @@ export function planChecklistCommand(
           modelName: model.name,
           frequency: model.frequency,
           doneOn: command.doneOn,
+          location,
           answers,
           note,
           operatorName,

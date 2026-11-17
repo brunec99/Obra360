@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, CheckCheck, CircleCheck, RefreshCw, TriangleAlert } from 'lucide-react';
 import {
   CHECKLIST_LIMITS,
+  checklistKey,
+  FREQUENCY_DONE,
   FREQUENCY_LABEL,
   FREQUENCY_PERIOD,
   formatChecklistDay,
@@ -23,7 +25,10 @@ type State =
   | { status: 'error'; message: string }
   | { status: 'closed'; reason: 'not_found' | 'inactive' | 'unavailable' }
   | { status: 'ready'; view: Ready };
-type Saved = { modelName: string; at: string; nonConformities: number; operatorName: string };
+type Saved = { modelName: string; at: string; nonConformities: number; operatorName: string; location?: string; notified?: boolean };
+
+/** "Já feito hoje", "Já feito nesta semana", "Já feito" (a liberação). */
+const doneLabel = (due: OperatorChecklistDue) => `Já feito ${FREQUENCY_DONE[due.frequency]}`.trim();
 
 const NAME_KEY = 'obra360.checklist.operador';
 const savedName = () => {
@@ -75,10 +80,17 @@ function DueCard({ due, onFill }: { due: OperatorChecklistDue; onFill: () => voi
             ? `pendente ${FREQUENCY_PERIOD[due.frequency]}`
             : `feito em ${formatChecklistDay(due.doneOn!)}${due.doneBy ? ` por ${due.doneBy}` : ''}${due.status === 'nonconforming' ? ' · com não conformidade' : ''}`}
         </p>
+        {due.asksLocation && (
+          <p className="text-xs">
+            {due.doneLocations.length
+              ? `${doneLabel(due)}: ${due.doneLocations.join(', ')}`
+              : 'Informe o nº do equipamento ou o pavimento ao preencher.'}
+          </p>
+        )}
       </div>
-      {pending && (
-        <button type="button" className="button shrink-0" onClick={onFill}>
-          Preencher
+      {(pending || due.asksLocation) && (
+        <button type="button" className={pending ? 'button shrink-0' : 'button-ghost shrink-0 bg-white'} onClick={onFill}>
+          {pending ? 'Preencher' : 'Preencher outro'}
         </button>
       )}
     </li>
@@ -99,13 +111,14 @@ function FillForm({
   const [answers, setAnswers] = useState<AnswerDraft>({});
   const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   const [note, setNote] = useState('');
+  const [location, setLocation] = useState('');
   const [name, setName] = useState(savedName);
   const [signature, setSignature] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const missing = due.items.filter(item => !answers[item.id]?.answer).length;
   const fullName = name.trim().split(/\s+/).length >= 2;
-  const blocked =
+  const otherBlock =
     missing > 0
       ? missing === 1
         ? 'Falta responder 1 item.'
@@ -115,6 +128,13 @@ function FillForm({
         : !signature
           ? 'Falta assinar.'
           : '';
+  const repeated = due.asksLocation && due.doneLocations.some(done => checklistKey(done) === checklistKey(location));
+  const blocked =
+    due.asksLocation && !location.trim()
+      ? 'Informe o nº do equipamento ou o pavimento.'
+      : repeated
+        ? `${doneLabel(due)} para "${location.trim()}".`
+        : otherBlock;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -127,6 +147,7 @@ function FillForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           modelId: due.modelId,
+          ...(due.asksLocation ? { location } : {}),
           answers: due.items.map(item => ({ itemId: item.id, answer: answers[item.id]!.answer!, note: answers[item.id]?.note ?? '' })),
           note,
           operatorName: name,
@@ -166,6 +187,24 @@ function FillForm({
         Voltar
       </button>
       <fieldset disabled={busy} className="space-y-3">
+        {due.asksLocation && (
+          <label className="panel block p-3 text-xs font-semibold text-slate-600">
+            Nº do equipamento ou pavimento
+            <input
+              className="field mt-1"
+              value={location}
+              maxLength={CHECKLIST_LIMITS.location}
+              placeholder="Ex.: 3º pavimento, Betoneira 02"
+              required
+              onChange={e => setLocation(e.target.value)}
+            />
+            {due.doneLocations.length > 0 && (
+              <span className="mt-1 block font-normal text-slate-500">
+                {doneLabel(due)}: {due.doneLocations.join(', ')}
+              </span>
+            )}
+          </label>
+        )}
         <button
           type="button"
           className="button-ghost w-full justify-center"
@@ -281,7 +320,7 @@ export function OperatorChecklist({ token }: { token: string }) {
 
   const { view } = state;
   const eyebrow = `${view.work.name || 'Obra'} · Checklist de equipamentos`;
-  const filling = modelId ? view.dues.find(due => due.modelId === modelId && due.status === 'pending') : undefined;
+  const filling = modelId ? view.dues.find(due => due.modelId === modelId && (due.status === 'pending' || due.asksLocation)) : undefined;
 
   if (filling)
     return (
@@ -311,7 +350,8 @@ export function OperatorChecklist({ token }: { token: string }) {
           <CircleCheck size={44} className="mx-auto mb-2 text-success" aria-hidden />
           <h2 className="text-base font-bold text-slate-900">Checklist enviado</h2>
           <p className="text-xs text-slate-500">
-            {saved.modelName} · {formatChecklistDay(view.today)} às{' '}
+            {saved.modelName}
+            {saved.location ? ` (${saved.location})` : ''} · {formatChecklistDay(view.today)} às{' '}
             {new Date(saved.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             <br />
             {saved.operatorName}
@@ -319,8 +359,10 @@ export function OperatorChecklist({ token }: { token: string }) {
           {saved.nonConformities > 0 && (
             <p className="mt-3 flex items-start justify-center gap-1.5 text-sm font-semibold text-danger">
               <TriangleAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
-              {saved.nonConformities === 1 ? '1 item não conforme' : `${saved.nonConformities} itens não conformes`}: avise o técnico de
-              segurança antes de operar.
+              {saved.nonConformities === 1 ? '1 item não conforme' : `${saved.nonConformities} itens não conformes`}:{' '}
+              {saved.notified
+                ? 'o técnico de segurança foi avisado por e-mail. Fale com ele antes de operar.'
+                : 'avise o técnico de segurança antes de operar.'}
             </p>
           )}
         </section>

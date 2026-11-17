@@ -333,6 +333,13 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
       'Cada equipamento segue recebendo só os checklists do tipo dele, e "Checklists do QR" não grava; o resto da aba 3.2 segue normal.',
     critical: false,
   },
+  {
+    migration: '0053_checklist_location_release',
+    label: 'Checklist de equipamentos: nº do equipamento ou pavimento na inspeção e a liberação (uma única vez)',
+    probe: { kind: 'column', table: 'checklist_runs', column: 'location' },
+    effect: 'O modelo não grava "pedir o nº do equipamento ou pavimento" nem a periodicidade Liberação; o resto da aba 3.2 segue normal.',
+    critical: false,
+  },
 ];
 
 export type MigrationStatus = { migration: string; label: string; effect: string; critical: boolean; applied: boolean; detail?: string };

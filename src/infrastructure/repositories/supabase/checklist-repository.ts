@@ -19,15 +19,18 @@ const PAGE = 1000;
 
 /** Migração 0047 não aplicada: a aba responde "indisponível" em vez de erro. Com `operator`, falta a 0048
  * (colunas do operador, da assinatura e das fotos, e o bucket): a leitura segue, a gravação avisa. Com
- * `models`, falta a 0052 (os checklists de cada QR): só a gravação dessa escolha avisa. */
+ * `models`, falta a 0052 (os checklists de cada QR): só a gravação dessa escolha avisa. Com `location`, falta
+ * a 0053 (o local da inspeção e a liberação): só a gravação que usa uma das duas avisa. */
 export class ChecklistUnavailableError extends Error {
-  constructor(readonly operator: boolean | 'models' = false) {
+  constructor(readonly operator: boolean | 'models' | 'location' = false) {
     super(
-      operator === 'models'
-        ? 'Aplique a migração 0052_checklist_equipment_models.sql no Supabase para escolher os checklists de cada QR.'
-        : operator
-          ? 'Aplique a migração 0048_checklist_operator.sql no Supabase para gravar inspeções com operador, assinatura e fotos.'
-          : 'Aplique a migração 0047_equipment_checklist.sql no Supabase para usar o checklist de equipamentos.',
+      operator === 'location'
+        ? 'Aplique a migração 0053_checklist_location_release.sql no Supabase para usar o nº do equipamento ou pavimento e a liberação.'
+        : operator === 'models'
+          ? 'Aplique a migração 0052_checklist_equipment_models.sql no Supabase para escolher os checklists de cada QR.'
+          : operator
+            ? 'Aplique a migração 0048_checklist_operator.sql no Supabase para gravar inspeções com operador, assinatura e fotos.'
+            : 'Aplique a migração 0047_equipment_checklist.sql no Supabase para usar o checklist de equipamentos.',
     );
     this.name = 'ChecklistUnavailableError';
   }
@@ -42,13 +45,18 @@ export class ChecklistConflictError extends Error {
 
 const missingTable = (code?: string) => code === '42P01' || code === 'PGRST205';
 type DbError = { code?: string; message: string } | null;
+/** A coluna `location` ou `asks_location` (0053) ainda não existe. */
+const missingColumn = (error: DbError) =>
+  !!error && (error.code === '42703' || error.code === 'PGRST204') && /location/.test(error.message);
 function check(error: DbError, action: string) {
   if (!error) return;
   if (missingTable(error.code)) throw new ChecklistUnavailableError();
-  // Coluna ausente (42703 no Postgres, PGRST204 no cache do PostgREST): da 0052 ou da 0048.
+  // Coluna ausente (42703 no Postgres, PGRST204 no cache do PostgREST): da 0053, da 0052 ou da 0048.
   if (error.code === '42703' || error.code === 'PGRST204')
-    throw new ChecklistUnavailableError(/model_ids/.test(error.message) ? 'models' : true);
-  // 23505: a unicidade (equipamento, modelo, dia); 23503: a obra ou o equipamento foi excluído.
+    throw new ChecklistUnavailableError(/location/.test(error.message) ? 'location' : /model_ids/.test(error.message) ? 'models' : true);
+  // 23514: a periodicidade 'once' recusada pelo CHECK de antes da 0053.
+  if (error.code === '23514' && /frequency/.test(error.message)) throw new ChecklistUnavailableError('location');
+  // 23505: a unicidade (equipamento, modelo, dia, local); 23503: a obra ou o equipamento foi excluído.
   if (error.code === '23505' || error.code === '23503') throw new ChecklistConflictError();
   throw new Error(`Falha ao ${action}: ${error.message}`);
 }
@@ -59,6 +67,7 @@ type ModelRow = {
   equipment_type: string;
   frequency: ChecklistModel['frequency'];
   items: ChecklistModel['items'];
+  asks_location?: boolean | null;
   active: boolean;
   created_by: string;
   created_at: string;
@@ -85,6 +94,7 @@ type RunRow = {
   model_name: string;
   frequency: ChecklistRun['frequency'];
   done_on: string;
+  location?: string | null;
   answers: ChecklistRun['answers'];
   note: string;
   operator_name?: string;
@@ -103,17 +113,21 @@ const modelFromRow = (r: ModelRow): ChecklistModel => ({
   equipmentType: r.equipment_type,
   frequency: r.frequency,
   items: Array.isArray(r.items) ? r.items : [],
+  asksLocation: r.asks_location === true,
   active: r.active,
   createdBy: r.created_by,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
-const modelToRow = (m: ChecklistModel): ModelRow => ({
+/** As colunas da 0053 só vão quando usadas (`asks_location` ligado, `location` preenchido): o que já
+ * funcionava antes dela (modelo sem local, inspeção sem local) segue gravando sem a migração. */
+const modelToRow = (m: ChecklistModel, always = false): ModelRow => ({
   id: m.id,
   name: m.name,
   equipment_type: m.equipmentType,
   frequency: m.frequency,
   items: m.items,
+  ...(m.asksLocation || always ? { asks_location: m.asksLocation } : {}),
   active: m.active,
   created_by: m.createdBy,
   created_at: m.createdAt,
@@ -152,6 +166,7 @@ const runFromRow = (r: RunRow): ChecklistRun => ({
   modelName: r.model_name,
   frequency: r.frequency,
   doneOn: r.done_on,
+  location: r.location ?? '',
   answers: Array.isArray(r.answers) ? r.answers : [],
   note: r.note,
   operatorName: r.operator_name ?? '',
@@ -163,7 +178,7 @@ const runFromRow = (r: RunRow): ChecklistRun => ({
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
-const runToRow = (r: ChecklistRun): RunRow => ({
+const runToRow = (r: ChecklistRun, always = false): RunRow => ({
   id: r.id,
   work_id: r.workId,
   equipment_id: r.equipmentId,
@@ -171,6 +186,7 @@ const runToRow = (r: ChecklistRun): RunRow => ({
   model_name: r.modelName,
   frequency: r.frequency,
   done_on: r.doneOn,
+  ...(r.location || always ? { location: r.location } : {}),
   answers: r.answers,
   note: r.note,
   operator_name: r.operatorName,
@@ -206,6 +222,11 @@ export async function loadChecklist(workId: string, since: string): Promise<Chec
     runs.push(...((data ?? []) as RunRow[]));
     if ((data ?? []).length < PAGE) break;
   }
+  // A liberação vale para sempre: as inspeções dela anteriores à janela entram junto, senão o equipamento
+  // liberado há mais de `CHECKLIST_WINDOW_DAYS` dias voltaria a aparecer como pendente.
+  const released = await db.from(RUNS).select('*').eq('work_id', workId).eq('frequency', 'once').lt('done_on', since).limit(PAGE);
+  check(released.error, 'ler as liberações');
+  runs.push(...((released.data ?? []) as RunRow[]));
   return {
     models: ((models.data ?? []) as ModelRow[]).map(modelFromRow),
     equipment: ((equipment.data ?? []) as EquipmentRow[]).map(equipmentFromRow),
@@ -305,16 +326,23 @@ async function applyRows(mutation: ChecklistMutation): Promise<void> {
     check(error, 'excluir a inspeção');
   }
   if (mutation.insert.models.length)
-    check((await db.from(MODELS).insert(mutation.insert.models.map(modelToRow))).error, 'gravar o checklist');
+    check((await db.from(MODELS).insert(mutation.insert.models.map(m => modelToRow(m)))).error, 'gravar o checklist');
   if (mutation.insert.equipment.length)
     check((await db.from(EQUIPMENT).insert(mutation.insert.equipment.map(equipmentToRow))).error, 'gravar o equipamento');
-  if (mutation.insert.runs.length) check((await db.from(RUNS).insert(mutation.insert.runs.map(runToRow))).error, 'gravar a inspeção');
+  if (mutation.insert.runs.length)
+    check((await db.from(RUNS).insert(mutation.insert.runs.map(r => runToRow(r)))).error, 'gravar a inspeção');
 
   for (const model of mutation.update.models) {
-    const { id, created_by, created_at, ...changes } = modelToRow(model);
+    const { id, created_by, created_at, ...changes } = modelToRow(model, true);
     void created_by;
     void created_at;
-    const { data, error } = await db.from(MODELS).update(changes).eq('id', id).select('id');
+    let { data, error } = await db.from(MODELS).update(changes).eq('id', id).select('id');
+    // Sem a 0053 e sem pedir o local: grava como antes, sem a coluna nova.
+    if (missingColumn(error) && !model.asksLocation) {
+      const { asks_location, ...rest } = changes;
+      void asks_location;
+      ({ data, error } = await db.from(MODELS).update(rest).eq('id', id).select('id'));
+    }
     check(error, 'atualizar o checklist');
     if (!data?.length) throw new ChecklistConflictError();
   }
@@ -337,10 +365,16 @@ async function applyRows(mutation: ChecklistMutation): Promise<void> {
     if (!data?.length) throw new ChecklistConflictError();
   }
   for (const run of mutation.update.runs) {
-    const { id, work_id, created_by, created_at, ...changes } = runToRow(run);
+    const { id, work_id, created_by, created_at, ...changes } = runToRow(run, true);
     void created_by;
     void created_at;
-    const { data, error } = await db.from(RUNS).update(changes).eq('id', id).eq('work_id', work_id).select('id');
+    let { data, error } = await db.from(RUNS).update(changes).eq('id', id).eq('work_id', work_id).select('id');
+    // Sem a 0053 e sem local: grava como antes, sem a coluna nova.
+    if (missingColumn(error) && !run.location) {
+      const { location, ...rest } = changes;
+      void location;
+      ({ data, error } = await db.from(RUNS).update(rest).eq('id', id).eq('work_id', work_id).select('id'));
+    }
     check(error, 'atualizar a inspeção');
     if (!data?.length) throw new ChecklistConflictError();
   }

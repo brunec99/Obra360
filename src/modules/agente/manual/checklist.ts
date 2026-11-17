@@ -61,7 +61,7 @@ export const sections: ManualSection[] = [
 
 ### As três peças
 
-- **Modelo:** a ficha. Tem nome ("Betoneira — diário"), **tipo de equipamento** ("Betoneira"), **periodicidade** (diário, semanal ou mensal) e a lista de itens a conferir (até 60). A lista de modelos é **única para todas as obras**: alterar um modelo vale para todas.
+- **Modelo:** a ficha. Tem nome ("Betoneira — diário"), **tipo de equipamento** ("Betoneira"), **periodicidade** (diário, semanal, mensal ou **liberação**, feita uma única vez) e a lista de itens a conferir (até 60). O modelo pode **pedir o nº do equipamento ou o pavimento** a quem preenche. A lista de modelos é **única para todas as obras**: alterar um modelo vale para todas.
 - **Equipamento:** o que existe na obra ("Betoneira 01"), de um tipo. Ele recebe sozinho os modelos ativos do mesmo tipo (a comparação ignora acento e maiúsculas). Desde 16/11/2026 o administrador ajusta isso equipamento por equipamento em **Checklists do QR** (ver abaixo).
 - **Inspeção:** um modelo preenchido num equipamento num dia. Cada item é **C** (conforme), **NC** (não conforme) ou **N/A** (não se aplica). O NC exige a descrição.
 
@@ -81,11 +81,15 @@ export const sections: ManualSection[] = [
 - Modelo desativado some da lista e guarda a marcação que tinha neste equipamento; reativado, volta como estava.
 - Só administradores veem o botão. Depende da migração 0052; sem ela, salvar responde "Aplique a migração 0052_checklist_equipment_models.sql".
 
+### Nº do equipamento ou pavimento, liberação e aviso ao TST (17/11/2026)
+
+O modelo pode pedir o nº do equipamento ou o pavimento a quem preenche, a periodicidade tem a opção Liberação (uma única vez) e a inspeção nova com item não conforme avisa o TST da obra por e-mail. Os detalhes estão na seção "Checklist de equipamentos: local, liberação e aviso ao TST".
+
 ### Checklist pelo QR (operador, sem login)
 
 - Cada equipamento tem um **link secreto**. Na linha do equipamento, **QR do operador** mostra o QR, o endereço, **Copiar link** e **Imprimir etiqueta**; **Imprimir etiquetas com QR**, no alto do quadro, gera a folha com todos os equipamentos ativos da obra, para recortar e colar nas máquinas.
 - O operador aponta a câmera do celular para a etiqueta. Abre uma tela só daquele equipamento, com os checklists dele: **pendente** tem o botão **Preencher**; **feito** mostra o dia e quem fez.
-- No formulário ele responde C / NC / N/A, pode tirar **até 4 fotos** e escrever uma observação, e precisa escrever o **nome completo** e **assinar com o dedo**. Depois toca em **Enviar checklist**. Se houver item não conforme, a confirmação manda avisar o técnico de segurança antes de operar.
+- No formulário ele responde C / NC / N/A, pode tirar **até 4 fotos** e escrever uma observação, e precisa escrever o **nome completo** e **assinar com o dedo**. Depois toca em **Enviar checklist**. Se houver item não conforme, o técnico de segurança da obra recebe um e-mail e a confirmação manda falar com ele antes de operar.
 - Pelo link só se registra **o dia de hoje** e só o que está **pendente no período** (diário uma vez por dia, semanal uma por semana, mensal uma por mês). O operador não edita nem apaga: corrigir é com TST ou admin, na tela logada.
 - O link continua sem login e não depende de módulo: a liberação por pessoa de 12/11/2026 vale só para a tela logada.
 - Quem tem o link vê apenas aquele equipamento, nada mais do sistema. Se o link vazar, o admin clica em **Gerar novo link**: a etiqueta antiga para de funcionar e é preciso imprimir a nova. Equipamento desativado também fecha o link.
@@ -94,15 +98,49 @@ export const sections: ManualSection[] = [
 
 ### Regras
 
-- O período do diário é o dia; do semanal, a semana de segunda a domingo; do mensal, o mês.
-- O mesmo modelo só é preenchido uma vez por equipamento por dia; abrir de novo edita a inspeção.
+- O período do diário é o dia; do semanal, a semana de segunda a domingo; do mensal, o mês. A liberação não tem período: é feita uma única vez.
+- O mesmo modelo só é preenchido uma vez por equipamento por dia (por local, quando o modelo pede o nº do equipamento ou o pavimento); abrir de novo edita a inspeção.
 - Não se registra inspeção com data futura.
 - A inspeção guarda os itens como estavam no dia: editar o modelo depois não muda o histórico.
 - Modelo e equipamento não são excluídos, são **desativados** (saem do quadro, o histórico fica) e podem ser reativados.
-- A tela carrega as inspeções dos últimos 120 dias e lista as 30 mais recentes.
+- A tela carrega as inspeções dos últimos 120 dias (mais as liberações, de qualquer data) e lista as 30 mais recentes.
 
 ### O que ainda não existe
 
 Preenchimento sem internet, foto presa a um item específico, impressão da inspeção em PDF e a abertura automática de um apontamento na aba 3.1 a partir de uma não conformidade.`,
+  },
+  {
+    id: 'checklist-local-liberacao-aviso',
+    title: 'Checklist de equipamentos: local, liberação e aviso ao TST',
+    summary: 'Aba 3.2: nº do equipamento ou pavimento na inspeção, Liberação (uma única vez) e e-mail ao TST quando há item não conforme.',
+    keywords: [
+      'checklist',
+      'aba 3.2',
+      'número do equipamento',
+      'nº do equipamento',
+      'pavimento',
+      'piso a piso',
+      'local da inspeção',
+      'preencher outro',
+      'liberação',
+      'liberação de equipamento',
+      'uma única vez',
+      'periodicidade',
+      'pendente de liberação',
+      'não conformidade',
+      'item não conforme',
+      'avisar o tst',
+      'comunicar o tst',
+      'e-mail do checklist',
+      'técnico de segurança',
+    ],
+    screen: 'checklist',
+    body: `## Checklist de equipamentos (aba 3.2): local, liberação e aviso ao TST (17/11/2026)
+
+- **Nº do equipamento ou pavimento:** no modelo, o administrador marca **Pedir o nº do equipamento ou o pavimento a quem preenche**. Serve para o checklist que vale para vários lugares, como "Rede U (piso a piso)" num QR geral. Ao preencher, pela tela ou pelo QR, o campo **Nº do equipamento ou pavimento** fica obrigatório (até 60 caracteres).
+- Com essa opção, o checklist pode ser preenchido **mais de uma vez no período, uma por local**: o 3º pavimento e o 4º pavimento na mesma semana, por exemplo. O mesmo local não se repete no mesmo dia (a comparação ignora acento e maiúsculas), e pelo QR não se repete no período. No quadro, o checklist mostra os locais já feitos; para quem registra, clicar nele abre uma inspeção nova para outro local, e as feitas ficam em "Últimas inspeções". No QR, o botão vira **Preencher outro** e a tela lista os locais já feitos. Basta uma inspeção do período com não conformidade para o checklist ficar vermelho.
+- **Liberação:** na **Periodicidade** do modelo há a opção **Liberação (uma única vez)**. Esse checklist fica **pendente de liberação** até ser preenchido e depois fica feito para sempre: não volta a ser cobrado e não aceita outra inspeção, nem pela tela nem pelo QR (a mensagem diz o dia em que foi registrada). A própria liberação pode ser editada ou excluída por TST e admin; excluída, volta a ficar pendente. Se o modelo também pede o local, a liberação é uma por nº de equipamento ou pavimento. Quando há liberações, a tela mostra o cartão **Liberações pendentes**.
+- **Aviso ao TST:** quando uma inspeção **nova** é registrada com algum item não conforme, pelo QR ou pela tela, os **TSTs que têm a obra** recebem um **e-mail** com o equipamento, o checklist, o local, quem preencheu, os itens não conformes com a descrição e o link da tela. Quem registrou a inspeção não recebe o próprio aviso. Editar uma inspeção antiga não envia outro e-mail. O e-mail sai pela fila do Takt Hub, em até cerca de 5 minutos. Se a obra não tiver ninguém marcado como TST, ninguém é avisado; por isso, no QR, a confirmação só diz "o técnico de segurança foi avisado por e-mail" quando o aviso saiu, e nos outros casos manda avisar o técnico pessoalmente.
+- Depende da migração 0053; sem ela, o resto da aba segue normal e gravar um modelo com a opção de local ou com a periodicidade Liberação responde "Aplique a migração 0053_checklist_location_release.sql".`,
   },
 ];
