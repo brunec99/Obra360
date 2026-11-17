@@ -6,9 +6,11 @@ import {
   checklistPhotoPath,
   checklistSignaturePath,
   cleanChecklistText,
+  equipmentModelLinks,
   isIsoDay,
   isJpegBase64,
   isPngBase64,
+  modelsFor,
   periodKey,
   type ChecklistAnswer,
   type ChecklistCommand,
@@ -32,6 +34,9 @@ export interface ChecklistMutation {
   insert: { models: ChecklistModel[]; equipment: ChecklistEquipment[]; runs: ChecklistRun[] };
   update: { models: ChecklistModel[]; equipment: ChecklistEquipment[]; runs: ChecklistRun[] };
   deleteRuns: string[];
+  /** Os checklists do QR de um equipamento (16/11/2026, migração 0052): gravados à parte das demais colunas do
+   * equipamento, para que cadastrar, renomear e desativar sigam funcionando antes da 0052. */
+  equipmentModels: { id: string; workId: string; extraModelIds: string[]; hiddenModelIds: string[] }[];
   /** Arquivos do bucket `checklist` (12/11/2026): os que sobem antes de gravar as linhas (base64) e os que
    * saem depois (foto removida, assinatura trocada, inspeção excluída). */
   uploads: { path: string; contentType: 'image/jpeg' | 'image/png'; data: string }[];
@@ -110,6 +115,10 @@ export function parseChecklistCommand(body: unknown): ChecklistCommand {
     }
     case 'set_equipment_active':
       return { type: 'set_equipment_active', id: text(body.id, 'id'), active: bool(body.active, 'active') };
+    case 'set_equipment_models': {
+      if (!Array.isArray(body.modelIds)) return fail('Campo inválido: modelIds.');
+      return { type: 'set_equipment_models', id: text(body.id, 'id'), modelIds: body.modelIds.map(id => text(id, 'modelIds')) };
+    }
     case 'save_run': {
       const id = optionalText(body.id, 'id');
       const note = optionalText(body.note, 'note');
@@ -180,6 +189,7 @@ export function checklistCommandTarget(command: ChecklistCommand): ChecklistTarg
     case 'save_equipment':
       return command.id ? { table: 'equipment', id: command.id } : { workId: command.workId };
     case 'set_equipment_active':
+    case 'set_equipment_models':
     case 'rotate_equipment_token':
       return { table: 'equipment', id: command.id };
     case 'save_run':
@@ -194,6 +204,7 @@ const emptyMutation = (workId?: string): ChecklistMutation => ({
   insert: { models: [], equipment: [], runs: [] },
   update: { models: [], equipment: [], runs: [] },
   deleteRuns: [],
+  equipmentModels: [],
   uploads: [],
   removeFiles: [],
 });
@@ -292,6 +303,8 @@ export function planChecklistCommand(
           equipmentType,
           active: true,
           publicToken: newToken(ctx),
+          extraModelIds: [],
+          hiddenModelIds: [],
           createdBy: ctx.actorId,
           createdAt: ctx.now,
           updatedAt: ctx.now,
@@ -312,6 +325,23 @@ export function planChecklistCommand(
       const current = data.equipment.find(e => e.id === command.id);
       if (!current) return fail('Equipamento não encontrado. Recarregue a página.');
       if (current.active !== command.active) mutation.update.equipment.push({ ...current, active: command.active, updatedAt: ctx.now });
+      return mutation;
+    }
+
+    case 'set_equipment_models': {
+      const mutation = emptyMutation(workId);
+      const current = data.equipment.find(e => e.id === command.id);
+      if (!current) return fail('Equipamento não encontrado. Recarregue a página.');
+      if (new Set(command.modelIds).size !== command.modelIds.length) fail('Há checklist marcado duas vezes. Recarregue a página.');
+      for (const id of command.modelIds) {
+        const model = data.models.find(m => m.id === id);
+        if (!model) fail('Um dos checklists não existe mais. Recarregue a página.');
+        if (!model!.active) fail(`O checklist "${model!.name}" está desativado. Reative o modelo antes de ligá-lo ao QR.`);
+      }
+      const links = equipmentModelLinks(current, data.models, command.modelIds);
+      const same = (a: string[], b: string[]) => a.length === b.length && a.every(id => b.includes(id));
+      if (!same(links.extraModelIds, current.extraModelIds) || !same(links.hiddenModelIds, current.hiddenModelIds))
+        mutation.equipmentModels.push({ id: current.id, workId: current.workId, ...links });
       return mutation;
     }
 
@@ -337,8 +367,12 @@ export function planChecklistCommand(
       if (!current) {
         if (!equipment.active) fail('Este equipamento está desativado.');
         if (!model.active) fail('Este checklist está desativado.');
-        if (checklistKey(model.equipmentType) !== checklistKey(equipment.equipmentType))
-          fail(`O checklist "${model.name}" é de ${model.equipmentType}, e o equipamento é ${equipment.equipmentType}.`);
+        if (!modelsFor(equipment, data.models).some(m => m.id === model.id))
+          fail(
+            checklistKey(model.equipmentType) === checklistKey(equipment.equipmentType)
+              ? `O checklist "${model.name}" foi tirado do QR de ${equipment.name}. Um administrador pode ligá-lo de novo em "Checklists do QR".`
+              : `O checklist "${model.name}" é de ${model.equipmentType}, e o equipamento é ${equipment.equipmentType}. Um administrador pode incluí-lo em "Checklists do QR".`,
+          );
       }
       if (!isIsoDay(command.doneOn)) fail('Data inválida.');
       if (command.doneOn > today) fail('Data no futuro: a inspeção é registrada no dia ou depois dele.');

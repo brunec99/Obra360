@@ -1,6 +1,19 @@
 'use client';
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowDown, ArrowUp, CheckCheck, Copy, Pencil, Plus, Printer, QrCode as QrIcon, RefreshCw, Trash2, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  CheckCheck,
+  Copy,
+  ListChecks,
+  Pencil,
+  Plus,
+  Printer,
+  QrCode as QrIcon,
+  RefreshCw,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   ANSWER_LABEL,
   CHECKLIST_FREQUENCIES,
@@ -13,6 +26,7 @@ import {
   checklistSummary,
   equipmentTypes,
   formatChecklistDay,
+  modelsFor,
   nonConformities,
   recentRuns,
   type ChecklistCommand,
@@ -192,6 +206,136 @@ function EquipmentLink({
             Fechar
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const byFrequencyAndName = (a: ChecklistModel, b: ChecklistModel) =>
+  CHECKLIST_FREQUENCIES.indexOf(a.frequency) - CHECKLIST_FREQUENCIES.indexOf(b.frequency) || a.name.localeCompare(b.name, 'pt-BR');
+
+/** Os checklists que o QR de um equipamento mostra (16/11/2026), só para o admin: os modelos do tipo do
+ * equipamento vêm marcados (e um modelo novo do tipo entra sozinho); desmarcar tira do QR, e marcar um de
+ * outro tipo o inclui. O link e a etiqueta não mudam, e o histórico fica. */
+function EquipmentModels({
+  equipment,
+  models,
+  busy,
+  execute,
+  onClose,
+}: {
+  equipment: ChecklistEquipment;
+  models: ChecklistModel[];
+  busy: boolean;
+  execute: Execute;
+  onClose: () => void;
+}) {
+  const [chosen, setChosen] = useState(() => new Set(modelsFor(equipment, models).map(m => m.id)));
+  const [search, setSearch] = useState('');
+  const key = checklistKey(equipment.equipmentType);
+  const wanted = checklistKey(search);
+  const active = models.filter(m => m.active && (!wanted || checklistKey(`${m.name} ${m.equipmentType}`).includes(wanted)));
+  const sameType = active.filter(m => checklistKey(m.equipmentType) === key).sort(byFrequencyAndName);
+  const others = active
+    .filter(m => checklistKey(m.equipmentType) !== key)
+    .sort((a, b) => a.equipmentType.localeCompare(b.equipmentType, 'pt-BR') || byFrequencyAndName(a, b));
+  const total = models.filter(m => m.active).length;
+  const toggle = (id: string) =>
+    setChosen(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const setAll = (list: ChecklistModel[], on: boolean) =>
+    setChosen(previous => {
+      const next = new Set(previous);
+      for (const model of list) {
+        if (on) next.add(model.id);
+        else next.delete(model.id);
+      }
+      return next;
+    });
+  const save = async () => {
+    const modelIds = models.filter(m => m.active && chosen.has(m.id)).map(m => m.id);
+    if (await execute({ type: 'set_equipment_models', id: equipment.id, modelIds }, 'Checklists do QR atualizados')) onClose();
+  };
+  const group = (title: string, hint: string, list: ChecklistModel[], showType: boolean) => (
+    <fieldset className="space-y-2">
+      <legend className="flex w-full flex-wrap items-baseline justify-between gap-2">
+        <span className="text-xs font-bold text-slate-700">
+          {title} <span className="font-normal text-slate-500">· {hint}</span>
+        </span>
+        {list.length > 1 && (
+          <span className="flex gap-3">
+            <button type="button" className="text-link text-xs" onClick={() => setAll(list, true)}>
+              Marcar todos
+            </button>
+            <button type="button" className="text-link text-xs" onClick={() => setAll(list, false)}>
+              Desmarcar todos
+            </button>
+          </span>
+        )}
+      </legend>
+      {list.length === 0 ? (
+        <p className="text-xs text-slate-500">{wanted ? 'Nenhum checklist com esse nome.' : 'Nenhum modelo ativo.'}</p>
+      ) : (
+        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {list.map(model => (
+            <li key={model.id}>
+              <label
+                className={`flex min-h-11 cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-sm ${chosen.has(model.id) ? 'border-brand-300 bg-white text-slate-800' : 'border-slate-200 bg-slate-100 text-slate-500'}`}
+              >
+                <input type="checkbox" className="mt-0.5" checked={chosen.has(model.id)} onChange={() => toggle(model.id)} />
+                <span className="min-w-0">
+                  <span className="block font-semibold">
+                    {FREQUENCY_LABEL[model.frequency]} · {model.name}
+                  </span>
+                  <span className="block text-xs text-slate-500">
+                    {showType ? `${model.equipmentType} · ` : ''}
+                    {model.items.length} {model.items.length === 1 ? 'item' : 'itens'}
+                  </span>
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+    </fieldset>
+  );
+  return (
+    <div data-tour="checklist-qr-models" className="mt-3 w-full space-y-4 rounded-xl bg-slate-50 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-800">Checklists do QR de {equipment.name}</p>
+          <p className="text-sm text-slate-600">
+            Marque o que o operador vê ao ler o QR. Desmarcar tira o checklist deste equipamento (as inspeções feitas ficam no histórico); o
+            link e a etiqueta não mudam.
+          </p>
+        </div>
+        {total > 9 && (
+          <label className="w-full text-xs font-medium text-slate-600 sm:w-64">
+            Procurar
+            <input className="field mt-1" value={search} placeholder="Nome ou tipo" onChange={e => setSearch(e.target.value)} />
+          </label>
+        )}
+      </div>
+      {group(`Do tipo ${equipment.equipmentType}`, 'um modelo novo deste tipo entra sozinho', sameType, false)}
+      {(others.length > 0 || wanted) && group('De outros tipos', 'entram só se marcados', others, true)}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-auto text-xs text-slate-600">
+          {chosen.size === 0
+            ? 'Nenhum marcado: o QR abre sem checklists.'
+            : `${chosen.size} ${chosen.size === 1 ? 'checklist marcado' : 'checklists marcados'}.`}
+        </span>
+        <button type="button" className="button" disabled={busy} onClick={save}>
+          <CheckCheck size={15} aria-hidden />
+          Salvar
+        </button>
+        <button type="button" className="button-ghost" onClick={onClose}>
+          <X size={15} aria-hidden />
+          Cancelar
+        </button>
       </div>
     </div>
   );
@@ -577,6 +721,7 @@ export function ChecklistOverview({ workId }: { workId: string }) {
   const [showInactive, setShowInactive] = useState(false);
   const [openRun, setOpenRun] = useState<string>();
   const [linkOf, setLinkOf] = useState<string>();
+  const [modelsOf, setModelsOf] = useState<string>();
 
   if (context.state !== 'ready') return <LoadState error={context.state === 'error'} />;
   const { planning } = context;
@@ -597,7 +742,8 @@ export function ChecklistOverview({ workId }: { workId: string }) {
             conferir. A lista de modelos é a mesma para todas as obras.
           </p>
           <p>
-            O <strong>equipamento</strong> é o que existe nesta obra (“Betoneira 01”). Ele recebe todos os modelos do tipo dele.
+            O <strong>equipamento</strong> é o que existe nesta obra (“Betoneira 01”). Ele recebe sozinho os modelos do tipo dele; em
+            <strong> Checklists do QR</strong>, o administrador tira um desses ou inclui um de outro tipo.
           </p>
           <p>
             A <strong>inspeção</strong> é o modelo preenchido num dia: cada item é Conforme, Não conforme (com a descrição) ou Não se
@@ -810,13 +956,28 @@ export function ChecklistOverview({ workId }: { workId: string }) {
                         type="button"
                         className="text-link inline-flex items-center gap-1 text-xs"
                         aria-expanded={linkOf === row.equipment.id}
-                        onClick={() => setLinkOf(linkOf === row.equipment.id ? undefined : row.equipment.id)}
+                        onClick={() => {
+                          setModelsOf(undefined);
+                          setLinkOf(linkOf === row.equipment.id ? undefined : row.equipment.id);
+                        }}
                       >
                         <QrIcon size={13} aria-hidden />
                         QR do operador
                       </button>
                       {canManage && (
                         <>
+                          <button
+                            type="button"
+                            className="text-link inline-flex items-center gap-1 text-xs"
+                            aria-expanded={modelsOf === row.equipment.id}
+                            onClick={() => {
+                              setLinkOf(undefined);
+                              setModelsOf(modelsOf === row.equipment.id ? undefined : row.equipment.id);
+                            }}
+                          >
+                            <ListChecks size={13} aria-hidden />
+                            Checklists do QR
+                          </button>
                           <button
                             type="button"
                             className="text-link text-xs"
@@ -841,7 +1002,9 @@ export function ChecklistOverview({ workId }: { workId: string }) {
                 <div className="flex min-w-0 flex-1 flex-wrap gap-2">
                   {row.dues.length === 0 && (
                     <p className="text-xs text-warning">
-                      Nenhum checklist para o tipo “{row.equipment.equipmentType}”. {canManage ? 'Crie um modelo abaixo.' : ''}
+                      {row.equipment.hiddenModelIds.length || row.equipment.extraModelIds.length
+                        ? `Nenhum checklist ligado a este QR. ${canManage ? 'Inclua em “Checklists do QR”.' : ''}`
+                        : `Nenhum checklist para o tipo “${row.equipment.equipmentType}”. ${canManage ? 'Crie um modelo abaixo ou inclua um de outro tipo em “Checklists do QR”.' : ''}`}
                     </p>
                   )}
                   {row.dues.map(due => {
@@ -862,6 +1025,16 @@ export function ChecklistOverview({ workId }: { workId: string }) {
                     );
                   })}
                 </div>
+                {canManage && modelsOf === row.equipment.id && (
+                  <EquipmentModels
+                    key={`${row.equipment.id}|${row.equipment.updatedAt}`}
+                    equipment={row.equipment}
+                    models={data.models}
+                    busy={busy}
+                    execute={execute}
+                    onClose={() => setModelsOf(undefined)}
+                  />
+                )}
                 {canEdit && linkOf === row.equipment.id && (
                   <EquipmentLink
                     equipment={row.equipment}

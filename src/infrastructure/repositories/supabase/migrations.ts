@@ -325,6 +325,14 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
       'O tempo de uso não é registrado (em silêncio) e a aba "Acessos" do Dashboard geral avisa que a contagem não começou; o resto do sistema segue normal.',
     critical: false,
   },
+  {
+    migration: '0052_checklist_equipment_models',
+    label: 'Checklist de equipamentos: escolher os checklists de cada QR',
+    probe: { kind: 'column', table: 'checklist_equipment', column: 'extra_model_ids' },
+    effect:
+      'Cada equipamento segue recebendo só os checklists do tipo dele, e "Checklists do QR" não grava; o resto da aba 3.2 segue normal.',
+    critical: false,
+  },
 ];
 
 export type MigrationStatus = { migration: string; label: string; effect: string; critical: boolean; applied: boolean; detail?: string };

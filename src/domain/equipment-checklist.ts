@@ -42,6 +42,11 @@ export interface ChecklistEquipment {
   /** O segredo do link do operador (`/checklist/<token>`), desde 12/11/2026. Só TST e admin o recebem; vazio
    * antes da migração 0048. */
   publicToken: string;
+  /** Os checklists do QR, desde 16/11/2026 (migração 0052): o equipamento recebe sozinho os modelos ativos do
+   * tipo dele; `extraModelIds` são modelos de outro tipo que o admin incluiu, e `hiddenModelIds` são modelos do
+   * tipo que o admin tirou. Vazios = só o tipo, como antes. */
+  extraModelIds: string[];
+  hiddenModelIds: string[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -116,6 +121,8 @@ export type ChecklistCommand =
   | { type: 'set_model_active'; id: string; active: boolean }
   | { type: 'save_equipment'; id?: string; workId: string; name: string; equipmentType: string }
   | { type: 'set_equipment_active'; id: string; active: boolean }
+  /** Os checklists que o QR do equipamento mostra: a lista final dos modelos ativos ligados a ele. */
+  | { type: 'set_equipment_models'; id: string; modelIds: string[] }
   /** Troca o segredo do link: a etiqueta antiga deixa de valer. */
   | { type: 'rotate_equipment_token'; id: string }
   | {
@@ -230,15 +237,46 @@ export function equipmentTypes(data: Pick<ChecklistData, 'models' | 'equipment'>
   return [...seen.values()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 
-/** Os modelos ativos que valem para um equipamento (mesmo tipo), na ordem diário, semanal, mensal. */
-export function modelsFor(equipment: Pick<ChecklistEquipment, 'equipmentType'>, models: readonly ChecklistModel[]): ChecklistModel[] {
+/** Os modelos ativos que valem para um equipamento, na ordem diário, semanal, mensal: os do mesmo tipo, menos
+ * os que o admin tirou dele, mais os de outro tipo que o admin incluiu (16/11/2026). */
+export function modelsFor(
+  equipment: Pick<ChecklistEquipment, 'equipmentType'> & Partial<Pick<ChecklistEquipment, 'extraModelIds' | 'hiddenModelIds'>>,
+  models: readonly ChecklistModel[],
+): ChecklistModel[] {
   const key = checklistKey(equipment.equipmentType);
+  const extra = new Set(equipment.extraModelIds ?? []);
+  const hidden = new Set(equipment.hiddenModelIds ?? []);
   return models
-    .filter(m => m.active && checklistKey(m.equipmentType) === key)
+    .filter(m => m.active && (checklistKey(m.equipmentType) === key ? !hidden.has(m.id) : extra.has(m.id)))
     .sort(
       (a, b) =>
         CHECKLIST_FREQUENCIES.indexOf(a.frequency) - CHECKLIST_FREQUENCIES.indexOf(b.frequency) || a.name.localeCompare(b.name, 'pt-BR'),
     );
+}
+
+/** A escolha do admin (a lista final dos modelos ligados ao QR) gravada como exceção ao tipo: o modelo do
+ * tipo que ficou de fora vai para `hidden`, o de outro tipo que entrou vai para `extra`. Modelo desativado
+ * não aparece na escolha e mantém a marcação que tinha, para voltar igual se for reativado. */
+export function equipmentModelLinks(
+  equipment: Pick<ChecklistEquipment, 'equipmentType' | 'extraModelIds' | 'hiddenModelIds'>,
+  models: readonly ChecklistModel[],
+  modelIds: readonly string[],
+): { extraModelIds: string[]; hiddenModelIds: string[] } {
+  const key = checklistKey(equipment.equipmentType);
+  const chosen = new Set(modelIds);
+  const extraModelIds: string[] = [];
+  const hiddenModelIds: string[] = [];
+  for (const model of models) {
+    const sameType = checklistKey(model.equipmentType) === key;
+    const linked = model.active
+      ? chosen.has(model.id)
+      : sameType
+        ? !equipment.hiddenModelIds.includes(model.id)
+        : equipment.extraModelIds.includes(model.id);
+    if (sameType && !linked) hiddenModelIds.push(model.id);
+    if (!sameType && linked) extraModelIds.push(model.id);
+  }
+  return { extraModelIds, hiddenModelIds };
 }
 
 export type ChecklistStatus = 'pending' | 'done' | 'nonconforming';
@@ -256,8 +294,8 @@ export interface ChecklistBoardRow {
   dues: ChecklistDue[];
 }
 
-/** O quadro do dia: para cada equipamento ativo, cada checklist que vale para ele e a situação no período
- * corrente (o dia, a semana de segunda a domingo ou o mês). Equipamento sem modelo aparece sem checklists. */
+/** O quadro do dia: para cada equipamento ativo, cada checklist ligado a ele (`modelsFor`) e a situação no
+ * período corrente (o dia, a semana de segunda a domingo ou o mês). Equipamento sem modelo aparece sem checklists. */
 export function checklistBoard(data: ChecklistData, today: string): ChecklistBoardRow[] {
   const byPair = new Map<string, ChecklistRun[]>();
   for (const run of data.runs) {
@@ -287,7 +325,7 @@ export interface ChecklistSummary {
   due: Record<ChecklistFrequency, { total: number; pending: number }>;
   /** Checklists do período corrente feitos com alguma não conformidade. */
   nonconforming: number;
-  /** Equipamentos ativos sem nenhum modelo do tipo deles. */
+  /** Equipamentos ativos sem nenhum checklist ligado ao QR. */
   withoutModel: number;
 }
 export function checklistSummary(board: readonly ChecklistBoardRow[]): ChecklistSummary {

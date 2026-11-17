@@ -53,6 +53,8 @@ const equipment = (over: Partial<ChecklistEquipment> = {}): ChecklistEquipment =
   equipmentType: 'Betoneira',
   active: true,
   publicToken: 'segredo-do-equipamento-e1-0123456789',
+  extraModelIds: [],
+  hiddenModelIds: [],
   createdBy: 'tst-1',
   createdAt: NOW,
   updatedAt: NOW,
@@ -274,7 +276,14 @@ test('checklist: cadastro (modelo, equipamento, link do QR) é só do admin; TST
   assert.equal(canManageChecklist({ role: 'admin' }), true);
   assert.equal(canManageChecklist({ role: 'viewer', tst: true } as { role: string }), false);
   assert.equal(canManageChecklist(null), false);
-  for (const type of ['save_model', 'set_model_active', 'save_equipment', 'set_equipment_active', 'rotate_equipment_token'])
+  for (const type of [
+    'save_model',
+    'set_model_active',
+    'save_equipment',
+    'set_equipment_active',
+    'set_equipment_models',
+    'rotate_equipment_token',
+  ])
     assert.equal(checklistCommandNeedsAdmin({ type } as never), true, type);
   for (const type of ['save_run', 'delete_run']) assert.equal(checklistCommandNeedsAdmin({ type } as never), false, type);
 });
@@ -407,4 +416,84 @@ test('checklist pelo QR: o operador vê só os checklists do equipamento, com a 
   );
   assert.equal(dues[0].items.length, 2);
   assert.deepEqual(operatorDues(d, 'nao-existe', TODAY), []);
+});
+
+// 16/11/2026: escolher os checklists de cada QR (incluir de outro tipo, tirar um do tipo).
+test('checklists do QR: o admin tira um modelo do tipo e inclui um de outro tipo; o quadro e o operador seguem a escolha', () => {
+  const weekly = model({ id: 'm-sem', name: 'Betoneira — semanal', frequency: 'weekly' });
+  const serra = model({ id: 'm-serra', name: 'Serra — diário', equipmentType: 'Serra circular' });
+  const off = model({ id: 'm-off', name: 'Guincho antigo', equipmentType: 'Guincho', active: false });
+  const d = data({ models: [model(), weekly, serra, off] });
+  const command = parseChecklistCommand({ type: 'set_equipment_models', id: 'e1', modelIds: ['m-dia', 'm-serra'] });
+  assert.deepEqual(checklistCommandTarget(command), { table: 'equipment', id: 'e1' });
+  const m = planChecklistCommand(d, command, ctx(), 'obra-1');
+  assert.deepEqual(m.equipmentModels, [{ id: 'e1', workId: 'obra-1', extraModelIds: ['m-serra'], hiddenModelIds: ['m-sem'] }]);
+  // A escolha é gravada à parte: cadastrar, renomear e desativar não mexem nessas colunas.
+  assert.equal(m.update.equipment.length, 0);
+
+  const linked = equipment({ extraModelIds: ['m-serra'], hiddenModelIds: ['m-sem'] });
+  const after = data({ models: [model(), weekly, serra, off], equipment: [linked] });
+  assert.deepEqual(
+    modelsFor(linked, after.models).map(x => x.id),
+    ['m-dia', 'm-serra'],
+  );
+  assert.deepEqual(
+    operatorDues(after, 'e1', TODAY).map(due => due.modelId),
+    ['m-dia', 'm-serra'],
+  );
+  // Um modelo novo do tipo entra sozinho; o mesmo pedido de novo não grava nada.
+  const fresh = model({ id: 'm-mes', name: 'Betoneira — mensal', frequency: 'monthly' });
+  assert.deepEqual(
+    modelsFor(linked, [...after.models, fresh]).map(x => x.id),
+    ['m-dia', 'm-serra', 'm-mes'],
+  );
+  assert.deepEqual(plan(after, { type: 'set_equipment_models', id: 'e1', modelIds: ['m-serra', 'm-dia'] }).equipmentModels, []);
+  // Desmarcar tudo vale: o QR abre sem checklists.
+  assert.deepEqual(plan(after, { type: 'set_equipment_models', id: 'e1', modelIds: [] }).equipmentModels[0], {
+    id: 'e1',
+    workId: 'obra-1',
+    extraModelIds: [],
+    hiddenModelIds: ['m-dia', 'm-sem'],
+  });
+});
+
+test('checklists do QR: modelo desativado guarda a marcação; recusa modelo inexistente, desativado e repetido', () => {
+  const offExtra = model({ id: 'm-x', name: 'Guincho antigo', equipmentType: 'Guincho', active: false });
+  const offHidden = model({ id: 'm-y', name: 'Betoneira antigo', active: false });
+  const linked = equipment({ extraModelIds: ['m-x'], hiddenModelIds: ['m-y'] });
+  const d = data({ models: [model(), offExtra, offHidden], equipment: [linked] });
+  // Reativados depois, voltam como estavam: m-x incluído, m-y fora.
+  assert.deepEqual(plan(d, { type: 'set_equipment_models', id: 'e1', modelIds: [] }).equipmentModels[0], {
+    id: 'e1',
+    workId: 'obra-1',
+    extraModelIds: ['m-x'],
+    hiddenModelIds: ['m-dia', 'm-y'],
+  });
+  assert.throws(() => plan(d, { type: 'set_equipment_models', id: 'e1', modelIds: ['nao-existe'] }), /não existe mais/);
+  assert.throws(() => plan(d, { type: 'set_equipment_models', id: 'e1', modelIds: ['m-x'] }), /está desativado/);
+  assert.throws(() => plan(d, { type: 'set_equipment_models', id: 'e1', modelIds: ['m-dia', 'm-dia'] }), /duas vezes/);
+  assert.throws(() => plan(d, { type: 'set_equipment_models', id: 'e9', modelIds: [] }), /Equipamento não encontrado/);
+  assert.throws(() => parseChecklistCommand({ type: 'set_equipment_models', id: 'e1', modelIds: 'm-dia' }), /modelIds/);
+});
+
+test('checklists do QR: inspeção nova só do que está ligado ao QR; a antiga segue editável', () => {
+  const serra = model({ id: 'm-serra', name: 'Serra — diário', equipmentType: 'Serra circular' });
+  const hidden = equipment({ hiddenModelIds: ['m-dia'], extraModelIds: ['m-serra'] });
+  const d = data({ models: [model(), serra], equipment: [hidden] });
+  const base = { type: 'save_run', workId: 'obra-1', equipmentId: 'e1', doneOn: TODAY, answers: answersOk };
+  assert.throws(() => plan(d, { ...base, modelId: 'm-dia' }), /foi tirado do QR/);
+  const included = plan(d, { ...base, modelId: 'm-serra' });
+  assert.equal(included.insert.runs[0].modelId, 'm-serra');
+  // Pelo link do operador vale a mesma escolha.
+  assert.throws(
+    () =>
+      planOperatorRun(d, { modelId: 'm-dia', answers: answersOk as never, operatorName: 'José Almeida', signature: PNG }, ctx(), {
+        id: 'e1',
+        workId: 'obra-1',
+      }),
+    /foi tirado do QR/,
+  );
+  // A inspeção feita antes de tirar o modelo continua editável.
+  const edited = plan(data({ models: [model(), serra], equipment: [hidden], runs: [run()] }), { ...base, id: 'r1', modelId: 'm-dia' });
+  assert.equal(edited.update.runs[0].id, 'r1');
 });

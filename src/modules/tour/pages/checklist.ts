@@ -16,7 +16,7 @@ export const steps: TourStep[] = [
   {
     target: 'checklist-board',
     title: 'Equipamentos da obra',
-    body: 'Cada equipamento com os checklists do tipo dele. Âmbar é pendente no período, verde é feito e vermelho é feito com não conformidade. Clique num checklist para preencher ou abrir a inspeção. "QR do operador" mostra o link do equipamento, e "Imprimir etiquetas com QR" gera a folha para colar nas máquinas. Abaixo, o administrador cadastra os equipamentos da obra.',
+    body: 'Cada equipamento com os checklists ligados ao QR dele (os do tipo, mais o que o administrador incluiu em "Checklists do QR"). Âmbar é pendente no período, verde é feito e vermelho é feito com não conformidade. Clique num checklist para preencher ou abrir a inspeção. "QR do operador" mostra o link do equipamento, e "Imprimir etiquetas com QR" gera a folha para colar nas máquinas. Abaixo, o administrador cadastra os equipamentos da obra.',
   },
   {
     target: 'checklist-form',

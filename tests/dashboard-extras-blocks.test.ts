@@ -365,6 +365,8 @@ const equipment = (over: Partial<ChecklistEquipment> = {}): ChecklistEquipment =
   equipmentType: 'Betoneira',
   active: true,
   publicToken: 'segredo-do-equipamento-e1-0123456789',
+  extraModelIds: [],
+  hiddenModelIds: [],
   createdBy: 'tst-1',
   createdAt: NOW,
   updatedAt: NOW,

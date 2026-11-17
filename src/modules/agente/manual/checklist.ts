@@ -1,6 +1,7 @@
 import type { ManualSection } from './types';
 
-/** Manual da aba 9, Checklist de equipamentos (11/11/2026; operador pelo QR, assinatura, fotos e cadastro só com admin em 12/11/2026). Escrito a partir do código da tela e dos
+/** Manual da aba 9, Checklist de equipamentos (11/11/2026; operador pelo QR, assinatura, fotos e cadastro só com admin em 12/11/2026;
+ * checklists de cada QR em 16/11/2026). Escrito a partir do código da tela e dos
  * comandos; descreve só o que está implementado. */
 export const sections: ManualSection[] = [
   {
@@ -38,6 +39,11 @@ export const sections: ManualSection[] = [
       'foto do checklist',
       'sem login',
       'gerar novo link',
+      'checklists do qr',
+      'incluir checklist no qr',
+      'tirar checklist do qr',
+      'desativar checklist do equipamento',
+      'vincular checklist',
     ],
     screen: 'checklist',
     body: `## O que é a aba 3.2, Checklist de equipamentos
@@ -51,12 +57,12 @@ export const sections: ManualSection[] = [
 - Quem tem o módulo e a obra **consulta**.
 - O **operador do equipamento** preenche pelo **QR colado na máquina**, sem login e sem conta (ver "Checklist pelo QR" abaixo). O link do QR não depende de módulo liberado.
 - Quem é do tipo **TST** e os **administradores** registram, editam e excluem inspeções na tela, e veem o QR de cada equipamento. O TST é o mesmo da aba 3.1, marcado pelo administrador em Configurações → Usuários, e também precisa do módulo liberado: ao marcar alguém como TST, o administrador libera também os módulos "Segurança do trabalho" e "Checklist de equipamentos".
-- **Só administradores** fazem o cadastro: criam e editam modelos, cadastram, renomeiam e desativam equipamentos e geram um novo link de QR (desde 12/11/2026, a pedido da equipe de SST, para não haver conflito nas informações). Para o TST, a mensagem é "Só administradores cadastram modelos e equipamentos e trocam o link do QR.".
+- **Só administradores** fazem o cadastro: criam e editam modelos, cadastram, renomeiam e desativam equipamentos, escolhem os checklists de cada QR e geram um novo link de QR (desde 12/11/2026, a pedido da equipe de SST, para não haver conflito nas informações). Para o TST, a mensagem é "Só administradores cadastram modelos e equipamentos e trocam o link do QR.".
 
 ### As três peças
 
 - **Modelo:** a ficha. Tem nome ("Betoneira — diário"), **tipo de equipamento** ("Betoneira"), **periodicidade** (diário, semanal ou mensal) e a lista de itens a conferir (até 60). A lista de modelos é **única para todas as obras**: alterar um modelo vale para todas.
-- **Equipamento:** o que existe na obra ("Betoneira 01"), de um tipo. Ele recebe todos os modelos ativos do mesmo tipo (a comparação ignora acento e maiúsculas).
+- **Equipamento:** o que existe na obra ("Betoneira 01"), de um tipo. Ele recebe sozinho os modelos ativos do mesmo tipo (a comparação ignora acento e maiúsculas). Desde 16/11/2026 o administrador ajusta isso equipamento por equipamento em **Checklists do QR** (ver abaixo).
 - **Inspeção:** um modelo preenchido num equipamento num dia. Cada item é **C** (conforme), **NC** (não conforme) ou **N/A** (não se aplica). O NC exige a descrição.
 
 ### Como usar
@@ -64,6 +70,16 @@ export const sections: ManualSection[] = [
 1. (Admin) Em **Modelos de checklist**, clique em **Novo checklist**, preencha nome, tipo e periodicidade e escreva os itens. "Colar vários itens de uma vez" aceita a lista da ficha em papel, um item por linha. As setas mudam a ordem.
 2. (Admin) Em **Equipamentos da obra**, cadastre cada equipamento com a identificação e o tipo. Um tipo sem modelo aparece com o aviso "Nenhum checklist para o tipo".
 3. No quadro, clique no checklist do equipamento: âmbar é **pendente** no período, verde é **feito**, vermelho é **feito com não conformidade**. Responda os itens e clique em **Registrar inspeção**. "Marcar os demais como conforme" preenche o que ficou em branco. Na tela logada dá para anexar **até 4 fotos**, escrever o **nome do operador** e colher a **assinatura** dele no quadro (os três são opcionais ali; quem assina precisa ter o nome escrito).
+
+### Checklists do QR: incluir e tirar checklists de um equipamento (16/11/2026)
+
+- Na linha do equipamento, o administrador clica em **Checklists do QR**. Abre a lista dos modelos ativos, cada um com uma caixa de marcar: o que está marcado aparece para o operador ao ler o QR e no quadro da tela.
+- **Do tipo do equipamento:** vêm marcados. Desmarcar tira o checklist só deste equipamento. Um modelo novo desse tipo entra sozinho em todos os equipamentos do tipo.
+- **De outros tipos:** vêm desmarcados. Marcar inclui o checklist neste equipamento (por exemplo, um equipamento "GERAL" que junta checklists de vários tipos, ou o contrário: um QR por máquina com só o checklist dela).
+- "Marcar todos" e "Desmarcar todos" valem para cada grupo; com mais de nove modelos aparece o campo **Procurar**. Clique em **Salvar**. Desmarcar tudo é permitido: o QR abre sem checklists.
+- O **link e a etiqueta não mudam**: não é preciso imprimir de novo. As inspeções já feitas de um checklist tirado continuam no histórico e podem ser corrigidas; inspeção nova dele não entra, nem pelo QR nem pela tela, até ser marcado de novo.
+- Modelo desativado some da lista e guarda a marcação que tinha neste equipamento; reativado, volta como estava.
+- Só administradores veem o botão. Depende da migração 0052; sem ela, salvar responde "Aplique a migração 0052_checklist_equipment_models.sql".
 
 ### Checklist pelo QR (operador, sem login)
 

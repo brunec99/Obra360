@@ -18,13 +18,16 @@ const RUNS = 'checklist_runs';
 const PAGE = 1000;
 
 /** Migração 0047 não aplicada: a aba responde "indisponível" em vez de erro. Com `operator`, falta a 0048
- * (colunas do operador, da assinatura e das fotos, e o bucket): a leitura segue, a gravação avisa. */
+ * (colunas do operador, da assinatura e das fotos, e o bucket): a leitura segue, a gravação avisa. Com
+ * `models`, falta a 0052 (os checklists de cada QR): só a gravação dessa escolha avisa. */
 export class ChecklistUnavailableError extends Error {
-  constructor(readonly operator = false) {
+  constructor(readonly operator: boolean | 'models' = false) {
     super(
-      operator
-        ? 'Aplique a migração 0048_checklist_operator.sql no Supabase para gravar inspeções com operador, assinatura e fotos.'
-        : 'Aplique a migração 0047_equipment_checklist.sql no Supabase para usar o checklist de equipamentos.',
+      operator === 'models'
+        ? 'Aplique a migração 0052_checklist_equipment_models.sql no Supabase para escolher os checklists de cada QR.'
+        : operator
+          ? 'Aplique a migração 0048_checklist_operator.sql no Supabase para gravar inspeções com operador, assinatura e fotos.'
+          : 'Aplique a migração 0047_equipment_checklist.sql no Supabase para usar o checklist de equipamentos.',
     );
     this.name = 'ChecklistUnavailableError';
   }
@@ -42,8 +45,9 @@ type DbError = { code?: string; message: string } | null;
 function check(error: DbError, action: string) {
   if (!error) return;
   if (missingTable(error.code)) throw new ChecklistUnavailableError();
-  // Coluna da 0048 ausente (42703 no Postgres, PGRST204 no cache do PostgREST).
-  if (error.code === '42703' || error.code === 'PGRST204') throw new ChecklistUnavailableError(true);
+  // Coluna ausente (42703 no Postgres, PGRST204 no cache do PostgREST): da 0052 ou da 0048.
+  if (error.code === '42703' || error.code === 'PGRST204')
+    throw new ChecklistUnavailableError(/model_ids/.test(error.message) ? 'models' : true);
   // 23505: a unicidade (equipamento, modelo, dia); 23503: a obra ou o equipamento foi excluído.
   if (error.code === '23505' || error.code === '23503') throw new ChecklistConflictError();
   throw new Error(`Falha ao ${action}: ${error.message}`);
@@ -67,6 +71,8 @@ type EquipmentRow = {
   equipment_type: string;
   active: boolean;
   public_token?: string;
+  extra_model_ids?: string[] | null;
+  hidden_model_ids?: string[] | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -120,10 +126,13 @@ const equipmentFromRow = (r: EquipmentRow): ChecklistEquipment => ({
   equipmentType: r.equipment_type,
   active: r.active,
   publicToken: r.public_token ?? '',
+  extraModelIds: Array.isArray(r.extra_model_ids) ? r.extra_model_ids : [],
+  hiddenModelIds: Array.isArray(r.hidden_model_ids) ? r.hidden_model_ids : [],
   createdBy: r.created_by,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
+/** Sem as listas da 0052: elas só são gravadas pela escolha dos checklists do QR (`equipmentModels`). */
 const equipmentToRow = (e: ChecklistEquipment): EquipmentRow => ({
   id: e.id,
   work_id: e.workId,
@@ -315,6 +324,16 @@ async function applyRows(mutation: ChecklistMutation): Promise<void> {
     void created_at;
     const { data, error } = await db.from(EQUIPMENT).update(changes).eq('id', id).eq('work_id', work_id).select('id');
     check(error, 'atualizar o equipamento');
+    if (!data?.length) throw new ChecklistConflictError();
+  }
+  for (const links of mutation.equipmentModels) {
+    const { data, error } = await db
+      .from(EQUIPMENT)
+      .update({ extra_model_ids: links.extraModelIds, hidden_model_ids: links.hiddenModelIds, updated_at: new Date().toISOString() })
+      .eq('id', links.id)
+      .eq('work_id', links.workId)
+      .select('id');
+    check(error, 'gravar os checklists do QR');
     if (!data?.length) throw new ChecklistConflictError();
   }
   for (const run of mutation.update.runs) {

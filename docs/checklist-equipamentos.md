@@ -14,6 +14,29 @@ os TSTs criam os modelos na própria tela.
 
 **Atualização de 11/11/2026 (noite):** a migração foi aplicada no `takt-hub` pela CLI do Supabase, a pedido do usuário, e conferida no catálogo (tabela, RLS ligada, grant para `service_role`, sem acesso de `anon`). A tela ainda não foi aberta logada em produção.
 
+## Checklists de cada QR: incluir e tirar (16/11/2026)
+
+**Pedido:** a equipe de SST mandou um print do quadro (equipamento "GERAL", tipo "GLOBAL", com nove checklists diários) com a pergunta "neste campo consigo incluir opção de incluir e desativar os checklists que estão vinculados no QR code?". Até aqui o equipamento recebia todos os modelos ativos do tipo dele, sem escolha.
+
+**Situação:** código, testes e a migração `0052_checklist_equipment_models.sql` prontos e validados localmente. **A 0052 foi aplicada no `takt-hub` em 16/11/2026**, a pedido do usuário, numa transação pelo pooler, com o estado lido antes e depois (as duas colunas `text[]` com default vazio; os 5 equipamentos e os 9 modelos intactos, todos com as listas vazias; a API REST lê as colunas com a chave de serviço e recusa sem chave, 401). **Código enviado ao `main` em 16/11/2026**, depois da migração. Sem a 0052 o resto da aba seguiria normal, e só "Salvar" em Checklists do QR responderia "aplique a migração 0052".
+
+### Como funciona
+
+- Na linha do equipamento, o admin (`canManageChecklist`) tem o botão **Checklists do QR** (`EquipmentModels` em `checklist-overview.tsx`). Abre a lista dos modelos ativos em dois grupos: **do tipo do equipamento** (marcados por padrão; "um modelo novo deste tipo entra sozinho") e **de outros tipos** ("entram só se marcados"). Há "Marcar todos" e "Desmarcar todos" por grupo e, com mais de nove modelos, o campo **Procurar** (nome ou tipo). **Salvar** manda a lista final.
+- Comando `set_equipment_models { id, modelIds }` (cadastro: só admin, como os demais fora de `save_run` e `delete_run`).
+- Gravado como **exceção ao tipo**, em duas colunas de `checklist_equipment`: `hidden_model_ids` (modelos do tipo que o admin tirou) e `extra_model_ids` (modelos de outro tipo que ele incluiu). Vazias = o comportamento anterior. Por isso um modelo novo do tipo continua entrando sozinho. `equipmentModelLinks` converte a lista escolhida nessas duas listas; `modelsFor` passou a ler as duas, e com ele o quadro, os cartões, o operador pelo QR e o quadro do dashboard.
+- Modelo desativado não aparece na escolha e **guarda a marcação** que tinha (volta igual se reativado).
+- Inspeção **nova** só de um checklist ligado ao QR, pela tela ou pelo link ("foi tirado do QR de …" ou "é de …, e o equipamento é …", com a indicação de Checklists do QR). Editar ou excluir uma inspeção já feita segue valendo.
+- O **link e a etiqueta não mudam**. Desmarcar tudo é permitido (o QR abre sem checklists, e a linha avisa "Nenhum checklist ligado a este QR").
+- A gravação das duas colunas vai à parte (`mutation.equipmentModels`), e `equipmentToRow` não as inclui: cadastrar, renomear e desativar não dependem da 0052. Coluna ausente com `model_ids` no erro vira a mensagem da 0052. A 0052 entrou na lista de migrações sondadas (`MIGRATION_CHECKS`).
+
+### Validação de 16/11/2026
+
+- `tests/checklist.test.ts`: 3 testes novos (tirar um do tipo e incluir de outro, com o quadro e o operador seguindo a escolha; modelo novo do tipo entra sozinho; pedido repetido não grava; desmarcar tudo; marcação guardada de modelo desativado; recusas de modelo inexistente, desativado e repetido; inspeção nova recusada pela tela e pelo link para checklist tirado, a antiga segue editável) e o comando novo na lista dos que exigem admin.
+- Sequência do `ci.yml` local: tipos, lint (sem erro), Prettier, 1.512 testes, validação das migrações (com a 0052) e build.
+- Navegador (`next dev` com as rotas do checklist respondidas pelas regras reais em memória, dados como os do print: "GERAL", tipo GLOBAL, nove diários, mais dois modelos de outros tipos): o admin abriu "Checklists do QR", desmarcou dois GLOBAL e marcou "SERRA CIRCULAR" (Serra circular); a gravação saiu com `hidden_model_ids` = os dois e `extra_model_ids` = a serra, o quadro e a visão do operador passaram a mostrar os oito; reaberto, desmarcar tudo salvou e a linha avisou "Nenhum checklist ligado a este QR". Em 390 px, sem rolagem lateral.
+- **Não validado:** o uso logado em produção (a 0052 está aplicada, mas nenhuma escolha foi gravada ainda).
+
 ## Operador pelo QR, assinatura, fotos e cadastro só com admin (12/11/2026)
 
 **Pedido:** a equipe de SST levantou quatro pontos e o usuário respondeu a cada um: (1) o preenchimento é do funcionário que opera o equipamento — decidido: **tela sem login**, aberta por QR; (2) assinatura — **sim**, desenhada na tela; (3) cadastro só com a responsável de SST — **só administradores** (ela passa a admin); (4) foto — o campo **já entra**, opcional. O modelo das telas e as sete regras abaixo foram publicados antes do código e aprovados sem mudança.
@@ -51,8 +74,9 @@ os TSTs criam os modelos na própria tela.
 - **Modelo** (`checklist_models`): a ficha. Nome, tipo de equipamento, periodicidade (`daily`, `weekly`,
   `monthly`) e a lista ordenada de itens (`items`, JSON `[{ id, text }]`, até 60). Lista única para todas
   as obras, como os tipos de apontamento da aba 6.
-- **Equipamento** (`checklist_equipment`): o que existe na obra ("Betoneira 01"), de um tipo. Recebe todos
-  os modelos ativos do mesmo tipo; a comparação ignora acento e maiúsculas (`checklistKey`).
+- **Equipamento** (`checklist_equipment`): o que existe na obra ("Betoneira 01"), de um tipo. Recebe os
+  modelos ativos do mesmo tipo; a comparação ignora acento e maiúsculas (`checklistKey`). Desde 16/11/2026 o
+  admin tira modelos do tipo e inclui modelos de outro tipo em cada equipamento ("Checklists do QR", 0052).
 - **Inspeção** (`checklist_runs`): um modelo preenchido num equipamento num dia. `answers` guarda, por
   item, o texto como estava no dia, a resposta (`c`, `nc`, `na`) e a observação.
 
@@ -89,7 +113,7 @@ os TSTs criam os modelos na própria tela.
 
 - Domínio: `src/domain/equipment-checklist.ts`
 - Regras: `src/application/use-cases/checklist-commands.ts`
-- Banco: `supabase/migrations/0047_equipment_checklist.sql`, `0048_checklist_operator.sql`,
+- Banco: `supabase/migrations/0047_equipment_checklist.sql`, `0048_checklist_operator.sql`, `0052_checklist_equipment_models.sql`,
   `src/infrastructure/repositories/supabase/checklist-repository.ts`
 - API: `src/app/api/checklist/route.ts`, `commands/route.ts`, `arquivos/route.ts` e a pública
   `src/app/api/publico/checklist/[token]/route.ts`
@@ -98,6 +122,8 @@ os TSTs criam os modelos na própria tela.
 - Testes: `tests/checklist.test.ts` (16) e a semente em `tests/delete-work.test.ts`
 
 ## Pendente
+
+- **Checklists do QR (16/11/2026):** conferir logado em produção (marcar e desmarcar, ler o QR depois de salvar). A 0052 já está aplicada e o código foi enviado.
 
 - **Publicar o código** (a 0048 já está aplicada). Marcar a responsável de SST como admin.
 - Marcar os TSTs (mesma marcação da aba 6). A 0047 já está aplicada.
