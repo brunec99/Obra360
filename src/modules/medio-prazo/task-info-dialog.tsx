@@ -35,7 +35,8 @@ export interface TaskInfoValues {
   end: string;
   timeline: boolean;
   predecessors: TaskInfoPredecessor[];
-  teamId: string;
+  /** Ids dos recursos, separados por ";" (17/11/2026: a tarefa aceita mais de um). */
+  teamIds: string;
   constraintType: ConstraintType;
   constraintDate: string;
   deadline: string;
@@ -105,7 +106,7 @@ export function taskInfoChanges(before: TaskInfoValues, after: TaskInfoValues): 
   add('end', before.end, after.end);
   add('progress', before.progress, after.progress);
   add('links', predecessorsText(before.predecessors), predecessorsText(after.predecessors));
-  add('team', before.teamId, after.teamId);
+  add('team', before.teamIds, after.teamIds);
   add('constraintType', before.constraintType, after.constraintType);
   if (constraintNeedsDate(after.constraintType)) add('constraintDate', before.constraintDate, after.constraintDate);
   add('deadline', before.deadline, after.deadline);
@@ -129,8 +130,8 @@ export interface TaskInfoDialogProps {
   /** Aplica tudo de uma vez; devolve a mensagem de erro, se a grade recusar. */
   onApply: (changes: TaskInfoChange[], timeline: boolean) => string | undefined;
   onClose: () => void;
-  /** "Criar pendência" (Lista de pendência da aba 2). Ausente para quem não abre a aba 2 e no Gantt de
-   * legalização; `blocked` traz o motivo quando a tarefa não pode virar card agora (resumo, linha de
+  /** "Criar pendência" (Quadro de Restrições, aba 1.4). Ausente para quem não abre o quadro;
+   * desde 19/11/2026 vale também no Gantt de legalização. `blocked` traz o motivo quando a tarefa não pode virar card agora (resumo, linha de
    * base, cronograma não salvo). `onCreate` fecha este diálogo e abre o formulário da pendência. */
   pendency?: { blocked: string; onCreate: () => void };
 }
@@ -458,31 +459,38 @@ export function TaskInfoDialog({
           )}
           {tab === 'recursos' && (
             <div className="grid gap-3">
-              <label className={label}>
-                Recurso (equipe da obra)
-                <select
-                  className="field mt-1.5"
-                  value={values.teamId}
-                  disabled={!editable.team}
-                  onChange={e => set('teamId', e.target.value)}
-                >
-                  <option value="">Sem recurso</option>
-                  {teams.map(team => (
-                    <option key={team.id} value={team.id}>
-                      {team.company} · {team.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {(() => {
-                const team = teams.find(t => t.id === values.teamId);
-                return team ? (
-                  <p className="text-xs text-slate-500">
-                    Capacidade semanal: {team.weeklyCapacity}{' '}
-                    {team.weeklyCapacity === 1 ? 'atividade simultânea' : 'atividades simultâneas'}.
-                  </p>
-                ) : null;
-              })()}
+              <fieldset className="grid gap-1.5" disabled={!editable.team}>
+                <legend className={label}>Recursos (equipes da obra)</legend>
+                {teams.length ? (
+                  teams.map(team => {
+                    const chosen = values.teamIds.split(';').filter(Boolean);
+                    const checked = chosen.includes(team.id);
+                    return (
+                      <label key={team.id} className="flex items-center gap-2 text-sm text-slate-800">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={e =>
+                            set('teamIds', (e.target.checked ? [...chosen, team.id] : chosen.filter(id => id !== team.id)).join(';'))
+                          }
+                        />
+                        <span>
+                          {team.company} · {team.name}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          capacidade {team.weeklyCapacity} {team.weeklyCapacity === 1 ? 'atividade' : 'atividades'}
+                        </span>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-slate-500">Nenhuma equipe cadastrada na obra. Cadastre em “Configurar recursos”.</p>
+                )}
+              </fieldset>
+              <p className="text-xs leading-5 text-slate-500">
+                Marque mais de uma equipe quando a tarefa ocupa várias ao mesmo tempo: ela aparece na linha de cada uma e conta na carga de
+                cada uma. A primeira marcada é a que fica na frente na coluna “Nomes dos recursos”.
+              </p>
               <p className="text-xs leading-5 text-slate-500">
                 O recurso é a equipe cadastrada na obra. Ele aparece no Planejador de Equipe, no Uso dos Recursos e na Planilha de Recursos.
               </p>

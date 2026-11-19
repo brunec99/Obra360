@@ -48,7 +48,7 @@ Ela tem seis visões, alternadas pelo seletor no cabeçalho (desde 04/11/2026):
 - **"Vagões"** (antes "Vagões e restrições"): as atividades dos vagões em Linha de Balanço, só para leitura, mais a curva de avanço acumulado e as linhas de base da obra. O módulo de restrições que ficava aqui virou o "Quadro de Restrições", aba 1.4 (antes "Lista de pendência"). Para mudar datas, serviços ou pavimentos, edite o Planejador e gere os vagões de novo. Obras que nunca geraram vagões pelo plano mostram ali o que veio do Prevision.
 - **"Planejador"**: a ferramenta anterior, um fluxograma de serviços por pavimento que se expande em Linha de Balanço, com linhas de base, medições e alocação de equipes. Ainda é o Planejador que responde pelas atividades dos vagões: "Gerar vagões" transforma cada serviço × pavimento em atividades de vagão (no Planejamento de vagão, aberto pelo botão desta aba). O plano dele pode ser levado para a Linha de Balanço nova por "Importar do Planejador".
 
-As seções abaixo sobre salvamento, exportar e importar valem para o Planejador; a Linha de Balanço, os fluxos e as medições gravam cada alteração na hora, sem botão de salvar (as medições têm "Salvar medição", que fecha a rodada). O Gantt de legalização grava como o médio prazo: rascunho e "Revisar e salvar".
+As seções abaixo sobre salvamento, exportar e importar valem para o Planejador; a Linha de Balanço, os fluxos e as medições gravam cada alteração na hora, sem botão de salvar (as medições têm "Salvar medição", que fecha a rodada). O Gantt de legalização grava como o médio prazo: cada alteração é salva sozinha (17/11/2026).
 
 O "?" ao lado da descrição ("Como funciona") explica como as visões se encaixam.
 
@@ -297,6 +297,7 @@ Até 10/11/2026 esta visão tinha o "Módulo de restrições": o botão "Registr
 - O acompanhamento passou para o **"Quadro de Restrições"**, aba 1.4 (até 12/11/2026, "Lista de pendência", na antiga aba 2): um quadro de cards com cinco colunas, prazo em dias úteis, responsável, conversa e checklists. Veja a seção "Quadro de Restrições".
 - As restrições que estavam no quadro antigo **foram copiadas para lá como cards de origem "Restrição"**; nada se perdeu.
 - Para ligar uma pendência a um serviço do longo prazo, use **"Criar pendência do serviço"** no painel do bloco, na visão "Linha de Balanço".
+- Para ligar uma pendência a uma linha do Gantt de legalização (um documento, uma vistoria, um serviço do caminho crítico), use **"Criar pendência"** na barra do Gantt de legalização (19/11/2026).
 
 ## O que continua travando o vagão
 O card do Quadro de Restrições não trava vagão. A **restrição impeditiva do vagão** continua existindo e é registrada no detalhe do vagão (Planejamento de vagão, botão "Restrição"): enquanto estiver aberta com "Bloqueia execução", a atividade dela (ou o vagão inteiro, se não há atividade vinculada) não aceita lançamento de progresso ("Resolva a restrição de execução antes de avançar"); com "Bloqueia terminalidade", o vagão não fecha. Restrições impeditivas abertas nos vagões anteriores também impedem a liberação do vagão seguinte. Ao "Gerar vagões", as restrições dos vagões que saem da cauda saem junto (a prévia avisa).`,
@@ -692,10 +693,15 @@ O caminho crítico vem ligado. Crítica é a tarefa com folga total menor ou igu
 
 ## Trazer da Linha de Balanço
 "Trazer da Linha de Balanço" (barra de ferramentas) lista os serviços da visão "Linha de Balanço": "Locais", "Início (1º local)", "Término (último)", "% medido" (última medição salva) e "No Gantt" (linha nova, atualiza a linha LB ou fora da janela). Vêm marcados os que tocam a janela; "Trazer N linhas" confirma. Cada um vira uma linha no fim do grupo "Caminho crítico da obra", com o indicador LB, "Não iniciar antes de" no início da Linha de Balanço, duração em dias úteis e o % medido, sem vínculo: ligue-as às sucessoras (por exemplo, à "Limpeza final") e, se cobrirem "Acabamentos internos dos apartamentos", apague a do modelo.
-Tudo entra no rascunho: nada é gravado antes de "Revisar e salvar". Trazer de novo atualiza só início, duração e % das linhas LB; nome, vínculos e as outras linhas ficam. A Linha de Balanço não mexe no Gantt sozinha: ele só muda quando você traz de novo.
+O que for trazido é salvo sozinho em seguida, como qualquer alteração do cronograma. Trazer de novo atualiza só início, duração e % das linhas LB; nome, vínculos e as outras linhas ficam. A Linha de Balanço não mexe no Gantt sozinha: ele só muda quando você traz de novo.
 
 ## Salvar e linha de base
-Como no médio prazo: a grade abre bloqueada ("Liberar edição"), toda edição fica em rascunho, "Revisar e salvar" pede o motivo e "Definir linha de base" congela as datas gravadas, só quando você clicar.
+Como no médio prazo: a grade abre bloqueada ("Liberar edição"), cada alteração é salva sozinha (sem revisão nem motivo, desde 17/11/2026), um lembrete aparece enquanto não houver linha de base e "Definir linha de base" congela as datas gravadas, só quando você clicar.
+
+## Criar pendência a partir de uma linha
+Desde 19/11/2026, "Criar pendência", na barra de ferramentas do Gantt (ao lado de "Informações") e no rodapé de "Informações da tarefa", cria um card no "Quadro de Restrições" (aba 1.4) ligado à linha selecionada, como no médio prazo e na Linha de Balanço. Você informa só o título, o tempo de execução em dias úteis e o responsável: a entrega é o dia útil anterior ao início da linha e acompanha a reprogramação (mudou a data da linha, muda a entrega do card). As anotações da linha entram na descrição do card criado sem descrição. Funciona com a grade bloqueada e não altera o cronograma.
+
+O botão fica desabilitado, com o motivo ao passar o mouse, em tarefa-resumo e em linha nova ou com alteração ainda não salva ("Espere o cronograma salvar antes de criar a pendência"). Só aparece para quem tem o Quadro de Restrições (aba 1.4) liberado; o perfil não muda isso. No quadro, o card aparece com a origem "Gantt de legalização · nome da linha" e entra no filtro de origem "Médio prazo" (as duas origens são tarefas de cronograma). Se a linha for excluída do Gantt, o card fica com a última data gravada e avisa. No formulário "+ Nova pendência" do próprio quadro, a lista "Ligar a" ainda não oferece as linhas do Gantt de legalização: crie pelo botão do Gantt.
 
 ## Quem vê e quem edita
 Quem tem a aba 1.1 (módulo "Longo prazo") vê o Gantt, sem precisar do médio prazo. Planejador, gestor e admin criam, alteram a entrega, trazem da Linha de Balanço, salvam e definem linha de base; o perfil de consulta só vê.

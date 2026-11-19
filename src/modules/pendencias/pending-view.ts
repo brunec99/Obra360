@@ -81,10 +81,13 @@ export function cardsByStatus(cards: readonly PendingCard[]): Record<PendingStat
 export const filterOrigins = (cards: readonly Pick<PendingCard, 'origin'>[]): PendingOrigin[] =>
   PENDING_ORIGINS.filter(origin => origin !== 'restricao' || cards.some(card => card.origin === 'restricao'));
 
-/** "Médio prazo · Forro de gesso 5º pav." nos cards ligados a tarefa ou serviço; nos demais, só a origem. */
-export function originLabel(card: Pick<PendingCard, 'origin' | 'sourceLabel'>): string {
+/** "Médio prazo · Forro de gesso 5º pav." nos cards ligados a tarefa ou serviço; nos demais, só a origem.
+ * O card nascido de uma linha do Gantt de legalização (19/11/2026) é gravado com a origem das tarefas
+ * (`medio_prazo`), mas aparece como "Gantt de legalização · Habite-se": é da aba 1.1, não do plano do mês. */
+export function originLabel(card: Pick<PendingCard, 'origin' | 'sourceLabel' | 'sourceLegalization'>): string {
   const linked = card.origin === 'medio_prazo' || card.origin === 'longo_prazo';
-  return linked && card.sourceLabel ? `${PENDING_ORIGIN_LABELS[card.origin]} · ${card.sourceLabel}` : PENDING_ORIGIN_LABELS[card.origin];
+  const origin = card.origin === 'medio_prazo' && card.sourceLegalization ? 'Gantt de legalização' : PENDING_ORIGIN_LABELS[card.origin];
+  return linked && card.sourceLabel ? `${origin} · ${card.sourceLabel}` : origin;
 }
 /** A entrega acompanha a tarefa ou o serviço de origem (regras 4 e 5): não é digitada. */
 export const isLinked = (card: Pick<PendingCard, 'origin'>) => card.origin === 'medio_prazo' || card.origin === 'longo_prazo';

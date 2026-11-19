@@ -1,3 +1,4 @@
+import { taskTeamIds } from './entities';
 import type {
   Activity,
   Baseline,
@@ -73,7 +74,7 @@ export function teamLoad(teamId: string, start: LocalDate, end: LocalDate, data:
   const activities = data.activities.filter(a => a.teamId === teamId && a.plannedStart <= end && a.plannedEnd >= start);
   // Gantt de legalização (04/11/2026, regra 17): fica só na aba 1 e não é carga do plano do mês.
   const tasks = data.planTasks.filter(t => {
-    if (t.teamId !== teamId || t.plannedStart > end || t.plannedEnd < start) return false;
+    if (!taskTeamIds(t).includes(teamId) || t.plannedStart > end || t.plannedEnd < start) return false;
     const plan = data.plans.find(p => p.id === t.planId);
     return !plan?.frozenAt && !isLegalizationPlan(plan);
   });

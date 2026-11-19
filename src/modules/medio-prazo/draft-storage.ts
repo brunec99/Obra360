@@ -2,7 +2,7 @@ import type { PlanDependency, PlanTask } from '@/domain/entities';
 import type { WorkCalendar } from '@/domain/plan-schedule';
 
 /** Rascunho automático do cronograma (16/11/2026): o que a pessoa editou e ainda não passou por
- * "Revisar e salvar" fica guardado no localStorage deste navegador, por pessoa e por cronograma, e
+ * o salvamento automático (17/11/2026: antes, "Revisar e salvar") fica guardado no localStorage deste navegador, por pessoa e por cronograma, e
  * volta quando ela reabre o cronograma aqui. Funções puras: a tela (`schedule-sheet.tsx`) só lê e
  * grava pelo que sai daqui.
  *

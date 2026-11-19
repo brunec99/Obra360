@@ -32,7 +32,7 @@ Quadro Kanban no estilo Trello/Pipefy com as pendências que precisam estar reso
 ## As três formas de criar
 
 1. **Na aba 2**, "+ Nova pendência": digita-se a data de término e o tempo de execução. Desde 10/11/2026 (pedido do usuário no mesmo dia), o campo **"Ligar a"** permite, em vez da data manual, prender o card a uma **tarefa do médio prazo** ou a um **serviço do longo prazo**, escolhidos numa lista com o início de cada um (busca pelo nome acima de 8 itens). O card nasce igual ao das formas 2 e 3 (mesma origem, mesma entrega viva). Tarefas oferecidas: as do plano vivo mais recente do médio prazo (o mensal de maior mês, sem linha de base nem legalização), na ordem do cronograma; tarefa-resumo aparece desabilitada, para manter a regra do botão do médio prazo. Serviços oferecidos: os que têm bloco lançado na Linha de Balanço, por início. A lista vem de `GET /api/pendencias/origens` (`pendingSourceOptions`), só leitura, mesma porta do quadro; a ligação é conferida de novo no `create_card`.
-2. **No médio prazo**, botão "Criar pendência" na barra do cronograma (age na linha selecionada) e no rodapé de "Informações da tarefa". Desabilitado, com o motivo na dica, em tarefa-resumo, em linha de base, em tarefa ainda não salva e com edição em andamento. Não aparece no Gantt de legalização.
+2. **No médio prazo**, botão "Criar pendência" na barra do cronograma (age na linha selecionada) e no rodapé de "Informações da tarefa". Desabilitado, com o motivo na dica, em tarefa-resumo, em linha de base, em tarefa ainda não salva e com edição em andamento. Desde 19/11/2026 o mesmo botão aparece no **Gantt de legalização** da aba 1.1 (ver "Gantt de legalização como origem", no fim).
 3. **No longo prazo**, botão "Criar pendência do serviço" no painel do bloco selecionado da Linha de Balanço. A origem é o **serviço** do bloco, e o início é o menor início entre os blocos do serviço.
 
 Em 2 e 3 só se digita o título, o lead time e o responsável. A entrega é o **dia útil anterior ao início** e acompanha a reprogramação: a API recalcula a cada leitura. Se a tarefa ou o serviço deixar de existir, o card fica com a última data gravada e avisa.
@@ -150,3 +150,35 @@ O coordenador de obras do Atmos testou o Quadro de Restrições (aba 1.4) e pedi
 - O texto de 10/11 deste documento e a tabela "Estado" não foram reescritos; continuam descrevendo a entrega original.
 - Os cards avulsos antigos não foram convertidos nem marcados; se o coordenador quiser ligá-los a uma tarefa, não há ação de "ligar depois" no card.
 - A descrição herdada não acompanha mudanças posteriores nas anotações da tarefa.
+
+## Gantt de legalização como origem (19/11/2026)
+
+Pedido do usuário em 19/11/2026: no Gantt de longo prazo (legalização), permitir criar restrições como na Linha de Balanço e no médio prazo.
+
+### Comportamento entregue
+
+- O botão **"Criar pendência"** (barra do cronograma e rodapé de "Informações da tarefa") passou a aparecer também no Gantt de legalização, que reusa a tela do médio prazo. Mesmas regras: só título, lead time e responsável são digitados; a entrega é o dia útil anterior ao início da linha e acompanha a reprogramação; desabilitado em tarefa-resumo e em linha nova ou ainda não salva; só aparece para quem abre o Quadro de Restrições (aba 1.4), qualquer que seja o perfil.
+- No quadro, o card dessa origem aparece como **"Gantt de legalização · nome da linha"**, e o texto da entrega no card diz "a tarefa … do Gantt de legalização".
+- As anotações da linha viram a descrição do card criado sem descrição, como no médio prazo.
+
+### Decisões
+
+- **Sem migração e sem origem nova no banco.** O card é gravado com `origin = 'medio_prazo'` e `source_id` = id da linha (`plan_tasks.id`), que o servidor já aceitava e resolvia (teste "o Gantt de legalização não entra na sucessão" de `tests/pending-commands.test.ts`): a linha do Gantt de legalização segue a si mesma, sem a sucessão mensal. O que mudou no servidor foi só a resposta: `resolvePendingSources` devolve `sourceLegalization: true` quando a tarefa achada é de um plano `kind: 'legalizacao'`. É campo só da resposta, como `sourceStart`; não vai ao banco.
+- Consequência aceita: no filtro de origem do quadro, esses cards entram em "Médio prazo"; e, se a linha for excluída do Gantt (`sourceMissing`), o card volta a dizer "Médio prazo", porque sem a tarefa não há como saber de que plano ela era.
+
+### Arquivos
+
+`src/modules/medio-prazo/schedule-sheet.tsx` (saiu o `!variant` de `canPend`), `src/application/use-cases/pending-commands.ts` (`sourceLegalization` no resolvedor), `src/domain/pending-board.ts`, `src/modules/pendencias/pending-view.ts` (`originLabel`), `src/modules/pendencias/card-dialog.tsx`, tour e manual do longo e do médio prazo.
+
+### Validação (19/11/2026)
+
+Sequência do `ci.yml` rodada local, toda verde: `typecheck`, `lint` (sem erros; só os avisos que já existiam), `format:check`, `npm test` (1.554 testes, incluindo os novos casos de `tests/pending-commands.test.ts` e `tests/pending-view.test.ts` para `sourceLegalization` e o rótulo "Gantt de legalização · …"), `validate:migrations`, `build` e `test:e2e` (10 testes). Sem commit nem publicação.
+
+### Não verificado
+
+- Uso real logado: criar o card a partir de uma linha do Gantt de legalização numa obra de verdade e ver a entrega mudar ao reprogramar a linha. Nenhuma tela foi aberta no navegador nesta entrega.
+
+### Próximas etapas (não implementado)
+
+- Oferecer as linhas do Gantt de legalização no campo "Ligar a" do formulário "+ Nova pendência" do quadro (hoje só tarefas do plano do mês e serviços da Linha de Balanço).
+- Filtro de origem próprio para "Gantt de legalização" no quadro.

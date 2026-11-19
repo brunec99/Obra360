@@ -1,4 +1,4 @@
-import type { Id, LocalDate, MediumTermPlan, PlanningData, PlanTask } from '@/domain/entities';
+import { taskTeamIds, type Id, type LocalDate, type MediumTermPlan, type PlanningData, type PlanTask } from '@/domain/entities';
 import { isMonthlyPlan, newestPlanFirst } from '@/domain/legalization';
 import { DEFAULT_CALENDAR, analyzeSchedule, isMilestone, type ScheduleAnalysis } from '@/domain/plan-schedule';
 import { rollUpPlan } from '@/domain/rules';
@@ -116,7 +116,7 @@ export function buildMediumTermPanel(
   const teams = new Map(data.teams.map(t => [t.id, t]));
   const companyFiltered = hasCompanyFilter(filters);
   // Com recorte, tarefa sem equipe fica de fora: não há empresa pela qual ela entraria.
-  const passes = (task: PlanTask) => !companyFiltered || matchesCompany(filters, task.teamId ? teams.get(task.teamId)?.company : undefined);
+  const passes = (task: PlanTask) => !companyFiltered || taskTeamIds(task).some(id => matchesCompany(filters, teams.get(id)?.company));
 
   const allTasks = data.planTasks.filter(t => t.planId === plan.id);
   const leaves = leavesOf(allTasks);

@@ -606,7 +606,11 @@ test('data viva: resumo usa o menor início das folhas abaixo; o Gantt de legali
   const [resolved] = resolvePendingSources([linkedCard('s')], rows);
   assert.deepEqual([resolved.sourceStart, resolved.dueDate], ['2026-11-18', '2026-11-17']);
   // Card criado de uma linha do Gantt de legalização acompanha a própria linha.
-  assert.equal(resolvePendingSources([linkedCard('l1')], rows)[0].sourceStart, '2026-12-10');
+  const [legal] = resolvePendingSources([linkedCard('l1')], rows);
+  assert.deepEqual([legal.sourceStart, legal.dueDate, legal.sourceLegalization], ['2026-12-10', '2026-12-09', true]);
+  // A marca é só da linha do Gantt de legalização, e não fica presa ao card quando a origem deixa de ser ele.
+  assert.equal(resolved.sourceLegalization, undefined);
+  assert.equal(resolvePendingSources([{ ...linkedCard('s'), sourceLegalization: true }], rows)[0].sourceLegalization, undefined);
 });
 
 test('data viva: origem que sumiu marca sourceMissing e mantém a data gravada', () => {

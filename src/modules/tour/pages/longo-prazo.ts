@@ -213,7 +213,7 @@ export const steps: TourStep[] = [
   {
     target: 'longo-legal-gantt',
     title: 'Gantt de legalização',
-    body: 'O mesmo cronograma do médio prazo (tabela e Gantt do Project, predecessoras, restrições, linha de base, exportação .xml), com a janela de 12 meses até a entrega sombreada. Crítica é a tarefa com folga total ≤ 0; a coluna Folga total já vem à mostra. Tudo fica em rascunho até "Revisar e salvar", com motivo.',
+    body: 'O mesmo cronograma do médio prazo (tabela e Gantt do Project, predecessoras, restrições, linha de base, exportação .xml), com a janela de 12 meses até a entrega sombreada. Crítica é a tarefa com folga total ≤ 0; a coluna Folga total já vem à mostra. Cada alteração é salva sozinha; o histórico fica na linha de base.',
   },
   {
     target: 'longo-legal-resumo',
@@ -229,6 +229,12 @@ export const steps: TourStep[] = [
     target: 'longo-legal-trazer-lb',
     title: 'Trazer da Linha de Balanço',
     body: 'Uma linha por serviço da Linha de Balanço, com início do primeiro local, término do último e % medido, no grupo "Caminho crítico da obra" com o indicador LB. Entra no rascunho; trazer de novo atualiza só essas linhas.',
+  },
+  {
+    // O botão é o da tela do médio prazo, que o Gantt de legalização reusa: a marcação é a mesma.
+    target: 'medio-criar-pendencia',
+    title: 'Criar pendência',
+    body: 'Cria um card no Quadro de Restrições (aba 1.4) ligado à linha selecionada do Gantt de legalização. Você informa só o título, o tempo de execução em dias úteis e o responsável: a entrega é o dia útil anterior ao início da linha e acompanha a reprogramação. Não vale para tarefa-resumo, e linha nova ou alterada espera o cronograma salvar. O mesmo botão está no rodapé de "Informações da tarefa". Só aparece para quem tem a aba 1.4 liberada.',
   },
 
   // ─── Planejador ───────────────────────────────────────────────────────────────

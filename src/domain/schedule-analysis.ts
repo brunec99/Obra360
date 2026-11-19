@@ -1,4 +1,4 @@
-import type { Id, LocalDate, PlanningData, PlanTask, Team } from './entities';
+import { taskTeamIds, type Id, type LocalDate, type PlanningData, type PlanTask, type Team } from './entities';
 import { isMonthlyPlan } from './legalization';
 import { DEFAULT_CALENDAR, countedDays, type WorkCalendar } from './plan-schedule';
 import { rollUpPlan } from './rules';
@@ -53,7 +53,7 @@ export function weeklyTeamLoad(data: PlanningData, workId: Id, from: LocalDate, 
 
   const sequenceIds = new Set(data.sequences.filter(s => s.workId === workId).map(s => s.id));
   const wagons = new Map(data.wagons.filter(w => sequenceIds.has(w.sequenceId)).map(w => [w.id, w]));
-  const items: (LoadItem & { teamId?: Id })[] = data.activities
+  const items: (LoadItem & { teamId?: Id; teamIds?: Id[] })[] = data.activities
     .filter(a => wagons.has(a.wagonId))
     .map(a => ({
       kind: 'atividade',
@@ -77,6 +77,8 @@ export function weeklyTeamLoad(data: PlanningData, workId: Id, from: LocalDate, 
           plannedStart: task.plannedStart,
           plannedEnd: task.plannedEnd,
           teamId: task.teamId,
+          // Mais de um recurso (17/11/2026): a tarefa entra na carga de cada equipe.
+          teamIds: taskTeamIds(task),
           source: plan.name,
         });
   }
@@ -91,13 +93,13 @@ export function weeklyTeamLoad(data: PlanningData, workId: Id, from: LocalDate, 
     .filter(t => t.workId === workId)
     .sort((a, b) => a.company.localeCompare(b.company, 'pt-BR') || a.name.localeCompare(b.name, 'pt-BR'))
     .map(team => {
-      const owned = items.filter(i => i.teamId === team.id);
+      const owned = items.filter(i => (i.teamIds ?? [i.teamId]).includes(team.id));
       const rows = weeks.map(week => weekOf(week, owned, team.weeklyCapacity, true));
       return { team, weeks: rows, peak: Math.max(0, ...rows.map(r => r.load)), overloadedWeeks: rows.filter(r => r.overloaded).length };
     });
   // Equipe de outra obra ou apagada conta como "sem equipe": para esta obra, ninguém responde por ela.
   const known = new Set(teams.map(t => t.team.id));
-  const loose = items.filter(i => !i.teamId || !known.has(i.teamId));
+  const loose = items.filter(i => !(i.teamIds ?? [i.teamId]).some(id => id && known.has(id)));
   return { weeks, teams, unassigned: weeks.map(week => weekOf(week, loose, 0, false)) };
 }
 

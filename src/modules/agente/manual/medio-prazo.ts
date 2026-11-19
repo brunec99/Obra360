@@ -63,10 +63,15 @@ A barra de seções fica no cabeçalho da aba. A seção vai no endereço da pá
   },
   {
     id: 'medio-prazo-criar-salvar-exportar',
-    title: 'Criar o cronograma do mês, salvar o rascunho e exportar',
+    title: 'Criar o cronograma do mês, salvamento automático e exportar',
     summary:
-      'Novo cronograma (em branco, cópia ou importado do MS Project), cadeado, rascunho, "Revisar e salvar" com motivo, conflito de versão, descartar e .xml.',
+      'Novo cronograma (em branco, cópia ou importado do MS Project), cadeado, salvamento automático, lembrete da linha de base, conflito de versão e .xml.',
     keywords: [
+      'salvamento automático',
+      'salvar sozinho',
+      'não salvo',
+      'tentar salvar de novo',
+      'lembrete linha de base',
       'criar cronograma',
       'novo cronograma do mês',
       'dois cronogramas no mesmo mês',
@@ -121,23 +126,20 @@ O seletor "Mês" troca entre os meses criados, do mais recente ao mais antigo; a
 
 A grade abre com cadeado, contra alteração acidental em reunião. "Liberar edição" destrava as células; "Bloquear" trava de novo. Consulta não consegue liberar. As setas ao lado desfazem e refazem (Ctrl+Z e Ctrl+Y) e valem na tela inteira, inclusive no Gantt e no Planejador.
 
-## Rascunho e "Revisar e salvar"
+## Salvamento automático (desde 17/11/2026)
 
-- Toda edição (célula, Gantt, Planejador, Informações da tarefa, calendário, Linha do Tempo, exclusão) fica em **rascunho** no navegador. Nada vai ao banco antes de salvar. O contador diz "N tarefas alteradas · não salvo" ou "Tudo salvo"; as células alteradas ficam marcadas, e o filtro "Alteradas no rascunho" lista as linhas.
-- "Revisar e salvar" abre "Revisar atualização": tarefas alteradas e excluídas, cada campo de antes para depois (inclusive "Predecessoras" e "Calendário alterado nesta revisão") e o campo obrigatório "Motivo da atualização". "Salvar alterações" grava tudo numa revisão só; "Voltar ao rascunho" fecha sem gravar. Sucesso: "Cronograma salvo".
-- O motivo fica no "Histórico da tarefa" (painel de detalhes; abra para carregar), com data, autor e cada campo de antes para depois.
-- **Se outra pessoa salvou antes:** "Outra pessoa alterou o cronograma. Atualize a página antes de salvar novamente; nenhuma alteração foi gravada." Recarregue a página: desde 16/11/2026 o rascunho volta (veja "Rascunho automático") com o aviso âmbar, e a pessoa escolhe entre "Usar sobre a versão atual" e "Descartar rascunho".
-- **Rascunho automático (16/11/2026):** o que foi editado e ainda não passou por "Revisar e salvar" fica guardado **só no navegador em que foi feito**, por pessoa e por cronograma, menos de meio segundo depois de cada alteração (e na hora ao fechar ou trocar de aba). Fechar a aba, o navegador cair, o computador desligar ou a sessão expirar não perde mais o trabalho. Ao reabrir o cronograma nesse navegador, o rascunho volta com o aviso "Rascunho não salvo recuperado, guardado neste navegador em dd/mm às hh:mm. Ele ainda não está no sistema.", com "Revisar e salvar" e "Descartar rascunho" (pede confirmação). Se alguém salvou o cronograma no sistema depois que o rascunho começou, o aviso fica âmbar e o "Revisar e salvar" fica barrado: a pessoa descarta e fica com a versão do sistema, ou usa "Usar sobre a versão atual", que passa a contar as alterações contra a versão atual e mostra na revisão o que muda antes de gravar por cima. Salvar ou descartar apaga o rascunho guardado. Limites: em outro computador ou navegador o rascunho não aparece (não fica no sistema); a pilha do Ctrl+Z não volta; a célula que estava sendo digitada e não foi confirmada não é guardada; com duas abas no mesmo cronograma, vale a última que gravou. Perfil consulta e linha de base não guardam rascunho. Se o navegador não deixar guardar (espaço cheio ou bloqueado), aparece uma vez "Rascunho não guardado neste navegador".
-- Outras recusas do servidor: "Datas divergentes do cálculo. Revise o rascunho antes de salvar." (recarregue e tente de novo); "Revisão excede o limite de 3000 tarefas ou 10000 vínculos."; "Linha N: tarefa-resumo não recebe restrição nem prazo final; informe nas subtarefas."
-- Aviso azul ao abrir ("N tarefas foram ajustadas à regra do Project ao abrir"): um plano antigo foi acertado às regras atuais; o ajuste vai ao banco no próximo "Revisar e salvar".
-
-## Descartar e sair
-
-"Descartar rascunho" (aparece com alteração não salva) pergunta "Descartar todas as alterações não salvas?" e devolve as tarefas ao que está gravado ("Descartar" ou "Manter rascunho"). Clicar em um link com rascunho aberto pergunta "Sair sem salvar no sistema?", explicando que o rascunho fica guardado só neste navegador e volta ao reabrir o cronograma aqui ("Sair sem salvar" ou "Continuar editando"); fechar a aba do navegador também avisa.
+- **Não existe mais "Revisar e salvar" nem motivo.** Toda edição (célula, Gantt, Planejador, Informações da tarefa, calendário, Linha do Tempo, exclusão) é gravada no sistema sozinha, cerca de um segundo depois da última alteração. Ao lado do seletor de mês aparece "Salvando…" e depois "Tudo salvo". A edição não espera a gravação, e Ctrl+Z e Ctrl+Y continuam valendo depois de salvo (desfazer também é gravado).
+- **O histórico de versões é a linha de base.** Enquanto o cronograma não tiver nenhuma, um aviso azul lembra: "Este cronograma ainda não tem linha de base", com o botão "Definir linha de base agora". Defina uma ao fechar o planejamento e outra a cada replanejamento; as anotações da tarefa servem para registrar o porquê de uma mudança.
+- O "Histórico da tarefa" (painel de detalhes) continua mostrando data, autor e cada campo de antes para depois, com o motivo "Salvamento automático".
+- **Se o servidor recusar** (por exemplo "Linha N: tarefa-resumo não recebe restrição nem prazo final", "Datas divergentes do cálculo" ou queda da internet): aparece "Não salvo: (motivo)" em vermelho e o botão "Tentar salvar de novo". Corrigir a tarefa ou fazer outra alteração tenta de novo sozinho. "Descartar alterações não salvas" (rodapé) volta ao que está gravado.
+- **Se outra pessoa salvou antes** (ou você em outra aba ou computador): aparece "Não salvo: o cronograma mudou no sistema" e um aviso âmbar com "Usar sobre a versão atual" (grava as suas alterações por cima do que está lá) e "Descartar alterações" (fica com a versão do sistema). Não há junção das duas versões.
+- **Cópia de segurança no navegador:** o que ainda não chegou ao sistema (internet caiu, a aba foi fechada no segundo da gravação) fica guardado só no navegador em que foi feito e é gravado sozinho quando o cronograma é reaberto ali. Em outro computador ela não aparece. Perfil consulta e linha de base não editam nem guardam nada.
+- Sair da tela com gravação pendente pergunta "Sair antes de terminar de salvar?"; fechar a aba também avisa. Espere "Tudo salvo".
+- Aviso azul ao abrir ("N tarefas foram ajustadas à regra do Project ao abrir"): um plano antigo foi acertado às regras atuais; o ajuste é gravado junto com a próxima alteração.
 
 ## Exportar para o Project
 
-"Exportar para o Project (.xml)" (rodapé) baixa o cronograma como está na tela, inclusive o rascunho não salvo, com restrições, prazos finais, folgas, caminho crítico e a linha de base exibida. O arquivo tem o nome do plano e abre no MS Project com as mesmas datas (o Project recalcula ao abrir). Limitação: os nomes dos recursos não vão no arquivo; a coluna chega vazia no Project. Disponível a todos os perfis; desligado com cronograma vazio.`,
+"Exportar para o Project (.xml)" (rodapé) baixa o cronograma como está na tela, inclusive o que ainda estiver salvando, com restrições, prazos finais, folgas, caminho crítico e a linha de base exibida. O arquivo tem o nome do plano e abre no MS Project com as mesmas datas (o Project recalcula ao abrir). Limitação: os nomes dos recursos não vão no arquivo; a coluna chega vazia no Project. Disponível a todos os perfis; desligado com cronograma vazio.`,
   },
   {
     id: 'medio-prazo-colunas-indicadores-gantt',
@@ -272,7 +274,7 @@ Ctrl+D copia a primeira linha da seleção para as de baixo, com as mesmas regra
 
 ## Excluir
 
-O botão de lixeira ("Excluir tarefa e subitens") pergunta "Excluir X e N subitens?". A exclusão leva os subitens e os vínculos da tarefa, fica no rascunho, se desfaz com Ctrl+Z e só vai ao banco em "Revisar e salvar".
+O botão de lixeira ("Excluir tarefa e subitens") pergunta "Excluir X e N subitens?". A exclusão leva os subitens e os vínculos da tarefa, é salva sozinha em seguida e se desfaz com Ctrl+Z.
 
 **Várias tarefas de uma vez** (16/11/2026): selecione as linhas com Shift+clique ou Shift+setas (em qualquer coluna) e use a lixeira, que passa a dizer "Excluir as N tarefas selecionadas". A pergunta é uma só, "Excluir N tarefas e M subitens?", com a lista das linhas (Id · nome, até 8 e "e mais N"). Cada linha leva os subitens, inclusive recolhidos; a subtarefa selecionada junto com o resumo dela não conta duas vezes. Saem também todos os vínculos que tocam qualquer tarefa excluída, e as sucessoras são reagendadas. É um passo só do Ctrl+Z.
 
@@ -290,7 +292,7 @@ O botão de lixeira ("Excluir tarefa e subitens") pergunta "Excluir X e N subite
 
 "Criar pendência", na barra de ferramentas (ao lado de "Informações") e no rodapé de "Informações da tarefa", cria um card no "Quadro de Restrições" (aba 1.4) ligado à tarefa selecionada. Você informa só o título, o tempo de execução em dias úteis e o responsável: a **entrega é o dia útil anterior ao início da tarefa** e acompanha a reprogramação (mudou a data da tarefa, muda a entrega do card). Funciona com a grade bloqueada e não altera o cronograma.
 
-O botão fica desabilitado, com o motivo ao passar o mouse, em tarefa-resumo, em linha de base e em tarefa nova ou com alteração ainda não salva ("Salve o cronograma antes de criar a pendência": use "Revisar e salvar" primeiro). No diálogo, com algo digitado e ainda não aplicado, ele também espera o "OK". Só aparece para quem tem o Quadro de Restrições (aba 1.4) liberado, e não existe no Gantt de legalização da aba 1.
+O botão fica desabilitado, com o motivo ao passar o mouse, em tarefa-resumo, em linha de base e em tarefa nova ou com alteração ainda não salva ("Espere o cronograma salvar antes de criar a pendência"). No diálogo, com algo digitado e ainda não aplicado, ele também espera o "OK". Só aparece para quem tem o Quadro de Restrições (aba 1.4) liberado. Desde 19/11/2026 o mesmo botão existe no Gantt de legalização da aba 1.1 (veja "Gantt de legalização").
 
 ## Editar pelas barras e pelo Planejador
 
@@ -298,7 +300,7 @@ No Gantt, com a edição liberada: arrastar a barra muda o início (cria "Não i
 
 ## Linha do Tempo
 
-"Adicionar à Linha do Tempo" põe as tarefas selecionadas na faixa (resumos e marcos também); vira "Remover da Linha do Tempo" quando a tarefa ativa já está nela. É edição do rascunho: desfaz com Ctrl+Z e vai ao banco em "Revisar e salvar".`,
+"Adicionar à Linha do Tempo" põe as tarefas selecionadas na faixa (resumos e marcos também); vira "Remover da Linha do Tempo" quando a tarefa ativa já está nela. É salvo sozinho e desfaz com Ctrl+Z.`,
   },
   {
     id: 'medio-prazo-predecessoras-agendamento',
@@ -385,7 +387,7 @@ Aceita "10 dias" (úteis), "10 dias corridos", "8h", "1 mês" (converte pelos "D
 
 ## Calendário de trabalho
 
-Em "Calendário de trabalho" (abaixo do cronograma; edita-se com a edição liberada): dias úteis da semana (padrão segunda a sexta), "Horas por dia" (padrão 8), "Dias por mês" (padrão 20) e o botão "Dias sem trabalho", com o resumo ao lado ("3 dias no período: 20/11, 24/12, 25/12"). Horas e dias por mês convertem durações em "h" e em meses. Mudar o calendário reagenda todas as tarefas e vai ao banco em "Revisar e salvar" ("Calendário alterado nesta revisão.").
+Em "Calendário de trabalho" (abaixo do cronograma; edita-se com a edição liberada): dias úteis da semana (padrão segunda a sexta), "Horas por dia" (padrão 8), "Dias por mês" (padrão 20) e o botão "Dias sem trabalho", com o resumo ao lado ("3 dias no período: 20/11, 24/12, 25/12"). Horas e dias por mês convertem durações em "h" e em meses. Mudar o calendário reagenda todas as tarefas e é salvo sozinho.
 
 ### Dias sem trabalho (feriados, pontos facultativos e recessos)
 
@@ -518,6 +520,9 @@ A seção "Linha de base" da aba compara o plano vivo com uma linha de base cong
     keywords: [
       'recurso',
       'recursos',
+      'mais de um recurso',
+      'dois recursos',
+      'várias equipes',
       'equipe',
       'empreiteiro',
       'capacidade semanal',
@@ -539,7 +544,7 @@ Os recursos do cronograma são as **equipes cadastradas na obra**, em Configura�
 
 ## Atribuir
 
-Na coluna "Nomes dos recursos", escolha na lista "empresa · equipe" ("Sem recurso" tira a equipe). Ao colar texto, vale o nome da equipe ou da empresa; fora do cadastro: "Escolha um recurso cadastrado na obra." Também dá para atribuir na aba "Recursos" das Informações, arrastando no Planejador de Equipe ou pelo seletor "Atribuir a". Resumo não recebe recurso. O recurso alimenta o filtro por recurso, "Recursos nas barras" e as visões abaixo.
+Na coluna "Nomes dos recursos", escolha na lista "empresa · equipe" ("Sem recurso" tira a equipe). **Mais de um recurso (desde 17/11/2026):** a opção "Mais de um recurso…" da lista abre a aba "Recursos" das Informações da tarefa, com uma caixa de marcar por equipe; a coluna mostra todas, separadas por ponto e vírgula. Ao colar ou digitar texto, vale o nome da equipe ou da empresa, com ponto e vírgula entre várias ("Elétrica;Revestimentos"); fora do cadastro: "Recurso “X” não está cadastrado na obra." A tarefa com várias equipes aparece na linha de cada uma no Planejador de Equipe e no Uso dos Recursos e conta inteira na carga de cada uma (pode superalocar cada equipe). Arrastar no Planejador troca só a equipe da linha de onde a tarefa saiu. O filtro por recurso acha a tarefa por qualquer das equipes. Também dá para atribuir pelo seletor "Atribuir a" (troca o primeiro recurso). Resumo não recebe recurso. O recurso alimenta o filtro por recurso, "Recursos nas barras" e as visões abaixo.
 
 ## Planejador de Equipe
 

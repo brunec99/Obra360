@@ -1,4 +1,4 @@
-import type { Id, LocalDate, PlanTask, Team } from './entities';
+import { taskTeamIds, type Id, type LocalDate, type PlanTask, type Team } from './entities';
 import { DEFAULT_CALENDAR, isWorking, type TaskSchedule, type WorkCalendar } from './plan-schedule';
 import { addDays, validatePeriod } from './validation';
 
@@ -14,6 +14,9 @@ export interface ResourceTask {
   start: LocalDate;
   end: LocalDate;
   teamId?: Id;
+  /** Todos os recursos da tarefa (17/11/2026), o primeiro inclusive: ela aparece na linha de cada um
+   * e ocupa cada um por inteiro. Ausente em quem monta a tarefa à mão: vale só `teamId`. */
+  teamIds?: Id[];
   progress: number;
   milestone: boolean;
   critical: boolean;
@@ -50,6 +53,9 @@ export interface DayLoad {
   over: boolean;
 }
 
+/** Os recursos de uma tarefa da carga: a lista, ou só o primeiro quando ela não veio. */
+export const resourceTeamIds = (task: Pick<ResourceTask, 'teamId' | 'teamIds'>): Id[] => task.teamIds ?? (task.teamId ? [task.teamId] : []);
+
 /** Capacidade em atividades simultâneas; cadastro zerado ou inválido vale 1, como as "Unidades
  * máximas" de 100% que o Project dá a todo recurso novo. */
 export const capacityOf = (team: Pick<Team, 'weeklyCapacity'>) =>
@@ -83,6 +89,7 @@ export function resourceTasks(tasks: PlanTask[], info: ReadonlyMap<Id, TaskSched
         start,
         end,
         teamId: t.teamId,
+        teamIds: taskTeamIds(t),
         progress: t.progress,
         milestone,
         critical: !!schedule?.critical,
@@ -141,10 +148,10 @@ export function resourceRows(tasks: ResourceTask[], teams: Team[], calendar: Wor
   const rows = sorted.map(team =>
     row(
       team,
-      tasks.filter(t => t.teamId === team.id),
+      tasks.filter(t => resourceTeamIds(t).includes(team.id)),
     ),
   );
-  const loose = tasks.filter(t => !t.teamId || !known.has(t.teamId));
+  const loose = tasks.filter(t => !resourceTeamIds(t).some(id => known.has(id)));
   if (loose.length) rows.push(row(null, loose));
   return rows;
 }

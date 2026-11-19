@@ -14,7 +14,14 @@ import {
 import { AlertTriangle, Check, ChevronDown, ChevronRight, GripHorizontal } from 'lucide-react';
 import type { PlanTask, Team } from '@/domain/entities';
 import { nextWorking, previousWorking, shift, type TaskSchedule, type WorkCalendar } from '@/domain/plan-schedule';
-import { overallocatedTaskIds, resourceRows, resourceTasks, type ResourceRow, type ResourceTask } from '@/domain/resource-usage';
+import {
+  overallocatedTaskIds,
+  resourceRows,
+  resourceTasks,
+  resourceTeamIds,
+  type ResourceRow,
+  type ResourceTask,
+} from '@/domain/resource-usage';
 import { HelpNote } from '@/modules/layout/help-note';
 import { CHART, STATUS } from '@/shared/palette';
 import {
@@ -70,7 +77,8 @@ export interface TeamPlannerProps {
   /** Sem edição, nada arrasta e o seletor de equipe fica bloqueado. */
   canEdit: boolean;
   /** `teamId` ausente tira a equipe da tarefa. */
-  onAssign: (taskId: string, teamId: string | undefined) => void;
+  /** `fromTeamId` é a linha de onde a tarefa saiu: com mais de um recurso, só esse é trocado. */
+  onAssign: (taskId: string, teamId: string | undefined, fromTeamId?: string) => void;
   /** Novo início (AAAA-MM-DD), já num dia útil do calendário. */
   onMove: (taskId: string, start: string) => void;
   onOpenTask?: (id: string) => void;
@@ -231,6 +239,8 @@ export interface PlannerDrop {
   /** Muda a equipe; `teamId` ausente tira a equipe. */
   assign: boolean;
   teamId?: string;
+  /** Equipe da linha de origem (tarefa com mais de um recurso troca só esta). */
+  fromTeamId?: string;
   /** Novo início, quando o arrasto mudou a data. */
   start?: string;
 }
@@ -249,7 +259,7 @@ export function resolveDrop(
   const assign = to !== from;
   const moved = !startLocked(task) && validDate(start) && start !== task.start ? start : undefined;
   if (!assign && !moved) return undefined;
-  return { assign, teamId: assign ? teamIdOfKey(to) : undefined, start: moved };
+  return { assign, teamId: assign ? teamIdOfKey(to) : undefined, fromTeamId: assign ? teamIdOfKey(from) : undefined, start: moved };
 }
 
 /** Altura da linha de um recurso com `lanes` subfaixas à mostra. */
@@ -499,7 +509,7 @@ export function TeamPlanner({
 
   const apply = (task: ResourceTask, drop: PlannerDrop) => {
     onSelect(task.id);
-    if (drop.assign) onAssign(task.id, drop.teamId);
+    if (drop.assign) onAssign(task.id, drop.teamId, drop.fromTeamId);
     if (drop.start) onMove(task.id, drop.start);
     const said = [
       drop.assign ? (drop.teamId ? `atribuída a ${teamName.get(drop.teamId) ?? 'outra equipe'}` : 'sem equipe') : '',
@@ -575,7 +585,7 @@ export function TeamPlanner({
     if (event.shiftKey && canEdit && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       event.preventDefault();
       const to = adjacentRowKey(rowKeys, from, event.key === 'ArrowDown' ? 1 : -1);
-      if (to) apply(task, { assign: true, teamId: teamIdOfKey(to) });
+      if (to) apply(task, { assign: true, teamId: teamIdOfKey(to), fromTeamId: teamIdOfKey(from) });
       return;
     }
     if (event.shiftKey && canEdit && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
@@ -618,7 +628,14 @@ export function TeamPlanner({
   const renderBlock = (task: ResourceTask, lane: number, from: string, next: ResourceTask | undefined): ReactNode => {
     const over = conflicts.has(task.id);
     const tone = blockTone(task, over);
-    const tooltip = plannerTooltip(task, task.teamId && known.has(task.teamId) ? teamName.get(task.teamId) : undefined, over);
+    const tooltip = plannerTooltip(
+      task,
+      resourceTeamIds(task)
+        .filter(id => known.has(id))
+        .map(id => teamName.get(id))
+        .join('; ') || undefined,
+      over,
+    );
     const selected = task.id === selectedId;
     const top = ROW_PAD + lane * PLANNER_LANE_PX + BLOCK_INSET;
     const height = PLANNER_LANE_PX - BLOCK_INSET * 2;
@@ -839,7 +856,7 @@ export function TeamPlanner({
             onChange={event => {
               const teamId = event.target.value || undefined;
               if (selectedTask && rowKeyOf(teamId, known) !== rowKeyOf(selectedTask.teamId, known))
-                apply(selectedTask, { assign: true, teamId });
+                apply(selectedTask, { assign: true, teamId, fromTeamId: selectedTask.teamId });
             }}
           >
             <option value="">{selectedTask ? 'Sem equipe' : 'Selecione uma tarefa'}</option>

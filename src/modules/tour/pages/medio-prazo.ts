@@ -42,8 +42,8 @@ export const steps: TourStep[] = [
   },
   {
     target: 'medio-salvar',
-    title: 'Revisar e salvar',
-    body: 'Toda edição fica em rascunho, e o contador diz quantas tarefas mudaram. "Revisar e salvar" lista cada mudança, de antes para depois, e pede o motivo, que fica no histórico da tarefa. Se outra pessoa salvou antes, nada é gravado.',
+    title: 'Salvamento automático',
+    body: 'Cada alteração é salva sozinha, cerca de um segundo depois: aqui aparece "Salvando…" e depois "Tudo salvo". Não há revisão nem motivo: o histórico de versões é a linha de base. Se o servidor recusar, aparece o motivo e "Tentar salvar de novo"; se outra pessoa salvou antes, um aviso deixa escolher entre a versão do sistema e a sua.',
   },
   {
     target: 'medio-modo-exibicao',
@@ -78,7 +78,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-excluir',
     title: 'Excluir tarefas',
-    body: 'Exclui a tarefa selecionada e os subitens dela, depois de confirmar. Para excluir várias de uma vez, selecione as linhas com Shift+clique ou Shift+setas. A tecla Delete no Id ou no Nome faz o mesmo. A exclusão fica no rascunho, dá para desfazer com Ctrl+Z e só vai ao banco em "Revisar e salvar".',
+    body: 'Exclui a tarefa selecionada e os subitens dela, depois de confirmar. Para excluir várias de uma vez, selecione as linhas com Shift+clique ou Shift+setas. A tecla Delete no Id ou no Nome faz o mesmo. A exclusão é salva sozinha em seguida e dá para desfazer com Ctrl+Z.',
   },
   {
     target: 'medio-informacoes',
@@ -93,7 +93,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-linha-tempo-adicionar',
     title: 'Adicionar à Linha do Tempo',
-    body: 'Põe as tarefas selecionadas na Linha do Tempo, ou as tira, se a ativa já estiver nela; resumos e marcos também entram. É edição do rascunho: desfaz com Ctrl+Z e vai ao banco em "Revisar e salvar".',
+    body: 'Põe as tarefas selecionadas na Linha do Tempo, ou as tira, se a ativa já estiver nela; resumos e marcos também entram. É salvo sozinho e desfaz com Ctrl+Z.',
   },
   {
     target: 'medio-rolar-tarefa',
@@ -198,7 +198,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-col-recursos',
     title: 'Nomes dos recursos',
-    body: 'Escolha na lista a equipe cadastrada na obra (empresa · equipe). O recurso alimenta o filtro por recurso e a carga das seções Equipes e Recursos.',
+    body: 'Escolha na lista a equipe cadastrada na obra (empresa · equipe). Para pôr mais de uma, use "Mais de um recurso…" e marque as equipes; a tarefa conta na carga de cada uma. O recurso alimenta o filtro por recurso e a carga das seções Equipes e Recursos.',
   },
   {
     target: 'medio-col-tardias',
@@ -318,7 +318,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-calendario',
     title: 'Calendário de trabalho',
-    body: 'Dias úteis da semana, horas por dia e dias por mês do plano; horas e dias por mês convertem durações em "h" e em meses. "Dias sem trabalho" abre um calendário de três meses: clique marca feriado, arrastar ou Shift+clique marca um recesso, e um botão marca os feriados nacionais. Mudar o calendário reagenda todas as tarefas e vai ao banco em "Revisar e salvar".',
+    body: 'Dias úteis da semana, horas por dia e dias por mês do plano; horas e dias por mês convertem durações em "h" e em meses. "Dias sem trabalho" abre um calendário de três meses: clique marca feriado, arrastar ou Shift+clique marca um recesso, e um botão marca os feriados nacionais. Mudar o calendário reagenda todas as tarefas e é salvo sozinho.',
   },
   {
     target: 'medio-exportar',
@@ -342,8 +342,8 @@ export const steps: TourStep[] = [
   },
   {
     target: 'medio-descartar',
-    title: 'Descartar rascunho',
-    body: 'Aparece com alteração não salva: depois de confirmar, devolve todas as tarefas ao que está gravado. Sair da página com rascunho aberto também pede confirmação.',
+    title: 'Descartar alterações não salvas',
+    body: 'Só aparece quando o salvamento automático não conseguiu gravar (recusa do servidor ou cronograma alterado por outra pessoa): depois de confirmar, devolve as tarefas ao que está gravado.',
   },
 
   // ————— Seção Próximos 90 dias —————

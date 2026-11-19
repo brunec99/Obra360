@@ -26,7 +26,7 @@ import type {
   Wagon,
   WeeklyCommitment,
 } from '../../domain/entities';
-import { LINK_TYPES, NON_FULFILLMENT_CAUSES } from '../../domain/entities';
+import { LINK_TYPES, NON_FULFILLMENT_CAUSES, taskTeamIds } from '../../domain/entities';
 import { actsAsManager, isTerminal, leadTimeDeadline, validateActivity, validateSequence } from '../../domain/rules';
 import { planSequenceRegeneration } from './regenerate-sequence';
 import { LONG_TERM_PREFIX, planLongTermSync, type LongTermSlot } from './sync-long-term-plan';
@@ -984,7 +984,7 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       // Apagar a equipe deixaria atividade e compromisso apontando para o vazio.
       if (data.activities.some(a => a.teamId === team.id))
         throw new Error('Esta equipe está atribuída a atividades. Troque o recurso delas antes de excluir.');
-      if (data.planTasks.some(t => t.teamId === team.id))
+      if (data.planTasks.some(t => taskTeamIds(t).includes(team.id)))
         throw new Error('Esta equipe está vinculada ao médio prazo ou a uma linha de base. Preserve o cadastro enquanto houver vínculos.');
       if (data.commitments.some(c => c.teamId === team.id))
         throw new Error('Esta equipe tem compromissos na planilha semanal. Remova a alocação antes de excluir a equipe.');
@@ -1539,6 +1539,15 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
           throw new Error('Hierarquia inválida.');
         if (input.teamId && !data.teams.some(t => t.id === input.teamId && t.workId === plan.workId))
           throw new Error('Equipe deve pertencer à obra.');
+        // Recursos adicionais (17/11/2026): mesma regra do primeiro, sem repetir e sem ficar à frente dele.
+        const extraTeamIds = Array.isArray(input.extraTeamIds)
+          ? [...new Set(input.extraTeamIds.filter(id => typeof id === 'string' && id && id !== input.teamId))]
+          : [];
+        if (extraTeamIds.length > 20) throw new Error('Tarefa com recursos demais (máximo de 21).');
+        if (extraTeamIds.some(id => !data.teams.some(t => t.id === id && t.workId === plan.workId)))
+          throw new Error('Equipe deve pertencer à obra.');
+        const summaryRow = command.tasks[index + 1]?.level > input.level;
+        const teamIds = [input.teamId || undefined, ...extraTeamIds].filter((id): id is string => !!id);
         validatePeriod(input.plannedStart, input.plannedEnd);
         const constraint = constraintOf(input);
         validateConstraint(constraint);
@@ -1568,7 +1577,8 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
           progress: input.progress,
           level: input.level,
           order: index + 1,
-          teamId: input.teamId || undefined,
+          teamId: teamIds[0],
+          extraTeamIds: !summaryRow && teamIds.length > 1 ? teamIds.slice(1) : undefined,
           notes: typeof input.notes === 'string' ? input.notes : undefined,
           duration: input.duration,
           // A restrição só fica no formato atual: o `anchorStart` antigo some da linha gravada.
@@ -1626,6 +1636,7 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
           'actualStart',
           'actualEnd',
           'teamId',
+          'extraTeamIds',
           'notes',
           'progress',
           'level',

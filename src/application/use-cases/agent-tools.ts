@@ -1,5 +1,5 @@
 import type { PlanningData, PlanTask, Team, User, WeeklyCommitment } from '../../domain/entities';
-import { NON_FULFILLMENT_CAUSES, type NonFulfillmentCause } from '../../domain/entities';
+import { NON_FULFILLMENT_CAUSES, taskTeamIds, type NonFulfillmentCause } from '../../domain/entities';
 import { commitmentCompanyOf, nameKey, type BriefingLevel } from '../../domain/agent-briefing';
 import { isMonthlyPlan, newestPlanFirst } from '../../domain/legalization';
 import { daysBetween, floorSchedule, latestPercents, type LongTermPlanDocument } from '../../domain/long-term-plan';
@@ -294,12 +294,16 @@ function listMonthTasks(input: Record<string, unknown>, ctx: ToolContext): ToolO
     }
   });
   if (!selected.length) return { result: `Plano "${live.plan.name}" (${live.plan.month}): nenhuma tarefa no filtro "${filter}".` };
-  const lines = selected
-    .slice(0, MAX_LIST)
-    .map(
-      t =>
-        `t:${handleOf(t.id)} | ${t.name} | ${dm(t.plannedStart)}–${dm(t.plannedEnd)} | ${Math.round(t.progress)}% | ${teamOf(t.teamId, teams) ? `${teamOf(t.teamId, teams)!.company} · ${teamOf(t.teamId, teams)!.name}` : '-'} | ${taskSituation(t, today)}`,
-    );
+  const lines = selected.slice(0, MAX_LIST).map(
+    t =>
+      `t:${handleOf(t.id)} | ${t.name} | ${dm(t.plannedStart)}–${dm(t.plannedEnd)} | ${Math.round(t.progress)}% | ${
+        taskTeamIds(t)
+          .map(id => teamOf(id, teams))
+          .filter((team): team is Team => !!team)
+          .map(team => `${team.company} · ${team.name}`)
+          .join('; ') || '-'
+      } | ${taskSituation(t, today)}`,
+  );
   const cut = selected.length > MAX_LIST ? `\n(Mostrando ${MAX_LIST} de ${selected.length} tarefas.)` : '';
   return {
     result: `Plano "${live.plan.name}" (${live.plan.month}), filtro ${filter}: ${selected.length} tarefas.\napelido | tarefa | período | % | equipe | situação\n${lines.join('\n')}${cut}`,

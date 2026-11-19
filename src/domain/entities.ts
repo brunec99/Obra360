@@ -117,6 +117,10 @@ export interface PlanTask extends RecordBase {
   actualStart?: LocalDate;
   actualEnd?: LocalDate;
   teamId?: Id;
+  /** Recursos além do primeiro (17/11/2026: "precisamos ter a opção de colocar mais de um recurso").
+   * `teamId` continua sendo o primeiro, na coluna de sempre; os demais vão no `schedule_meta`, sem
+   * migração. Leia sempre por `taskTeamIds`. */
+  extraTeamIds?: Id[];
   activityId?: Id;
   notes?: string;
   /** "Adicionar à Linha do Tempo" do Project: a tarefa aparece na faixa da linha do tempo acima do Gantt. */
@@ -385,3 +389,18 @@ export interface PlanningData {
   history: HistoryEvent[];
 }
 export type WagonStatus = 'not_started' | 'in_production' | 'restricted' | 'terminal';
+
+/** Os recursos (equipes) de uma tarefa do plano, na ordem escolhida e sem repetição: o primeiro
+ * (`teamId`) e os adicionais (`extraTeamIds`). Como no Project, cada recurso fica ocupado pela tarefa
+ * inteira. */
+export function taskTeamIds(task: Pick<PlanTask, 'teamId' | 'extraTeamIds'>): Id[] {
+  return [...new Set([task.teamId, ...(task.extraTeamIds ?? [])].filter((id): id is Id => !!id))];
+}
+/** Grava a lista de recursos na tarefa: o primeiro em `teamId`, os demais em `extraTeamIds`. */
+export function setTaskTeamIds<T extends Pick<PlanTask, 'teamId' | 'extraTeamIds'>>(task: T, ids: readonly Id[]): T {
+  const unique = [...new Set(ids.filter(Boolean))];
+  task.teamId = unique[0];
+  if (unique.length > 1) task.extraTeamIds = unique.slice(1);
+  else delete task.extraTeamIds;
+  return task;
+}

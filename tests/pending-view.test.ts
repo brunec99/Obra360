@@ -133,6 +133,11 @@ test('origem: tarefa e serviço levam o nome; data só é digitada fora deles', 
   assert.equal(originLabel(card('a', { origin: 'medio_prazo', sourceLabel: 'Piso do térreo' })), 'Médio prazo · Piso do térreo');
   assert.equal(originLabel(card('a', { origin: 'longo_prazo', sourceLabel: 'Esquadrias' })), 'Longo prazo · Esquadrias');
   assert.equal(originLabel(card('a', { origin: 'longo_prazo' })), 'Longo prazo');
+  // Linha do Gantt de legalização (19/11/2026): gravada como tarefa, mostrada com a origem da aba 1.1.
+  assert.equal(
+    originLabel(card('a', { origin: 'medio_prazo', sourceLabel: 'Habite-se', sourceLegalization: true })),
+    'Gantt de legalização · Habite-se',
+  );
   assert.equal(originLabel(card('a')), 'Avulsa (sem ligação)');
   assert.equal(originLabel(card('a', { origin: 'restricao', sourceLabel: 'x' })), 'Restrição de vagão (antiga)');
   assert.equal(dueDateEditable(card('a')), true);

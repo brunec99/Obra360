@@ -180,19 +180,45 @@ test('Planejador: soltar em outra linha reatribui, na faixa de baixo desatribui,
   const ele4 = scenario[2];
   assert.equal(resolveDrop(ele4, 'team:ele', 'team:ele', ele4.start), undefined, 'nada mudou');
   assert.equal(resolveDrop(ele4, 'team:ele', null, '2026-09-21'), undefined, 'fora das linhas, o bloco volta');
-  assert.deepEqual(resolveDrop(ele4, 'team:ele', 'team:enc', ele4.start), { assign: true, teamId: 'enc', start: undefined });
-  assert.deepEqual(resolveDrop(ele4, 'team:ele', UNASSIGNED_KEY, ele4.start), { assign: true, teamId: undefined, start: undefined });
+  assert.deepEqual(resolveDrop(ele4, 'team:ele', 'team:enc', ele4.start), {
+    assign: true,
+    teamId: 'enc',
+    fromTeamId: 'ele',
+    start: undefined,
+  });
+  assert.deepEqual(resolveDrop(ele4, 'team:ele', UNASSIGNED_KEY, ele4.start), {
+    assign: true,
+    teamId: undefined,
+    fromTeamId: 'ele',
+    start: undefined,
+  });
   assert.deepEqual(resolveDrop(scenario[5], UNASSIGNED_KEY, 'team:ele', '2026-09-08'), {
     assign: true,
     teamId: 'ele',
+    fromTeamId: undefined,
     start: undefined,
   });
-  assert.deepEqual(resolveDrop(ele4, 'team:ele', 'team:ele', '2026-09-21'), { assign: false, teamId: undefined, start: '2026-09-21' });
-  assert.deepEqual(resolveDrop(ele4, 'team:ele', 'team:enc', '2026-09-21'), { assign: true, teamId: 'enc', start: '2026-09-21' });
+  assert.deepEqual(resolveDrop(ele4, 'team:ele', 'team:ele', '2026-09-21'), {
+    assign: false,
+    teamId: undefined,
+    fromTeamId: undefined,
+    start: '2026-09-21',
+  });
+  assert.deepEqual(resolveDrop(ele4, 'team:ele', 'team:enc', '2026-09-21'), {
+    assign: true,
+    teamId: 'enc',
+    fromTeamId: 'ele',
+    start: '2026-09-21',
+  });
   const done = { ...ele4, progress: 100 };
   assert.equal(startLocked(done), true);
   assert.equal(resolveDrop(done, 'team:ele', 'team:ele', '2026-09-21'), undefined, 'concluída não muda de data');
-  assert.deepEqual(resolveDrop(done, 'team:ele', 'team:enc', '2026-09-21'), { assign: true, teamId: 'enc', start: undefined });
+  assert.deepEqual(resolveDrop(done, 'team:ele', 'team:enc', '2026-09-21'), {
+    assign: true,
+    teamId: 'enc',
+    fromTeamId: 'ele',
+    start: undefined,
+  });
 });
 
 test('Planejador: a dica escreve período, equipe, avanço, criticidade e conflito', () => {
@@ -251,7 +277,7 @@ test('Planejador: tarefa iniciada troca de equipe, mas o início real não se mo
   assert.equal(resolveDrop(started, 'team:ele', 'team:ele', '2026-09-21'), undefined, 'na mesma linha, nada muda');
   assert.deepEqual(
     resolveDrop(started, 'team:ele', 'team:enc', '2026-09-21'),
-    { assign: true, teamId: 'enc', start: undefined },
+    { assign: true, teamId: 'enc', fromTeamId: 'ele', start: undefined },
     'na diagonal, só a equipe muda',
   );
   assert.match(plannerTooltip(started, 'Eletricista'), / · Iniciada: o início real não se move$/);

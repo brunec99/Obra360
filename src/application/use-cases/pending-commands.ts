@@ -593,8 +593,8 @@ export function resolvePendingSources(cards: readonly PendingCard[], sources: Pe
 
   return cards.map(card => {
     if (card.origin !== 'medio_prazo' && card.origin !== 'longo_prazo') return card;
-    const { sourceStart: _start, sourceMissing: _missing, ...stored } = card;
-    let found: { start: string; label: string } | undefined;
+    const { sourceStart: _start, sourceMissing: _missing, sourceLegalization: _legalization, ...stored } = card;
+    let found: { start: string; label: string; legalization?: boolean } | undefined;
     if (card.origin === 'medio_prazo') {
       let task = card.sourceId ? taskById.get(card.sourceId) : undefined;
       // O teto de voltas é o número de planos: cada passo avança pelo menos um mês.
@@ -603,12 +603,23 @@ export function resolvePendingSources(cards: readonly PendingCard[], sources: Pe
         if (!next) break;
         task = next;
       }
-      if (task) found = { start: indexOf(task.planId).start.get(task.id) ?? task.plannedStart, label: task.name };
+      if (task)
+        found = {
+          start: indexOf(task.planId).start.get(task.id) ?? task.plannedStart,
+          label: task.name,
+          legalization: live.get(task.planId)!.legalization,
+        };
     } else if (card.sourceId && serviceName.has(card.sourceId) && serviceStart.has(card.sourceId)) {
       found = { start: serviceStart.get(card.sourceId)!, label: serviceName.get(card.sourceId)! };
     }
     if (!found) return { ...stored, sourceMissing: true };
-    return { ...stored, dueDate: dueDateFromStart(found.start), sourceStart: found.start, sourceLabel: found.label };
+    return {
+      ...stored,
+      dueDate: dueDateFromStart(found.start),
+      sourceStart: found.start,
+      sourceLabel: found.label,
+      ...(found.legalization ? { sourceLegalization: true } : {}),
+    };
   });
 }
 

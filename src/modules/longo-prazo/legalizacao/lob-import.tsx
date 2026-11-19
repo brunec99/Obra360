@@ -12,7 +12,7 @@ import { plural, projectDate } from './legalization-summary';
 /* "Trazer da Linha de Balanço" (modelo de 04/11/2026, tela 3; regras 15 e 16): uma linha por serviço
  * da Linha de Balanço, do início do primeiro local ao término do último, com o % medido. Vem marcado
  * o que cai na janela; confirmar leva tudo para o rascunho do cronograma num passo só do desfazer
- * (`api.replaceTasks`). Nada é gravado aqui: a gravação é o "Revisar e salvar" do cronograma. */
+ * (`api.replaceTasks`). Nada é gravado aqui: a gravação é o salvamento automático do cronograma. */
 
 type LoadState =
   { status: 'loading' } | { status: 'error'; message: string } | { status: 'unavailable' } | { status: 'ready'; rows: LobServiceRow[] };
@@ -156,7 +156,7 @@ function LobImportDialog({
       api.replaceTasks(result.tasks);
       close();
       toast({
-        title: `${plural(result.added, 'linha nova', 'linhas novas')}, ${plural(result.updated, 'atualizada', 'atualizadas')} · use Revisar e salvar para gravar`,
+        title: `${plural(result.added, 'linha nova', 'linhas novas')}, ${plural(result.updated, 'atualizada', 'atualizadas')} · salvo automaticamente`,
       });
     } catch (err) {
       setError(errorMessage(err));
@@ -289,8 +289,8 @@ function LobImportDialog({
 
           {rows.length > 0 && (
             <p className="callout callout-info">
-              Tudo entra no rascunho: nada é gravado antes de "Revisar e salvar". Trazer de novo depois atualiza início, duração e % das
-              linhas LB; vínculos e as outras linhas não mudam.
+              O que for trazido é salvo sozinho em seguida. Trazer de novo depois atualiza início, duração e % das linhas LB; vínculos e as
+              outras linhas não mudam.
             </p>
           )}
           {rows.length > 0 && hasFinishes && (

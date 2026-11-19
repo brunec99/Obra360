@@ -55,6 +55,9 @@ export interface PendingCard {
   sourceStart?: LocalDate;
   /** A tarefa ou o serviço de origem não existe mais: o card fica com a última data gravada. */
   sourceMissing?: boolean;
+  /** A tarefa de origem é uma linha do Gantt de legalização da aba 1.1 (19/11/2026), e não do cronograma
+   * do mês. Só da resposta, como `sourceStart`: sai do plano em que a tarefa foi achada. */
+  sourceLegalization?: boolean;
   /** Tempo de execução (lead time) em dias úteis (regra 3). */
   leadTimeDays: number;
   responsibleId: string;

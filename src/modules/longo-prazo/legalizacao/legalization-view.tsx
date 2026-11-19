@@ -85,7 +85,7 @@ export function LegalizationView({ workId }: { workId: string }) {
     windowLabel: 'janela de 12 meses',
     defaultZoom: 'mes',
     defaultShown: ['totalSlack'],
-    // "Alterar entrega" grava direto no banco: com rascunho aberto, o "Revisar e salvar" seguinte seria
+    // "Alterar entrega" grava direto no banco: com alteração ainda não salva, a gravação seguinte seria
     // recusado como alteração de outra pessoa, então o botão trava até salvar ou descartar.
     headerExtra: readOnly
       ? undefined

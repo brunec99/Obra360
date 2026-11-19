@@ -168,7 +168,7 @@ export const pendingFromRow = {
 
 export const pendingToRow = {
   // Todas as colunas sempre entram: sair de Pausado grava o nulo de `status_reason` mesmo sem a chave no
-  // registro. `sourceStart` e `sourceMissing` são só da resposta; nunca vão ao banco.
+  // registro. `sourceStart`, `sourceMissing` e `sourceLegalization` são só da resposta; nunca vão ao banco.
   cards: (c: PendingCard): CardRow => ({
     id: c.id,
     work_id: c.workId,

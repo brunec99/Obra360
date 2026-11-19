@@ -6,7 +6,7 @@ import { usePlanning } from '@/modules/planejamento/planning-provider';
 import { Empty, LoadState, Missing, Panel, StatCard } from '@/modules/planejamento/ui';
 import { HelpNote } from '@/modules/layout/help-note';
 import { selectWorkPlanning } from '@/application/use-cases/get-planning';
-import type { Activity } from '@/domain/entities';
+import { taskTeamIds, type Activity } from '@/domain/entities';
 import { isMonthlyPlan, newestPlanFirst } from '@/domain/legalization';
 import { rollUpPlan, teamLoad, weightedProgress } from '@/domain/rules';
 import { addDays, startOfWeek } from '@/domain/validation';
@@ -426,7 +426,12 @@ export function LookAheadOverview({ workId, section }: { workId: string; section
                             <span className="mt-0.5 block text-xs font-semibold text-warning">Atravessa a semana atual</span>
                           )}
                         </td>
-                        <td>{teamLabel(task.teamId) ?? 'Sem recurso'}</td>
+                        <td>
+                          {taskTeamIds(task)
+                            .map(id => teamLabel(id))
+                            .filter(Boolean)
+                            .join('; ') || 'Sem recurso'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

@@ -45,6 +45,8 @@ import {
 } from 'lucide-react';
 import {
   CONSTRAINT_TYPES,
+  setTaskTeamIds,
+  taskTeamIds,
   type ConstraintType,
   type MediumTermPlan,
   type PlanTask,
@@ -230,6 +232,11 @@ type Col =
 type Presentation = 'split' | 'table' | 'chart';
 /** Largura da divisória entre a tabela e o Gantt (`w-1.5`). */
 const SPLIT_SEPARATOR = 6;
+/** Opção do seletor da coluna "Nomes dos recursos" que leva às Informações da tarefa. */
+const MORE_TEAMS = '__mais__';
+/** Espera depois da última alteração antes de gravar, e o motivo que vai ao histórico da tarefa. */
+const AUTOSAVE_MS = 1200;
+const AUTOSAVE_REASON = 'Salvamento automático';
 const columns: { key: Col; label: string; width: number; editable?: boolean; right?: boolean }[] = [
   { key: 'id', label: 'Id', width: 40, right: true },
   { key: 'ind', label: 'Indicadores', width: 58 },
@@ -423,6 +430,7 @@ const fieldLabels: Record<string, string> = {
   actualStart: 'Início real',
   actualEnd: 'Término real',
   teamId: 'Recurso',
+  extraTeamIds: 'Recursos adicionais',
   progress: '% concluída',
   notes: 'Anotações',
   timeline: 'Linha do tempo',
@@ -532,7 +540,7 @@ const stored = (data: PlanningData, plan: MediumTermPlan): Draft => ({
 });
 /** O plano como a regra atual o calcula. Plano gravado antes das datas reais tem % sem início real, e
  * datas que o "Não iniciar antes de" agora segura; os dois são acertados aqui e a tela avisa quantas
- * linhas mudaram, que vão ao banco no próximo "Revisar e salvar". O `anchorStart` antigo vira
+ * linhas mudaram, que vão ao banco no próximo salvamento automático. O `anchorStart` antigo vira
  * "Não iniciar antes de" em `constraintType`/`constraintDate` (o mapper já faz isso ao ler; aqui é a
  * defesa para rascunho antigo) e o resumo não carrega restrição. */
 function initial(data: PlanningData, plan: MediumTermPlan): Draft {
@@ -624,7 +632,7 @@ export function Sheet({
   /** Gantt de legalização da aba 1; sem ele, o cronograma do mês. */
   variant?: SheetVariant;
 }) {
-  // Rascunho automático (16/11/2026): o que ficou sem "Revisar e salvar" volta deste navegador ao
+  // Rascunho automático (16/11/2026): o que ainda não chegou ao sistema volta deste navegador ao
   // reabrir o cronograma. Original e retrato vêm do banco, como sempre; só o rascunho vem guardado.
   // Ler o localStorage já no estado inicial é seguro porque o Sheet só monta no navegador: as duas
   // telas esperam o planejamento carregar (`context.state === 'ready'`), que nunca vem do servidor.
@@ -661,8 +669,11 @@ export function Sheet({
   const [locked, setLocked] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
-    [review, setReview] = useState(false),
-    [reason, setReason] = useState('');
+    // Salvamento automático (17/11/2026): `busy` é a gravação em curso, que não trava a edição;
+    // `saveError` é a recusa do servidor ou a queda da rede, e `retry` refaz a tentativa.
+    [saveError, setSaveError] = useState(''),
+    [retry, setRetry] = useState(0),
+    [saveDone, setSaveDone] = useState(0);
   const [query, setQuery] = useState(''),
     [status, setStatus] = useState('all'),
     [team, setTeam] = useState(''),
@@ -683,12 +694,12 @@ export function Sheet({
     [showResourceNames, setShowResourceNames] = useState(true);
   // Informações da tarefa (Shift+F2): a linha aberta e a aba em que o diálogo abre.
   const [infoOpen, setInfoOpen] = useState<{ id: string; tab?: TaskInfoTab } | null>(null);
-  // "Criar pendência" (10/11/2026): a tarefa vira card da Lista de pendência da aba 2. Só para quem abre a
-  // aba 2 (a API das pendências é do módulo "vagoes") e só no cronograma do mês: o Gantt de legalização
-  // usa esta mesma tela, mas as tarefas dele não são origem de card.
+  // "Criar pendência" (10/11/2026): a tarefa vira card do Quadro de Restrições (aba 1.4). Só para quem abre
+  // o quadro. Desde 19/11/2026 vale também no Gantt de legalização, que usa esta mesma tela: o card segue a
+  // própria linha (o Gantt é um só por obra, sem cópia mensal) e o quadro o mostra como "Gantt de legalização".
   const developer = useDeveloper(),
     modules = useModules();
-  const canPend = !variant && hasSectionAccess('restricoes', { developer, modules });
+  const canPend = hasSectionAccess('restricoes', { developer, modules });
   const [pending, setPending] = useState<PendingSource | null>(null);
   // Selecionar uma tarefa escondida (resumo recolhido ou filtro) abre o caminho até ela; a rolagem
   // até a barra espera a pintura em que a linha aparece.
@@ -732,7 +743,14 @@ export function Sheet({
   const { toast } = useToast();
   const router = useRouter();
   const committedEditor = useRef<object | null>(null);
-  const reviewDialog = useRef<HTMLDialogElement>(null);
+  // O rascunho que veio do servidor (abertura, recarga, retorno de uma gravação): mudança que não é da
+  // pessoa não dispara gravação. `failedDraft` é o que o servidor recusou: só volta a tentar com outra
+  // alteração ou pelo botão. `sentDraft` é o que acabou de ser gravado, até a tela se acertar com o banco.
+  const serverDraft = useRef<Draft | null>(opening.recovery.kind === 'restore' ? null : opening.current);
+  const failedDraft = useRef<Draft | null>(null);
+  const sentDraft = useRef<Draft | null>(null);
+  const latestDraft = useRef<Draft>(opening.current);
+  const planningContext = usePlanning();
   const gridRef = useRef<HTMLTableElement>(null);
   const editRef = useRef<HTMLInputElement & HTMLSelectElement>(null);
   const tableScroll = useRef<HTMLDivElement>(null),
@@ -741,7 +759,7 @@ export function Sheet({
   const dirty = JSON.stringify(draft) !== JSON.stringify(original);
   // Rascunho que voltou a ser igual ao gravado (desfazer, descartar, salvar) encerra o aviso de recuperado.
   if (recovered && !dirty) setRecovered(null);
-  const canEdit = !readOnly && !locked && !busy && !plan.frozenAt;
+  const canEdit = !readOnly && !locked && !plan.frozenAt;
   const teams = data.teams.filter(t => t.workId === plan.workId);
   const teamLabel = (id?: string) => {
     const e = teams.find(t => t.id === id);
@@ -754,6 +772,17 @@ export function Sheet({
     if (!e) return undefined;
     return teams.some(t => t.id !== e.id && normalize(t.name) === normalize(e.name)) ? `${e.company} · ${e.name}` : e.name;
   };
+  /** Todos os recursos da tarefa, separados por "; ": com a empresa (coluna e busca) ou só o nome (Gantt e impressão). */
+  const teamsLabel = (t: Pick<PlanTask, 'teamId' | 'extraTeamIds'>) =>
+    taskTeamIds(t)
+      .map(id => teamLabel(id))
+      .filter(Boolean)
+      .join('; ');
+  const resourceNames = (t: Pick<PlanTask, 'teamId' | 'extraTeamIds'>) =>
+    taskTeamIds(t)
+      .map(id => resourceName(id))
+      .filter(Boolean)
+      .join('; ');
   // O Gantt de legalização traz a janela dele (12 meses até a entrega); o plano do mês, os três meses.
   const windowStart = variant?.window.start,
     windowEnd = variant?.window.end;
@@ -785,9 +814,10 @@ export function Sheet({
    * entrega dele sai do início gravado no banco: por isso a linha nova ou alterada pede o salvamento antes. */
   const pendingBlock = (t?: PlanTask): string => {
     if (!t) return 'Selecione uma tarefa para criar a pendência';
-    if (plan.frozenAt || plan.baselineOf) return 'Linha de base não recebe pendência: use o cronograma do mês';
+    if (plan.frozenAt || plan.baselineOf)
+      return `Linha de base não recebe pendência: use o ${variant ? 'cronograma vigente' : 'cronograma do mês'}`;
     if (roll.get(t.id)?.summary) return 'Tarefa-resumo não recebe pendência: escolha uma tarefa do grupo';
-    if (!original.tasks.some(o => o.id === t.id) || changed.includes(t)) return 'Salve o cronograma antes de criar a pendência';
+    if (!original.tasks.some(o => o.id === t.id) || changed.includes(t)) return 'Espere o cronograma salvar antes de criar a pendência';
     return '';
   };
   const pendingSource = (t: PlanTask): PendingSource => ({
@@ -809,12 +839,12 @@ export function Sheet({
   draft.tasks.forEach(t => {
     while (parents.length && parents.at(-1)!.level >= t.level) parents.pop();
     const v = roll.get(t.id)!;
-    const hay = normalize([t.name, t.notes, teamLabel(t.teamId)].join(' '));
+    const hay = normalize([t.name, t.notes, teamsLabel(t)].join(' '));
     const match =
       normalize(query)
         .split(/\s+/)
         .every(token => hay.includes(token)) &&
-      (!team || t.teamId === team) &&
+      (!team || taskTeamIds(t).includes(team)) &&
       (status === 'all' ||
         (status === 'zero' && v.progress === 0) ||
         (status === 'ongoing' && v.progress > 0 && v.progress < 100) ||
@@ -981,7 +1011,7 @@ export function Sheet({
           toastRef.current({
             title: 'Rascunho não guardado neste navegador',
             description:
-              'O navegador não deixou guardar o rascunho (espaço cheio ou bloqueado). Use “Revisar e salvar” para não perder as alterações.',
+              'O navegador não deixou guardar a cópia de segurança (espaço cheio ou bloqueado). Espere aparecer “Tudo salvo” antes de fechar a tela.',
             tone: 'danger',
           });
         }
@@ -1016,11 +1046,11 @@ export function Sheet({
       e.stopPropagation();
       const href = link.getAttribute('href') ?? '';
       void confirm({
-        title: 'Sair sem salvar no sistema?',
+        title: 'Sair antes de terminar de salvar?',
         description: persist
-          ? 'As alterações ainda não estão no sistema. O rascunho fica guardado só neste navegador e volta quando você reabrir este cronograma aqui; para gravar no sistema, use “Revisar e salvar”.'
-          : 'O rascunho do cronograma ainda não foi salvo. Volte e use “Revisar e salvar” para gravá-lo.',
-        confirmLabel: 'Sair sem salvar',
+          ? 'As últimas alterações ainda estão sendo salvas no sistema. Se sair agora, elas ficam guardadas neste navegador e são salvas quando você reabrir este cronograma aqui.'
+          : 'As últimas alterações ainda não foram salvas no sistema. Volte e espere aparecer “Tudo salvo”.',
+        confirmLabel: 'Sair assim mesmo',
         cancelLabel: 'Continuar editando',
         tone: persist ? 'default' : 'danger',
       }).then(ok => {
@@ -1034,11 +1064,35 @@ export function Sheet({
   useEffect(() => {
     if (!dirty && !editor) {
       const next = initial(data, plan);
+      serverDraft.current = next;
       setDraft(next);
       setOriginal(next);
       setBase(planSnapshot(plan, data.planTasks, data.planDependencies));
     }
   }, [data, plan, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ——— Salvamento automático (17/11/2026) ———
+  // Pedido do usuário: "vamos deixar salvando automaticamente em cada mudança sem controlar revisão";
+  // o histórico de versões é a linha de base. Cada alteração da pessoa vai ao sistema AUTOSAVE_MS depois
+  // da última, uma gravação por vez. A edição não espera: o que mudar durante a gravação vai na seguinte.
+  useEffect(() => {
+    latestDraft.current = draft;
+  });
+  // Fim de uma gravação: o banco já tem `sentDraft`. A referência de conflito (`base`) passa a ser a
+  // versão nova, e as alterações feitas enquanto gravava continuam contando como não salvas.
+  useEffect(() => {
+    const sent = sentDraft.current;
+    if (!sent) return;
+    sentDraft.current = null;
+    setBase(planSnapshot(plan, data.planTasks, data.planDependencies));
+    setOriginal(latestDraft.current === sent ? sent : initial(data, plan));
+    setBusy(false);
+  }, [saveDone]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (readOnly || plan.frozenAt || plan.baselineOf || !dirty || busy || recovered?.staleHash) return;
+    if (draft === serverDraft.current || draft === failedDraft.current) return;
+    const timer = setTimeout(() => void autosave(), AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+  }, [draft, dirty, busy, base, recovered?.staleHash, retry]); // eslint-disable-line react-hooks/exhaustive-deps
   // Quem começa a digitar direto na célula continua digitando: a primeira tecla não fica selecionada.
   useEffect(() => {
     const input = editRef.current;
@@ -1047,10 +1101,6 @@ export function Sheet({
     if (editor?.seeded && 'setSelectionRange' in input) input.setSelectionRange(input.value.length, input.value.length);
     else input.select?.();
   }, [editor?.id, editor?.key]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (review) reviewDialog.current?.showModal();
-    else reviewDialog.current?.close();
-  }, [review]);
   // O Gantt se alinha à tabela pela altura medida da linha e do cabeçalho, não por uma constante.
   useEffect(() => {
     const table = gridRef.current;
@@ -1147,7 +1197,7 @@ export function Sheet({
       case 'links':
         return linkText(draft.tasks, draft.links, t.id);
       case 'team':
-        return teamLabel(t.teamId);
+        return teamsLabel(t);
       case 'notes':
         return t.notes ?? '';
       case 'target':
@@ -1288,16 +1338,23 @@ export function Sheet({
         next.tasks[at] = withActualEnd(t, blank(entry.text) ? undefined : dateInput(entry.text), next.calendar);
         break;
       case 'team': {
-        const text = entry.text.trim();
-        const match = teams.find(
-          e =>
-            e.id === text ||
-            `${e.company} · ${e.name}` === text ||
-            normalize(e.name) === normalize(text) ||
-            normalize(e.company) === normalize(text),
-        );
-        if (text && !match) throw new Error('Escolha um recurso cadastrado na obra.');
-        t.teamId = match?.id;
+        // Mais de um recurso (17/11/2026): separados por ponto e vírgula, como no Project ("A;B").
+        const ids = entry.text
+          .split(';')
+          .map(part => part.trim())
+          .filter(Boolean)
+          .map(text => {
+            const match = teams.find(
+              e =>
+                e.id === text ||
+                `${e.company} · ${e.name}` === text ||
+                normalize(e.name) === normalize(text) ||
+                normalize(e.company) === normalize(text),
+            );
+            if (!match) throw new Error(`Recurso “${text}” não está cadastrado na obra.`);
+            return match.id;
+          });
+        setTaskTeamIds(t, ids);
         break;
       }
       case 'duration':
@@ -1502,7 +1559,7 @@ export function Sheet({
       // O `<select>` abre no valor atual: a tecla digitada não substitui uma escolha de lista.
       const current =
         key === 'team'
-          ? (t.teamId ?? '')
+          ? taskTeamIds(t).join(';')
           : key === 'constraintType'
             ? constraintOf(t).type
             : text === 'ND'
@@ -1615,50 +1672,54 @@ export function Sheet({
     setPast([]);
     setFuture([]);
     setEditor(null);
+    failedDraft.current = null;
+    setSaveError('');
     forgetStoredDraft();
   }
   /** Rascunho recuperado de um cronograma que mudou depois dele: as alterações passam a ser contadas
-   * contra a versão gravada agora, e salvar fica liberado (a revisão mostra o que muda). */
+   * contra a versão gravada agora, e o salvamento automático volta a gravar (por cima da versão atual). */
   function adoptRecoveredDraft() {
     setOriginal(initial(data, plan));
     setBase(planSnapshot(plan, data.planTasks, data.planDependencies));
     setRecovered(r => (r ? { savedAt: r.savedAt } : r));
   }
-  async function save() {
-    if (editor && !commit()) return;
-    if (recovered?.staleHash) {
-      setError('O cronograma mudou no sistema depois deste rascunho. Descarte o rascunho ou use-o sobre a versão atual antes de salvar.');
-      return;
-    }
-    const count = changed.length + removed.length;
+  /** Grava o rascunho como está. Sem motivo digitado e sem revisão: o servidor registra "Salvamento
+   * automático" no histórico da tarefa. Conflito (o cronograma mudou no sistema por outra pessoa ou em
+   * outra aba) para as gravações e abre o aviso com as duas saídas; outra recusa fica na barra, com
+   * "Tentar salvar de novo". */
+  async function autosave() {
+    const sent = draft;
     setBusy(true);
-    setError('');
+    setSaveError('');
     try {
       await execute({
         type: 'save_plan_revision',
         planId: plan.id,
         expectedSnapshot: base,
-        reason,
-        tasks: draft.tasks,
-        links: draft.links,
-        calendar: draft.calendar,
+        reason: AUTOSAVE_REASON,
+        tasks: sent.tasks,
+        links: sent.links,
+        calendar: sent.calendar,
       });
-      setOriginal(draft);
-      setPast([]);
-      setFuture([]);
-      setReview(false);
-      setReason('');
-      forgetStoredDraft();
-      toast({
-        title: 'Cronograma salvo',
-        description: `${count} ${count === 1 ? 'tarefa gravada' : 'tarefas gravadas'} ${variant ? `no ${variant.title}` : `em ${monthLabel(plan.month)}`}.`,
-        tone: 'success',
-      });
+      sentDraft.current = sent;
+      setSaveDone(n => n + 1);
     } catch (e) {
-      setError((e as Error).message);
-    } finally {
+      const message = (e as Error).message;
+      if (message.startsWith('Outra pessoa alterou')) {
+        setRecovered({ savedAt: new Date().toISOString(), staleHash: hashText(base) });
+        // A versão do sistema precisa chegar antes de "Usar sobre a versão atual".
+        if (planningContext.state === 'ready') void planningContext.refresh();
+      } else {
+        failedDraft.current = sent;
+        setSaveError(message);
+      }
       setBusy(false);
     }
+  }
+  function retrySave() {
+    failedDraft.current = null;
+    setSaveError('');
+    setRetry(n => n + 1);
   }
   // Assíncrona só por causa da exclusão, que pergunta antes; as outras operações não esperam nada.
   async function structural(kind: 'insert' | 'remove' | 'indent' | 'outdent' | 'link' | 'unlink') {
@@ -1728,7 +1789,7 @@ export function Sheet({
                   {out.roots.length > 8 && <li className="list-none">e mais {out.roots.length - 8}</li>}
                 </ul>
               )}
-              A exclusão fica no rascunho e só vai ao banco em “Revisar e salvar”. Dá para desfazer com Ctrl+Z.
+              A exclusão é salva sozinha em seguida. Dá para desfazer com Ctrl+Z.
             </>
           ),
           confirmLabel: 'Excluir',
@@ -1855,9 +1916,11 @@ export function Sheet({
               ? formatDuration(v as TaskDuration)
               : key === 'teamId'
                 ? teamLabel(String(v)) || '—'
-                : key === 'progress'
-                  ? `${v}%`
-                  : String(v);
+                : key === 'extraTeamIds'
+                  ? (v as string[]).map(id => teamLabel(id)).join('; ') || '—'
+                  : key === 'progress'
+                    ? `${v}%`
+                    : String(v);
 
   // Sem memo de propósito: `rows` já muda a cada render, e a busca é barata.
   const activeId = active?.id;
@@ -1932,7 +1995,7 @@ export function Sheet({
           // Tarefa em dias corridos encaixa em qualquer dia ao arrastar; as demais, em dia útil.
           // A mesma regra do esticar (`resizeTask`): a dica do arrasto e a duração gravada batem.
           elapsed: !v.summary && elapsedOf(t),
-          resourceLabel: v.summary ? undefined : resourceName(t.teamId),
+          resourceLabel: v.summary ? undefined : resourceNames(t) || undefined,
         };
       }),
     ],
@@ -2157,8 +2220,16 @@ export function Sheet({
     attempt(() => applyCells([{ id: toId, key: 'links', text: current ? `${current};${number}` : String(number) }]));
   }
   /** Planejador de Equipe: soltar a tarefa na linha de outra equipe (ou em "Não atribuídas"). */
-  function assignTeam(id: string, teamId: string | undefined) {
-    attempt(() => applyCells([{ id, key: 'team', text: teamId ?? '' }]));
+  function assignTeam(id: string, teamId: string | undefined, fromTeamId?: string) {
+    // Tarefa com mais de um recurso: sai o recurso da linha de onde ela veio e entra o novo; os outros ficam.
+    const current = taskTeamIds(latest().tasks.find(t => t.id === id) ?? {});
+    const next =
+      fromTeamId && current.includes(fromTeamId) && current.length > 1
+        ? current.flatMap(c => (c === fromTeamId ? (teamId ? [teamId] : []) : [c]))
+        : teamId
+          ? [teamId]
+          : [];
+    attempt(() => applyCells([{ id, key: 'team', text: [...new Set(next)].join(';') }]));
   }
   function openInfo(id: string, tab?: TaskInfoTab) {
     if (id === PLAN_ROW || !draft.tasks.some(t => t.id === id)) return;
@@ -2198,7 +2269,7 @@ export function Sheet({
           lag: l.lagDays ? String(l.lagDays) : '',
           lagBusiness: l.lagBusiness,
         })),
-      teamId: t.teamId ?? '',
+      teamIds: taskTeamIds(t).join(';'),
       constraintType: v.summary ? 'ASAP' : c.type,
       constraintDate: c.date ?? '',
       deadline: t.deadline ?? '',
@@ -2236,7 +2307,7 @@ export function Sheet({
     const key = e.key.toLowerCase();
     if (!(e.ctrlKey || e.metaKey) || e.altKey || (key !== 'z' && key !== 'y') || e.defaultPrevented) return;
     const target = e.target as HTMLElement;
-    if (editor || infoOpen || review || target.isContentEditable || target.closest('input, textarea, select, dialog')) return;
+    if (editor || infoOpen || target.isContentEditable || target.closest('input, textarea, select, dialog')) return;
     e.preventDefault();
     if (!canEdit) return;
     if (key === 'y' || e.shiftKey) redo();
@@ -2443,7 +2514,7 @@ export function Sheet({
           start: raw(t, 'start'),
           end: raw(t, 'end'),
           progress: raw(t, 'progress'),
-          resource: resourceName(t.teamId) ?? '',
+          resource: resourceNames(t),
         },
         bar: r,
       };
@@ -2489,13 +2560,33 @@ export function Sheet({
       document.body,
     );
   })();
+  /** "Definir linha de base": no rodapé e no lembrete de cronograma sem linha de base. Só aparece com
+   * tudo salvo, porque a linha de base congela o que está gravado no sistema. */
+  const baselineForm = (label: string) => (
+    <CommandForm
+      title="Definir linha de base"
+      description="Congela as datas de hoje como referência: a tabela e o Gantt passam a mostrar a variação contra ela."
+      submit="Salvar linha de base"
+      icon="none"
+      trigger={
+        <>
+          <Flag size={14} aria-hidden /> {label}
+        </>
+      }
+      success="Linha de base definida"
+      onDone={setBaseId}
+      command={d => ({ type: 'freeze_plan_baseline', planId: plan.id, name: value(d, 'name') })}
+    >
+      <TextField name="name" label="Nome da linha de base" defaultValue={`Base ${formatDate(today)}`} />
+    </CommandForm>
+  );
   const api: SheetApi = {
     tasks: draft.tasks,
     links: draft.links,
     calendar: draft.calendar,
     analysis,
     dirty,
-    canEdit: !readOnly && !busy && !plan.frozenAt && !editor,
+    canEdit: !readOnly && !plan.frozenAt && !editor,
     replaceTasks,
     selectTask: id => selectTask(id, true),
   };
@@ -2551,43 +2642,58 @@ export function Sheet({
             </label>
           )}
           <div data-tour="medio-salvar" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span role="status" aria-live="polite" className={`text-xs ${dirty ? 'font-semibold text-warning' : 'text-slate-500'}`}>
-              {busy ? 'Salvando…' : dirty ? `${changed.length + removed.length} tarefas alteradas · não salvo` : 'Tudo salvo'}
-            </span>
-            <button
-              className="button"
-              disabled={!dirty || readOnly || busy || !!editor || !!recovered?.staleHash}
-              title={recovered?.staleHash ? 'O cronograma mudou no sistema depois deste rascunho: veja o aviso abaixo.' : undefined}
-              onClick={() => setReview(true)}
+            <span
+              role="status"
+              aria-live="polite"
+              data-testid="estado-salvamento"
+              title="O cronograma é salvo sozinho a cada alteração. O histórico de versões fica na linha de base."
+              className={`text-xs ${saveError || recovered?.staleHash ? 'font-semibold text-danger' : dirty ? 'font-semibold text-warning' : 'text-slate-500'}`}
             >
-              Revisar e salvar
-            </button>
-          </div>
-        </div>
-        {recovered && dirty && (
-          <div
-            role="status"
-            data-testid="rascunho-recuperado"
-            className={`callout ${recovered.staleHash ? 'callout-warning' : 'callout-info'} mx-3 my-2 flex flex-wrap items-center gap-x-3 gap-y-2 py-2 text-xs`}
-          >
-            <p className="mr-auto min-w-0 max-w-4xl leading-5">
-              <strong>Rascunho não salvo recuperado</strong>, guardado neste navegador em {formatSavedAt(recovered.savedAt)}. Ele ainda não
-              está no sistema.
-              {recovered.staleHash &&
-                ' O cronograma foi salvo no sistema depois que este rascunho começou (por outra pessoa ou em outro computador), e salvar o rascunho como está gravaria por cima. Descarte-o para ficar com a versão do sistema, ou use-o sobre a versão atual: as alterações passam a ser contadas contra ela, e a revisão mostra o que muda antes de gravar.'}
-            </p>
-            {recovered.staleHash ? (
-              <button type="button" className="button-ghost" disabled={busy || readOnly} onClick={adoptRecoveredDraft}>
-                Usar sobre a versão atual
-              </button>
-            ) : (
-              <button type="button" className="button" disabled={busy || readOnly || !!editor} onClick={() => setReview(true)}>
-                Revisar e salvar
+              {saveError
+                ? `Não salvo: ${saveError}`
+                : recovered?.staleHash && dirty
+                  ? 'Não salvo: o cronograma mudou no sistema'
+                  : busy || dirty
+                    ? 'Salvando…'
+                    : 'Tudo salvo'}
+            </span>
+            {saveError && (
+              <button type="button" className="button-ghost" onClick={retrySave}>
+                Tentar salvar de novo
               </button>
             )}
-            <button type="button" className="button-ghost" disabled={busy} onClick={() => void discardDraft()}>
-              Descartar rascunho
+          </div>
+        </div>
+        {recovered?.staleHash && dirty && (
+          <div
+            role="alert"
+            data-testid="rascunho-recuperado"
+            className="callout callout-warning mx-3 my-2 flex flex-wrap items-center gap-x-3 gap-y-2 py-2 text-xs"
+          >
+            <p className="mr-auto min-w-0 max-w-4xl leading-5">
+              <strong>Alterações não salvas</strong> (de {formatSavedAt(recovered.savedAt)}). O cronograma foi salvo no sistema por outra
+              pessoa, em outro computador ou em outra aba depois que estas alterações começaram, e gravá-las como estão passaria por cima.
+              Descarte-as para ficar com a versão do sistema, ou use-as sobre a versão atual: aí elas são gravadas por cima do que está lá.
+            </p>
+            <button type="button" className="button-ghost" disabled={readOnly} onClick={adoptRecoveredDraft}>
+              Usar sobre a versão atual
             </button>
+            <button type="button" className="button-ghost" onClick={() => void discardDraft()}>
+              Descartar alterações
+            </button>
+          </div>
+        )}
+        {!plan.frozenAt && !plan.baselineOf && !baselines.length && draft.tasks.length > 0 && (
+          <div
+            role="note"
+            data-testid="lembrete-linha-de-base"
+            className="callout callout-info mx-3 my-2 flex flex-wrap items-center gap-x-3 gap-y-2 py-2 text-xs"
+          >
+            <p className="mr-auto min-w-0 max-w-4xl leading-5">
+              <strong>Este cronograma ainda não tem linha de base.</strong> As alterações são salvas sozinhas e não guardam versões: é a
+              linha de base que mantém o planejamento de referência e mostra os atrasos. Defina uma agora e outra a cada replanejamento.
+            </p>
+            {!readOnly && !dirty && !editor && baselineForm('Definir linha de base agora')}
           </div>
         )}
         <div
@@ -2624,7 +2730,7 @@ export function Sheet({
           <div className={group} data-tour="medio-edicao">
             <button
               className={tool}
-              disabled={readOnly || busy || !!plan.frozenAt}
+              disabled={readOnly || !!plan.frozenAt}
               aria-pressed={!locked}
               onClick={() => {
                 if (editor && !commit()) return;
@@ -2983,7 +3089,7 @@ export function Sheet({
           <p className="border-b border-primary-ring bg-primary-soft px-3 py-2 text-xs text-primary-ink">
             {normalized} {normalized === 1 ? 'tarefa foi ajustada' : 'tarefas foram ajustadas'} à regra do Project ao abrir: % concluída sem
             início real recebe o início previsto, e o “Não iniciar antes de” antigo vira “Tipo de restrição” e passa a valer junto das
-            predecessoras. O ajuste é gravado no próximo “Revisar e salvar”.
+            predecessoras. O ajuste é gravado junto com a próxima alteração.
           </p>
         )}
         {error && (
@@ -3264,16 +3370,24 @@ export function Sheet({
                                         ref={editRef}
                                         aria-label={`Recurso de ${t.name}`}
                                         value={editor.text}
-                                        onChange={e => setEditor({ ...editor, text: e.target.value })}
+                                        onChange={e => {
+                                          // "Mais de um recurso…" abre a aba Recursos das Informações da tarefa.
+                                          if (e.target.value === MORE_TEAMS) {
+                                            setEditor(null);
+                                            openInfo(t.id, 'recursos');
+                                          } else setEditor({ ...editor, text: e.target.value });
+                                        }}
                                         onBlur={commit}
                                         onKeyDown={e => editorKey(e, r, c)}
                                       >
                                         <option value="">Sem recurso</option>
+                                        {editor.text.includes(';') && <option value={editor.text}>{teamsLabel(t)} (atual)</option>}
                                         {teams.map(team => (
                                           <option key={team.id} value={team.id}>
                                             {team.company} · {team.name}
                                           </option>
                                         ))}
+                                        <option value={MORE_TEAMS}>Mais de um recurso…</option>
                                       </select>
                                     ) : col.key === 'constraintType' ? (
                                       <select
@@ -3513,7 +3627,7 @@ export function Sheet({
           aria-label="Barra de status"
         >
           <span className={busy || dirty || editor ? 'font-semibold text-slate-800' : ''}>
-            {busy ? 'Salvando…' : editor ? 'Editando' : dirty ? 'Alterações não salvas' : 'Pronto'}
+            {editor ? 'Editando' : saveError || recovered?.staleHash ? 'Alterações não salvas' : busy || dirty ? 'Salvando…' : 'Pronto'}
           </span>
           <span>
             Novas tarefas: <strong>Agendadas automaticamente</strong>
@@ -3793,22 +3907,7 @@ export function Sheet({
         {!readOnly && !dirty && !editor && (
           <>
             <span data-tour="medio-definir-base" className="inline-flex">
-              <CommandForm
-                title="Definir linha de base"
-                description="Congela as datas de hoje como referência: a tabela e o Gantt passam a mostrar a variação contra ela."
-                submit="Salvar linha de base"
-                icon="none"
-                trigger={
-                  <>
-                    <Flag size={14} aria-hidden /> Definir linha de base
-                  </>
-                }
-                success="Linha de base definida"
-                onDone={setBaseId}
-                command={d => ({ type: 'freeze_plan_baseline', planId: plan.id, name: value(d, 'name') })}
-              >
-                <TextField name="name" label="Nome da linha de base" defaultValue={`Base ${formatDate(today)}`} />
-              </CommandForm>
+              {baselineForm('Definir linha de base')}
             </span>
             {variant ? (
               variant.footerExtra
@@ -3819,106 +3918,12 @@ export function Sheet({
             )}
           </>
         )}
-        {dirty && (
-          <button data-tour="medio-descartar" className="button-ghost" disabled={busy} onClick={() => void discardDraft()}>
-            Descartar rascunho
+        {dirty && (!!saveError || !!recovered?.staleHash) && (
+          <button data-tour="medio-descartar" className="button-ghost" onClick={() => void discardDraft()}>
+            Descartar alterações não salvas
           </button>
         )}
       </div>
-      <dialog
-        ref={reviewDialog}
-        aria-labelledby="schedule-review-title"
-        onCancel={e => {
-          e.preventDefault();
-          if (!busy) setReview(false);
-        }}
-        className="m-auto max-h-[90vh] w-[min(95vw,48rem)] rounded-2xl border border-slate-200 p-0 shadow-xl backdrop:bg-slate-900/55"
-      >
-        <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5">
-          <h3 id="schedule-review-title" className="text-sm font-bold text-slate-900">
-            Revisar atualização
-          </h3>
-          <p className="mt-1.5 text-sm leading-6 text-slate-600">
-            {changed.length} tarefas alteradas, {removed.length} excluídas. As datas das sucessoras já foram reagendadas pela rede.
-          </p>
-          <ul className="mt-3 max-h-60 overflow-auto rounded-lg border border-slate-200 text-xs">
-            {changed.map(t => {
-              const old = original.tasks.find(o => o.id === t.id);
-              const before = old ? linkText(original.tasks, original.links, t.id) : '';
-              const after = linkText(draft.tasks, draft.links, t.id);
-              return (
-                <li key={t.id} className="border-b border-slate-100 px-3 py-2 last:border-b-0">
-                  <strong className="text-slate-900">
-                    {draft.tasks.indexOf(t) + 1} · {t.name}
-                  </strong>
-                  {!old && <span className="ml-2 font-semibold text-success">nova</span>}
-                  {(
-                    [
-                      'name',
-                      'plannedStart',
-                      'plannedEnd',
-                      'duration',
-                      'anchorStart',
-                      'constraintType',
-                      'constraintDate',
-                      'deadline',
-                      'actualStart',
-                      'actualEnd',
-                      'teamId',
-                      'progress',
-                      'notes',
-                      'timeline',
-                      'level',
-                    ] as const
-                  )
-                    .filter(k => old && JSON.stringify(old[k]) !== JSON.stringify(t[k]))
-                    .map(k => (
-                      <p key={k} className="text-slate-600">
-                        {fieldLabels[k]}: {show(k, old?.[k])} → {show(k, t[k])}
-                      </p>
-                    ))}
-                  {before !== after && (
-                    <p className="text-slate-600">
-                      Predecessoras: {before || '—'} → {after || '—'}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-            {removed.map(t => (
-              <li key={t.id} className="border-b border-slate-100 px-3 py-2 font-semibold text-danger last:border-b-0">
-                Excluir: {t.name}
-              </li>
-            ))}
-          </ul>
-          {JSON.stringify(draft.calendar) !== JSON.stringify(original.calendar) && (
-            <p className="mt-2 text-sm text-slate-600">Calendário alterado nesta revisão.</p>
-          )}
-          {normalized > 0 && (
-            <p className="mt-2 text-sm text-slate-600">
-              Também vão ao banco {normalized} {normalized === 1 ? 'tarefa ajustada' : 'tarefas ajustadas'} à regra do Project ao abrir o
-              cronograma.
-            </p>
-          )}
-          <label className="mt-4 block text-xs font-semibold text-slate-600">
-            Motivo da atualização
-            <textarea className="field mt-1.5 font-normal" value={reason} onChange={e => setReason(e.target.value)} required />
-          </label>
-          {error && (
-            <p role="alert" className="mt-2 text-sm text-danger">
-              {error}
-            </p>
-          )}
-          <div className="mt-5 flex flex-wrap justify-end gap-2">
-            <button className="button-ghost" disabled={busy} onClick={() => setReview(false)}>
-              Voltar ao rascunho
-            </button>
-            <button className="button" disabled={busy || !reason.trim()} onClick={save}>
-              {busy ? 'Salvando…' : 'Salvar alterações'}
-            </button>
-          </div>
-        </div>
-      </dialog>
       {/* Fora da área da grade: copiar e colar dentro do diálogo não pode cair no Ctrl+C/Ctrl+V da tabela. */}
       {infoTask && (
         <TaskInfoDialog

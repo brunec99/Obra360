@@ -7,7 +7,7 @@ import { Callout } from '@/modules/planejamento/ui';
 /* Resumo do topo do Gantt de legalização (modelo de 04/11/2026, regras 9 e 10): cinco números e,
  * quando a entrega prevista passa do prazo, um aviso vermelho com a cadeia que empurra a entrega.
  * Tudo sai de `legalizationSummary` sobre o rascunho já agendado e analisado pelo motor, então muda
- * a cada edição, antes de "Revisar e salvar". */
+ * a cada edição, antes mesmo de salvar. */
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const weekday = (d: string) => WEEKDAYS[new Date(`${d}T00:00:00Z`).getUTCDay()];

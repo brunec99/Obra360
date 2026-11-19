@@ -414,7 +414,7 @@ export function PendingCardDialog({
   };
 
   // "a tarefa “Piso do térreo” do médio prazo" / "o serviço “Esquadrias” do longo prazo".
-  const sourceTail = `${card.sourceLabel ? ` “${card.sourceLabel}”` : ''} ${service ? 'do longo prazo' : 'do médio prazo'}`;
+  const sourceTail = `${card.sourceLabel ? ` “${card.sourceLabel}”` : ''} ${service ? 'do longo prazo' : card.sourceLegalization ? 'do Gantt de legalização' : 'do médio prazo'}`;
   const sourceNote = !linked
     ? undefined
     : card.sourceMissing

@@ -1827,3 +1827,91 @@ A parte do Quadro de Restrições está em [Lista de pendência](lista-pendencia
 - **Sienge direto.** Buscar o orçamento pela API do Sienge depende de credenciais de API da ATR.
 - Levar o caminho crítico para a tabela e para o relatório da Claudia.
 
+## Médio prazo: salvamento automático no lugar do "Revisar e salvar" (17/11/2026)
+
+### Pedido e decisão
+
+"Essa função de salvar o cronograma manualmente não está legal. Criar a linha de base já tem esse propósito de manter o histórico. Vamos deixar salvando automaticamente em cada mudança sem controlar revisão. A aba de comentários serve para isso, inclusive. O controle de versionamento é feito pela linha de base. Deixe um lembrete para o usuário salvar a linha de base sempre que não tiver salvado no planejamento."
+
+Isso **reverte a decisão de 25/09/2026** ("Rascunho + Revisar e salvar com motivo obrigatório"). Não há mais revisão nem motivo digitado. O versionamento passa a ser a linha de base, e o porquê de uma mudança vai nas anotações da tarefa.
+
+### Comportamento entregue
+
+- **Gravação automática.** Cada alteração da pessoa vai ao sistema 1,2 s depois da última (`AUTOSAVE_MS`), uma gravação por vez. O comando é o mesmo `save_plan_revision`, com o motivo fixo "Salvamento automático"; **o servidor não mudou e não há migração**.
+- **A edição não trava enquanto grava.** O que for alterado durante uma gravação vai na seguinte. Ao fim de cada gravação, a referência de conflito (`base`) passa a ser a versão recém-gravada.
+- **Só alteração da pessoa dispara gravação.** O rascunho que chega do servidor (abertura, recarga, retorno de gravação) é marcado em `serverDraft` e não regrava, o que evita laço.
+- **Ctrl+Z e Ctrl+Y continuam depois de salvo.** A pilha de desfazer deixou de ser zerada a cada gravação, e desfazer também é gravado.
+- **Estado ao lado do seletor de mês:** "Salvando…", "Tudo salvo", "Não salvo: (motivo)" ou "Não salvo: o cronograma mudou no sistema". Saíram o botão "Revisar e salvar", o diálogo "Revisar atualização" e o aviso verde "Cronograma salvo".
+- **Recusa do servidor ou queda da rede:** o motivo fica em vermelho, com "Tentar salvar de novo". Outra alteração tenta de novo sozinha. "Descartar alterações não salvas" só aparece nesse caso e no conflito.
+- **Conflito** (o cronograma foi salvo por outra pessoa, em outro computador ou em outra aba): as gravações param, a tela pede a versão do sistema e mostra o aviso âmbar com "Usar sobre a versão atual" (grava por cima) e "Descartar alterações". Continua sem junção das duas versões.
+- **Cópia de segurança no navegador** (o rascunho de 16/11): continua guardando o que ainda não chegou ao sistema. Ao reabrir o cronograma no mesmo navegador, ela é gravada sozinha; se o cronograma mudou no meio-tempo, cai no aviso de conflito. O aviso azul "Rascunho não salvo recuperado" saiu.
+- **Lembrete da linha de base.** Cronograma vivo com tarefas e sem nenhuma linha de base mostra o aviso azul "Este cronograma ainda não tem linha de base", com o botão "Definir linha de base agora" (o mesmo formulário do rodapé, só com tudo salvo). Some quando a primeira linha de base é definida. Vale também no Gantt de legalização.
+- Sair da tela com gravação pendente pergunta "Sair antes de terminar de salvar?"; fechar a aba também avisa.
+- Textos, tour (passos "Salvamento automático" e "Descartar alterações não salvas") e manual da Claudia (médio e longo prazo) atualizados.
+
+### Validação (17/11/2026)
+
+- Navegador, com `next dev` na 3102, Supabase falso e Playwright. As gravações foram aplicadas por `applyCommand` de verdade sobre os dados de exemplo. Resultados:
+  - abre com "Tudo salvo", lembrete da linha de base visível e sem botão "Revisar e salvar";
+  - uma edição mostrou "Salvando…" e chegou ao servidor com o motivo "Salvamento automático";
+  - duas edições seguidas viraram uma gravação só;
+  - com o servidor demorando 2,5 s, a edição seguinte não travou e foi na gravação seguinte;
+  - Ctrl+Z e Ctrl+Y depois de salvo voltaram e refizeram o nome no servidor;
+  - recusa do servidor mostrou "Não salvo: …" e o botão; "Tentar salvar de novo" gravou;
+  - cronograma alterado por fora mostrou o aviso de conflito; "Usar sobre a versão atual" gravou por cima;
+  - a linha de base definida pelo lembrete foi criada e o lembrete sumiu;
+  - recarregar a página trouxe o que estava gravado;
+  - sem erro de console.
+- **Não validado:** uso logado no servidor da ATR, duas pessoas reais editando ao mesmo tempo e cronograma grande (cada gravação recarrega o planejamento inteiro, como o salvar manual já fazia).
+
+### Limites e próximas etapas
+
+- Cada gravação gera entradas "Salvamento automático" no histórico da tarefa. São mais entradas que antes, e sem motivo.
+- O lembrete só olha se existe alguma linha de base. Ele não avisa que o cronograma mudou depois da última.
+- No conflito não há junção por tarefa: vale uma versão ou a outra.
+
+## Médio prazo: mais de um recurso por tarefa (17/11/2026)
+
+### Pedido
+
+"Precisamos ter a opção de colocar mais de um recurso."
+
+### Como foi modelado
+
+- `PlanTask.teamId` continua sendo o **primeiro** recurso, na coluna `team_id` de sempre. Os demais vão em `extraTeamIds`, dentro do `schedule_meta` (jsonb). **Sem migração**, e tudo o que lê só `teamId` continua funcionando.
+- Leitura e escrita passam por `taskTeamIds` e `setTaskTeamIds` (`src/domain/entities.ts`): ordem escolhida, sem repetição.
+- Como no Project, cada recurso fica ocupado pela tarefa inteira (100% cada). Não há percentual de unidades por recurso.
+
+### Comportamento entregue
+
+- **Coluna "Nomes dos recursos":** o seletor ganhou "Mais de um recurso…", que abre a aba Recursos das Informações da tarefa. A coluna mostra todos, separados por "; ". Com vários, o seletor traz a opção "(atual)" para manter. Digitar ou colar "Elétrica;Revestimentos" também vale; recurso fora do cadastro é recusado pelo nome.
+- **Informações da tarefa, aba Recursos:** uma caixa de marcar por equipe, com a capacidade ao lado, no lugar da lista de escolha única.
+- **Carga:** a tarefa entra na linha e na carga de **cada** equipe em quatro lugares: Planejador de Equipe, Uso dos Recursos e Planilha de Recursos (`resource-usage.ts`), a seção Recursos semana a semana (`schedule-analysis.ts`), o aviso de capacidade (`teamLoad`) e a contagem de uso da equipe (`teamUsage`). Equipe usada só como recurso adicional também não pode ser excluída.
+- **Planejador de Equipe:** arrastar uma tarefa com vários recursos para outra linha troca só a equipe da linha de origem; soltar em "não atribuídas" tira só essa. O seletor "Atribuir a" troca o primeiro recurso.
+- **Filtro por recurso e busca:** acham a tarefa por qualquer das equipes. No Dashboard, o filtro por empreiteiro do médio prazo também.
+- **Gantt e impressão:** os nomes de todas as equipes ao lado da barra e na coluna Recursos. O resumo dos três meses e a lista de tarefas da Claudia também mostram todas.
+- **Servidor** (`save_plan_revision`): valida que cada recurso adicional é equipe da obra, tira repetidos, limita a 21 e registra `extraTeamIds` no histórico da tarefa ("Recursos adicionais").
+
+### Validação (17/11/2026)
+
+- `tests/plan-multi-resource.test.ts` (3 testes): os auxiliares; a tarefa na linha e na carga de cada equipe, com superalocação; e o servidor (grava, tira repetido, recusa equipe de fora, ida e volta pelo formato do banco, equipe adicional não pode ser excluída). `tests/team-planner.test.ts` ajustado para a equipe de origem do arrasto.
+- Navegador, com `next dev` na 3102, Supabase falso e Playwright gravando por `applyCommand`:
+  - uma equipe pelo seletor;
+  - "Mais de um recurso…" com duas caixas marcadas: a célula mostrou "SM MARTINS · Revestimentos; ATR ENG · Elétrica" e o servidor gravou as duas;
+  - a opção "(atual)" apareceu ao reabrir o seletor;
+  - colar "Elétrica;Revestimentos" em outra linha funcionou;
+  - o filtro por cada uma das equipes achou a tarefa;
+  - as duas equipes continuaram depois de recarregar;
+  - sem erro de console.
+- **Não validado:** o arrasto no Planejador com tarefa de vários recursos no navegador (só o cálculo, pelos testes) e uso logado no servidor da ATR.
+
+### Limites e próximas etapas
+
+- A importação do `.xml` do Project continua ligando um recurso por tarefa, e a exportação segue sem os nomes dos recursos.
+- O curto prazo e a criação de linha da semana a partir da tarefa (Claudia) usam o primeiro recurso.
+- A marca de célula alterada na coluna de recursos só olha o primeiro recurso.
+
+## Gantt de legalização: criar pendência a partir de uma linha (19/11/2026)
+
+A pedido do usuário, o botão "Criar pendência" do cronograma (barra e "Informações da tarefa") deixou de ser escondido no Gantt de legalização da aba 1.1: a linha selecionada vira card do Quadro de Restrições (aba 1.4), com a entrega no dia útil anterior ao início e acompanhando a reprogramação, como já acontecia no médio prazo e na Linha de Balanço. O quadro mostra a origem como "Gantt de legalização · nome da linha". Sem migração. Comportamento, decisões, validação e pendências em [Lista de pendência](lista-pendencia.md#gantt-de-legalização-como-origem-19112026).
+

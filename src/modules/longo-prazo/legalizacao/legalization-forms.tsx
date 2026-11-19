@@ -244,7 +244,7 @@ function DeliveryEditFields({ plan }: { plan: MediumTermPlan }) {
 }
 
 /** "Alterar entrega", no cabeçalho do cronograma. Com rascunho aberto o botão fica travado: a nova
- * entrega grava o prazo final do marco direto no banco, e o "Revisar e salvar" do rascunho seria
+ * entrega grava o prazo final do marco direto no banco, e a gravação do rascunho seria
  * recusado por o cronograma ter mudado por fora. */
 export function DeliveryForm({
   plan,

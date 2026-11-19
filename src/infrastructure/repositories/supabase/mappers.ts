@@ -260,6 +260,7 @@ interface PlanTaskRow {
     timeline?: boolean;
     /** Serviço da Linha de Balanço de que a linha veio (Gantt de legalização, 04/11/2026). */
     lobServiceId?: string;
+    extraTeamIds?: string[];
   };
   id: string;
   created_at: string;
@@ -850,6 +851,7 @@ export function planningDataToPayload(data: PlanningData) {
         actualEnd: t.actualEnd,
         timeline: t.timeline || undefined,
         lobServiceId: t.lobServiceId,
+        extraTeamIds: t.extraTeamIds?.length ? t.extraTeamIds : undefined,
       },
       id: t.id,
       created_at: t.createdAt,

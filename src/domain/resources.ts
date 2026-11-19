@@ -1,4 +1,4 @@
-import type { PlanningData, Team } from './entities';
+import { taskTeamIds, type PlanningData, type Team } from './entities';
 import { legalizationPlanIds } from './legalization';
 
 /** Identifies a crew even when different contractors use the same crew name. */
@@ -9,7 +9,7 @@ export function teamLabel(team: Pick<Team, 'company' | 'name'>): string {
 /** Counts references, not workload: past commitments and frozen plans still use this record. */
 export function teamUsage(data: PlanningData, teamId: string) {
   const frozen = new Set(data.plans.filter(p => p.frozenAt || p.baselineOf).map(p => p.id));
-  const tasks = data.planTasks.filter(t => t.teamId === teamId);
+  const tasks = data.planTasks.filter(t => taskTeamIds(t).includes(teamId));
   // Gantt de legalização (04/11/2026, regra 17): as linhas dele (vivo e linhas de base) não são do
   // médio prazo nem das linhas de base do mês, mas seguem no total — a equipe continua vinculada.
   const legalization = legalizationPlanIds(data.plans);
