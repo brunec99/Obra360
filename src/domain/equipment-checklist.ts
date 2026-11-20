@@ -103,6 +103,8 @@ export interface ChecklistRun {
   note: string;
   /** Quem operou e respondeu (nome digitado). Obrigatório pelo link do operador; opcional na tela logada. */
   operatorName: string;
+  /** A empresa em que o operador trabalha (20/11/2026, migração 0054). Obrigatória pelo link; opcional na tela. */
+  operatorCompany: string;
   /** Assinatura desenhada: o PNG no bucket e a hora em que foi colhida. */
   signaturePath: string | null;
   signedAt: string | null;
@@ -164,6 +166,8 @@ export type ChecklistCommand =
       answers: { itemId: string; answer: ChecklistAnswer; note?: string }[];
       note?: string;
       operatorName?: string;
+      /** Empresa do operador. Ausente mantém a que a inspeção já tem. */
+      operatorCompany?: string;
       /** PNG em base64 de uma assinatura nova. Ausente mantém a que a inspeção já tem. */
       signature?: string;
       /** A lista final de fotos, na ordem. Ausente mantém as que a inspeção já tem. */
@@ -181,6 +185,7 @@ export const CHECKLIST_LIMITS = {
   note: 300,
   location: 60,
   operator: 80,
+  company: 80,
   photos: 4,
   /** Tamanho em base64 (caracteres): ~900 KB de JPEG por foto e ~220 KB de PNG na assinatura. */
   photoData: 1_200_000,
@@ -209,6 +214,13 @@ export interface OperatorChecklistDue {
   status: ChecklistStatus;
   doneOn: string | null;
   doneBy: string;
+  /** A empresa de quem fez a inspeção mais recente do período. */
+  doneCompany: string;
+  /** Quantas inspeções o período corrente já tem: o mesmo equipamento pode ser usado, e inspecionado, por mais
+   * de uma pessoa no dia (20/11/2026). */
+  doneCount: number;
+  /** Pode ser preenchido de novo pelo link: tudo, menos a liberação já registrada (sem local). */
+  canRepeat: boolean;
   /** O checklist pede o nº do equipamento ou o pavimento: pode ser preenchido de novo para outro local. */
   asksLocation: boolean;
   /** Os locais já preenchidos no período corrente (só quando `asksLocation`). */
@@ -229,9 +241,13 @@ export interface OperatorRunInput {
   answers: { itemId: string; answer: ChecklistAnswer; note?: string }[];
   note?: string;
   operatorName: string;
+  operatorCompany: string;
   signature: string;
   photos?: ChecklistPhotoInput[];
 }
+/** Pelo link, o mesmo operador não registra o mesmo checklist duas vezes em menos de um minuto: é o toque
+ * dobrado ou o reenvio depois de uma queda de sinal, e não outra pessoa usando o equipamento. */
+export const CHECKLIST_RESEND_MS = 60_000;
 /** Janela de inspeções que a tela carrega (cobre o mês corrente e o histórico recente). */
 export const CHECKLIST_WINDOW_DAYS = 120;
 
@@ -395,6 +411,10 @@ export function checklistSummary(board: readonly ChecklistBoardRow[]): Checklist
   return summary;
 }
 
+/** "José da Silva (Construtora X)": o operador com a empresa, como aparece no histórico e no aviso ao TST. */
+export const operatorLabel = (run: Pick<ChecklistRun, 'operatorName' | 'operatorCompany'>): string =>
+  run.operatorName && run.operatorCompany ? `${run.operatorName} (${run.operatorCompany})` : run.operatorName || run.operatorCompany;
+
 /** Os locais (nº do equipamento ou pavimento) de um conjunto de inspeções, sem repetir, em ordem. */
 export function doneLocations(runs: readonly Pick<ChecklistRun, 'location'>[]): string[] {
   const seen = new Map<string, string>();
@@ -417,6 +437,9 @@ export function operatorDues(data: ChecklistData, equipmentId: string, today: st
     status: due.status,
     doneOn: due.run?.doneOn ?? null,
     doneBy: due.run?.operatorName ?? '',
+    doneCompany: due.run?.operatorCompany ?? '',
+    doneCount: due.periodRuns.length,
+    canRepeat: due.model.frequency !== 'once' || due.model.asksLocation,
     asksLocation: due.model.asksLocation,
     doneLocations: due.model.asksLocation ? doneLocations(due.periodRuns) : [],
   }));

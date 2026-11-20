@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, CheckCheck, CircleCheck, RefreshCw, TriangleAlert } from 'lucide-react';
 import {
   CHECKLIST_LIMITS,
-  checklistKey,
   FREQUENCY_DONE,
   FREQUENCY_LABEL,
   FREQUENCY_PERIOD,
@@ -16,8 +15,10 @@ import { PhotoPicker, SignaturePad, type PhotoDraft } from './run-fields';
 
 /** A tela do operador (12/11/2026): `/checklist/<token>`, aberta pelo QR colado no equipamento, sem login.
  * Três momentos: a lista dos checklists do equipamento com a situação do período; o formulário (itens,
- * fotos, observação, nome e assinatura); e a confirmação. O operador só registra o que está pendente hoje;
- * corrigir e apagar ficam com TST e admin, na tela logada. O nome fica guardado no aparelho para o dia seguinte. */
+ * fotos, observação, nome, empresa e assinatura); e a confirmação. O operador registra a inspeção de hoje, e o
+ * checklist já feito aceita outra ("Preencher de novo": o equipamento usado por mais de uma pessoa no dia,
+ * 20/11/2026); corrigir e apagar ficam com TST e admin, na tela logada. O nome e a empresa ficam guardados no
+ * aparelho para o dia seguinte. */
 
 type Ready = Extract<OperatorChecklistView, { available: true }>;
 type State =
@@ -25,19 +26,30 @@ type State =
   | { status: 'error'; message: string }
   | { status: 'closed'; reason: 'not_found' | 'inactive' | 'unavailable' }
   | { status: 'ready'; view: Ready };
-type Saved = { modelName: string; at: string; nonConformities: number; operatorName: string; location?: string; notified?: boolean };
+type Saved = {
+  modelName: string;
+  at: string;
+  nonConformities: number;
+  operatorName: string;
+  operatorCompany: string;
+  location?: string;
+  notified?: boolean;
+};
 
 /** "Já feito hoje", "Já feito nesta semana", "Já feito" (a liberação). */
 const doneLabel = (due: OperatorChecklistDue) => `Já feito ${FREQUENCY_DONE[due.frequency]}`.trim();
 
 const NAME_KEY = 'obra360.checklist.operador';
-const savedName = () => {
+const COMPANY_KEY = 'obra360.checklist.empresa';
+const remembered = (key: string) => () => {
   try {
-    return window.localStorage.getItem(NAME_KEY) ?? '';
+    return window.localStorage.getItem(key) ?? '';
   } catch {
     return '';
   }
 };
+const savedName = remembered(NAME_KEY);
+const savedCompany = remembered(COMPANY_KEY);
 
 const CLOSED = {
   not_found: { title: 'Link inválido', body: 'Este QR não vale mais. Peça ao técnico de segurança a etiqueta nova do equipamento.' },
@@ -78,8 +90,13 @@ function DueCard({ due, onFill }: { due: OperatorChecklistDue; onFill: () => voi
         <p className="text-xs">
           {pending
             ? `pendente ${FREQUENCY_PERIOD[due.frequency]}`
-            : `feito em ${formatChecklistDay(due.doneOn!)}${due.doneBy ? ` por ${due.doneBy}` : ''}${due.status === 'nonconforming' ? ' · com não conformidade' : ''}`}
+            : `feito em ${formatChecklistDay(due.doneOn!)}${due.doneBy ? ` por ${due.doneBy}` : ''}${due.doneCompany ? ` (${due.doneCompany})` : ''}${due.status === 'nonconforming' ? ' · com não conformidade' : ''}`}
         </p>
+        {!pending && due.doneCount > 1 && (
+          <p className="text-xs">
+            {due.doneCount} inspeções {FREQUENCY_DONE[due.frequency]}
+          </p>
+        )}
         {due.asksLocation && (
           <p className="text-xs">
             {due.doneLocations.length
@@ -88,9 +105,9 @@ function DueCard({ due, onFill }: { due: OperatorChecklistDue; onFill: () => voi
           </p>
         )}
       </div>
-      {(pending || due.asksLocation) && (
+      {(pending || due.canRepeat) && (
         <button type="button" className={pending ? 'button shrink-0' : 'button-ghost shrink-0 bg-white'} onClick={onFill}>
-          {pending ? 'Preencher' : 'Preencher outro'}
+          {pending ? 'Preencher' : 'Preencher de novo'}
         </button>
       )}
     </li>
@@ -113,6 +130,7 @@ function FillForm({
   const [note, setNote] = useState('');
   const [location, setLocation] = useState('');
   const [name, setName] = useState(savedName);
+  const [company, setCompany] = useState(savedCompany);
   const [signature, setSignature] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -125,16 +143,12 @@ function FillForm({
         : `Faltam responder ${missing} itens.`
       : !fullName
         ? 'Escreva seu nome completo.'
-        : !signature
-          ? 'Falta assinar.'
-          : '';
-  const repeated = due.asksLocation && due.doneLocations.some(done => checklistKey(done) === checklistKey(location));
-  const blocked =
-    due.asksLocation && !location.trim()
-      ? 'Informe o nº do equipamento ou o pavimento.'
-      : repeated
-        ? `${doneLabel(due)} para "${location.trim()}".`
-        : otherBlock;
+        : !company.trim()
+          ? 'Informe a empresa em que você trabalha.'
+          : !signature
+            ? 'Falta assinar.'
+            : '';
+  const blocked = due.asksLocation && !location.trim() ? 'Informe o nº do equipamento ou o pavimento.' : otherBlock;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -151,6 +165,7 @@ function FillForm({
           answers: due.items.map(item => ({ itemId: item.id, answer: answers[item.id]!.answer!, note: answers[item.id]?.note ?? '' })),
           note,
           operatorName: name,
+          operatorCompany: company,
           signature,
           photos: photos.map(photo => ({ id: photo.id, data: photo.data })),
         }),
@@ -158,15 +173,16 @@ function FillForm({
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         view?: OperatorChecklistView;
-        saved?: Omit<Saved, 'operatorName'>;
+        saved?: Omit<Saved, 'operatorName' | 'operatorCompany'>;
       };
       if (!response.ok || !body.view || !body.saved) throw new Error(body.error ?? 'Não foi possível enviar. Tente de novo.');
       try {
         window.localStorage.setItem(NAME_KEY, name.trim());
+        window.localStorage.setItem(COMPANY_KEY, company.trim());
       } catch {
-        // sem armazenamento (aba anônima): só não lembra o nome
+        // sem armazenamento (aba anônima): só não lembra o nome e a empresa
       }
-      onSaved(body.view, { ...body.saved, operatorName: name.trim() });
+      onSaved(body.view, { ...body.saved, operatorName: name.trim(), operatorCompany: company.trim() });
     } catch (cause) {
       setError(
         cause instanceof TypeError
@@ -237,6 +253,19 @@ function FillForm({
               autoCapitalize="words"
               required
               onChange={e => setName(e.target.value)}
+            />
+          </label>
+          <label className="block text-xs font-semibold text-slate-600">
+            Empresa em que você trabalha
+            <input
+              className="field mt-1"
+              value={company}
+              maxLength={CHECKLIST_LIMITS.company}
+              autoComplete="organization"
+              autoCapitalize="words"
+              placeholder="Ex.: nome da empreiteira"
+              required
+              onChange={e => setCompany(e.target.value)}
             />
           </label>
           <div>
@@ -320,7 +349,7 @@ export function OperatorChecklist({ token }: { token: string }) {
 
   const { view } = state;
   const eyebrow = `${view.work.name || 'Obra'} · Checklist de equipamentos`;
-  const filling = modelId ? view.dues.find(due => due.modelId === modelId && (due.status === 'pending' || due.asksLocation)) : undefined;
+  const filling = modelId ? view.dues.find(due => due.modelId === modelId && (due.status === 'pending' || due.canRepeat)) : undefined;
 
   if (filling)
     return (
@@ -355,6 +384,7 @@ export function OperatorChecklist({ token }: { token: string }) {
             {new Date(saved.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             <br />
             {saved.operatorName}
+            {saved.operatorCompany ? ` · ${saved.operatorCompany}` : ''}
           </p>
           {saved.nonConformities > 0 && (
             <p className="mt-3 flex items-start justify-center gap-1.5 text-sm font-semibold text-danger">

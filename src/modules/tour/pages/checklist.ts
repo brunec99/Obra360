@@ -21,12 +21,12 @@ export const steps: TourStep[] = [
   {
     target: 'checklist-form',
     title: 'Inspeção',
-    body: 'Cada item recebe C (conforme), NC (não conforme) ou N/A (não se aplica). A não conformidade exige a descrição. "Marcar os demais como conforme" preenche o que ficou em branco. Dá para anexar até 4 fotos, escrever o nome do operador e colher a assinatura dele no quadro.',
+    body: 'Cada item recebe C (conforme), NC (não conforme) ou N/A (não se aplica). A não conformidade exige a descrição. "Marcar os demais como conforme" preenche o que ficou em branco. Dá para anexar até 4 fotos, escrever o nome e a empresa do operador e colher a assinatura dele no quadro. Num checklist já feito, "Registrar outra inspeção" lança mais uma (o equipamento usado por outra pessoa no dia).',
   },
   {
     target: 'checklist-history',
     title: 'Últimas inspeções',
-    body: 'As 30 inspeções mais recentes, com o operador ou quem registrou; as que vieram do QR trazem a marca "pelo QR". "Ver respostas" abre os itens, a assinatura e as fotos; o TST edita ou exclui uma inspeção lançada errada.',
+    body: 'As 30 inspeções mais recentes, com o operador (e a empresa dele) ou quem registrou; as que vieram do QR trazem a marca "pelo QR". "Ver respostas" abre os itens, a assinatura e as fotos; o TST edita ou exclui uma inspeção lançada errada.',
   },
   {
     target: 'checklist-models',

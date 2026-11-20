@@ -14,6 +14,45 @@ os TSTs criam os modelos na própria tela.
 
 **Atualização de 11/11/2026 (noite):** a migração foi aplicada no `takt-hub` pela CLI do Supabase, a pedido do usuário, e conferida no catálogo (tabela, RLS ligada, grant para `service_role`, sem acesso de `anon`). A tela ainda não foi aberta logada em produção.
 
+## Empresa do operador e preenchimento repetido no dia (20/11/2026)
+
+**Pedido:** mensagem da responsável de SST em 20/11/2026, "mais ajustes para aba checklist":
+
+1. "Incluir no checklist além do nome do colaborador o nome da empresa que o mesmo trabalha."
+2. "Permitir o preenchimento duplicado do mesmo equipamento, pois acontece do equipamento ser usado por mais de uma pessoa no dia."
+
+**Situação em 20/11/2026:** com o "faça tudo" do usuário, a migração `0054_checklist_company_repeat.sql` foi **aplicada no `takt-hub` em 20/11/2026** (pelo pooler, numa transação, lendo o estado antes e depois: 22 inspeções, 18 modelos e 14 equipamentos intactos; coluna `operator_company` criada, vazia nas 22; índice único `checklist_runs_spot_day_idx` removido e `checklist_runs_spot_idx` criado; permissão do `service_role` mantida). O código foi **enviado ao `main`** logo depois, nessa ordem de propósito: sem a 0054 o envio pelo QR responderia "ainda não está disponível" (a empresa é obrigatória ali). O e-mail contando a mudança foi enviado à equipe de SST depois da publicação. Não houve modelo de UX prévio: são campos e botões dentro das telas que já existem.
+
+### Decisões tomadas na implementação (do Claude; apresentadas ao usuário, que respondeu "faça tudo" sem mudar)
+
+- **A empresa é um campo de texto livre**, ao lado do nome: obrigatória pelo QR, opcional na tela logada (como o nome e a assinatura). Não há lista de empresas: o operador escreve. O celular guarda o nome e a empresa para a próxima vez.
+- **O repetido vale para todo checklist, menos a liberação.** O pedido fala do equipamento usado por mais de uma pessoa no dia; a regra ficou a mesma para diário, semanal e mensal, pelo QR e pela tela, e também para o mesmo local quando o modelo pede o nº do equipamento ou o pavimento. A liberação segue feita uma única vez (pedido de 17/11/2026).
+- **O quadro continua contando um checklist por período.** A primeira inspeção do período deixa o checklist feito; as seguintes não mudam os totais de pendentes. Basta uma com não conformidade para ele ficar vermelho (já era assim com o local). O cartão passa a dizer quantas inspeções o período tem.
+- **Freio contra envio dobrado:** pelo QR, o mesmo nome no mesmo checklist (e local) em menos de um minuto é recusado ("acabou de ser enviado por …"). Sem a unicidade no banco, o toque dobrado ou o reenvio depois de uma queda de sinal gravaria duas inspeções e mandaria dois avisos ao TST.
+- **O aviso ao TST não mudou de modelo:** a empresa vai dentro do campo `operador` do payload, "Nome (Empresa)". Nada a publicar no Takt Hub.
+
+### Como funciona
+
+- **Empresa** (`ChecklistRun.operatorCompany`, coluna `checklist_runs.operator_company`, até 80 caracteres):
+  - `save_run` aceita `operatorCompany` (ausente mantém a da inspeção). `parseOperatorRun` exige o campo, e `planChecklistCommand` recusa vazio pelo link ("Informe a empresa em que você trabalha.").
+  - `operatorLabel(run)` monta "Nome (Empresa)" para o histórico e para o e-mail. `OperatorChecklistDue` ganhou `doneCompany`.
+  - Tela do operador: campo **Empresa em que você trabalha** entre o nome e a assinatura; a confirmação e o cartão do checklist feito mostram a empresa.
+  - Tela logada: campo **Empresa do operador (opcional)** no formulário; "Últimas inspeções" mostra "Nome (Empresa)" e "Ver respostas" mostra "Operador: … · Empresa: …".
+- **Preenchimento repetido:**
+  - Saíram de `planChecklistCommand` a recusa "já foi preenchido … neste dia" (tela e link) e a recusa do link para o que já estava feito no período. Ficou a da liberação (`once`), por local quando o modelo pede.
+  - `OperatorChecklistDue` ganhou `doneCount` (inspeções do período) e `canRepeat` (falso só na liberação sem local). No QR, o checklist feito tem o botão **Preencher de novo** (antes só o checklist com local tinha "Preencher outro") e a linha "N inspeções hoje / nesta semana / neste mês". O bloqueio do local repetido antes do envio saiu.
+  - Tela logada: clicar num checklist feito segue abrindo a inspeção mais recente; o formulário ganhou **Registrar outra inspeção**, que abre uma nova do mesmo checklist (não aparece na liberação, em equipamento desativado nem em checklist tirado do QR). O cartão mostra "· N inspeções".
+  - `CHECKLIST_RESEND_MS` (60 s) é a janela do freio contra envio dobrado; só olha inspeções vindas do link.
+- **Banco** (0054): `checklist_runs.operator_company text not null default ''`; o índice único `checklist_runs_spot_day_idx (equipment_id, model_id, done_on, location)` sai e entra o índice comum `checklist_runs_spot_idx (equipment_id, model_id, done_on)`; a unicidade original da 0047 também é removida, se ainda existir. Nenhuma linha existente muda.
+- **Sem a 0054:** a coluna só vai no comando quando preenchida (na atualização, a gravação tenta com ela e repete sem ela se está vazia), então a tela logada sem empresa segue gravando; com empresa responde "Aplique a migração 0054"; o envio pelo QR responde 503; a segunda inspeção do dia bate na unicidade antiga e responde "Os dados mudaram". A 0054 entrou em `MIGRATION_CHECKS`.
+
+### Validação de 20/11/2026
+
+- `tests/checklist.test.ts`: 1 teste novo (empresa opcional na tela e mantida na edição; `operatorLabel`; segunda pessoa no mesmo dia pelo QR, com `doneCount`, `doneCompany` e `canRepeat`; reenvio em menos de um minuto recusado e aceito depois; liberação segue única) e ajustes nos testes que afirmavam a recusa do dia repetido, do período pelo link e do local repetido, que agora afirmam o aceite. O e-mail ao TST é conferido com "Nome (Empresa)".
+- Sequência do `ci.yml` local: tipos, lint (sem erro), Prettier, 1.555 testes, validação das migrações (com a 0054 num PostgreSQL isolado), build e e2e.
+- Navegador (`next dev` com as rotas do checklist respondidas pelas regras reais em memória; "Betoneira 01" com um diário e uma liberação). No celular (390 px, sem cookie): o envio ficou bloqueado sem a empresa; com ela, a confirmação e o cartão mostraram "José Almeida (Construtora Alfa)" e o botão **Preencher de novo**; a empresa voltou preenchida no formulário seguinte; o reenvio imediato do mesmo nome foi recusado; outra pessoa ("Maria Souza", "Empreiteira Beta") enviou e o cartão passou a "2 inspeções hoje"; a liberação feita ficou sem botão. Na tela logada (1.440 px): o cartão mostrou "feito em … · 2 inspeções", o histórico trouxe "Nome (Empresa)", a edição abriu com a empresa, **Registrar outra inspeção** gravou a terceira com operador e empresa, "Ver respostas" mostrou os dois, e a liberação não ofereceu o botão. Sem rolagem lateral nas duas larguras.
+- **Não validado:** gravação de uma inspeção real em produção (a 0054 foi aplicada, mas nenhuma inspeção foi gravada por mim), o e-mail de não conformidade com a empresa e o uso em produção.
+
 ## Nº do equipamento ou pavimento, liberação e aviso ao TST (17/11/2026)
 
 **Pedido:** três mensagens da responsável de SST em 17/11/2026, na conversa do Cloudflare Access, com prints da tela:
@@ -161,7 +200,7 @@ A equipe da obra relatou: "quando pessoal que não tem login acessa com QR code,
   modelos e equipamentos: só admins desde 12/11/2026 (`canManageChecklist`). Todos que têm a obra
   consultam: a seção `checklist` é aberta, como `seguranca`.
 - Período: o dia; a semana de segunda a domingo; o mês (`periodKey`).
-- Um modelo só é preenchido uma vez por equipamento por dia (regra e unicidade no banco).
+- Até 20/11/2026 um modelo só era preenchido uma vez por equipamento por dia; desde então aceita mais de uma inspeção no dia (só a liberação é única).
 - Sem data futura. Todos os itens respondidos. NC exige descrição.
 - A edição da inspeção usa os itens que ela guardou; editar o modelo não reescreve o histórico. Na edição
   do modelo, o item que permanece mantém o id.
@@ -175,6 +214,7 @@ A equipe da obra relatou: "quando pessoal que não tem login acessa com QR code,
 - Domínio: `src/domain/equipment-checklist.ts`
 - Regras: `src/application/use-cases/checklist-commands.ts`
 - Banco: `supabase/migrations/0047_equipment_checklist.sql`, `0048_checklist_operator.sql`, `0052_checklist_equipment_models.sql`,
+  `0053_checklist_location_release.sql`, `0054_checklist_company_repeat.sql`,
   `src/infrastructure/repositories/supabase/checklist-repository.ts`
 - API: `src/app/api/checklist/route.ts`, `commands/route.ts`, `arquivos/route.ts` e a pública
   `src/app/api/publico/checklist/[token]/route.ts`
@@ -184,6 +224,7 @@ A equipe da obra relatou: "quando pessoal que não tem login acessa com QR code,
 
 ## Pendente
 
+- **Empresa do operador e preenchimento repetido (20/11/2026):** conferir em produção com um QR real (duas pessoas no mesmo dia, cada uma com a sua empresa) e ouvir a equipe de SST sobre as regras decididas na implementação (empresa em texto livre, repetição em todas as periodicidades, trava de 1 minuto).
 - **Local, liberação e aviso ao TST (17/11/2026):** conferir logado em produção, conferir um e-mail real de não conformidade e marcar os TSTs de cada obra (sem TST marcado, ninguém é avisado).
 - **Cloudflare Access (17/11/2026):** a AIRON Labs respondeu no mesmo dia que liberou `/checklist/*`, `/api/publico/*`, `/_next/static/*` e os ícones, e que testou de fora sem login. Falta o teste da obra: ler um QR num celular sem login e enviar um checklist com foto. Avisar a AIRON Labs antes de criar outra rota em `/api/publico/` (tudo ali fica aberto à internet).
 - **Checklists do QR (16/11/2026):** conferir logado em produção (marcar e desmarcar, ler o QR depois de salvar). A 0052 já está aplicada e o código foi enviado.

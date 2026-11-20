@@ -83,9 +83,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   }
 }
 
-/** Registra UMA inspeção nova, de hoje, de um checklist pendente deste equipamento, com nome e assinatura
- * (`planOperatorRun`). Obra, equipamento, data e autoria são do servidor; o corpo só traz o modelo, as
- * respostas, o nome, a assinatura e as fotos. Devolve a tela atualizada. */
+/** Registra UMA inspeção nova, de hoje, de um checklist deste equipamento, com nome, empresa e assinatura
+ * (`planOperatorRun`); o mesmo checklist aceita mais de uma no dia, uma por pessoa que usa o equipamento. Obra, equipamento, data e autoria são do servidor; o corpo só traz o modelo, as
+ * respostas, o nome, a empresa, a assinatura e as fotos. Devolve a tela atualizada. */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   if (!CHECKLIST_TOKEN.test(token)) return responseError('Link inválido. Leia o QR do equipamento de novo.', 404);

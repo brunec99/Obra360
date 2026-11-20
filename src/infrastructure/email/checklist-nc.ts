@@ -1,4 +1,10 @@
-import { FREQUENCY_LABEL, formatChecklistDay, type ChecklistEquipment, type ChecklistRun } from '../../domain/equipment-checklist';
+import {
+  FREQUENCY_LABEL,
+  formatChecklistDay,
+  operatorLabel,
+  type ChecklistEquipment,
+  type ChecklistRun,
+} from '../../domain/equipment-checklist';
 import { logRouteError } from '../log';
 import { getServiceClient } from '../repositories/supabase/client';
 import { listInspectors } from '../repositories/supabase/safety-repository';
@@ -56,7 +62,8 @@ export function checklistNcEmail(
     checklist: run.modelName,
     periodicidade: FREQUENCY_LABEL[run.frequency],
     ...(run.location ? { local: run.location } : {}),
-    ...(run.operatorName ? { operador: run.operatorName } : {}),
+    // A empresa vai junto do nome ("José da Silva (Construtora X)"): o modelo do Takt Hub não muda.
+    ...(operatorLabel(run) ? { operador: operatorLabel(run) } : {}),
     origem: run.source === 'link' ? 'qr' : 'tela',
     data: formatChecklistDay(run.doneOn),
     total: issues.length,

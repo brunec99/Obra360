@@ -2,18 +2,17 @@ import {
   CHECKLIST_ANSWERS,
   CHECKLIST_FREQUENCIES,
   CHECKLIST_LIMITS,
+  CHECKLIST_RESEND_MS,
   checklistKey,
   checklistPhotoPath,
   checklistSignaturePath,
   cleanChecklistText,
   equipmentModelLinks,
   formatChecklistDay,
-  FREQUENCY_DONE,
   isIsoDay,
   isJpegBase64,
   isPngBase64,
   modelsFor,
-  periodKey,
   type ChecklistAnswer,
   type ChecklistCommand,
   type ChecklistData,
@@ -135,6 +134,7 @@ export function parseChecklistCommand(body: unknown): ChecklistCommand {
         return { itemId: text(answer.itemId, 'answers.itemId'), answer: value, ...(answerNote !== undefined ? { note: answerNote } : {}) };
       });
       const operatorName = optionalText(body.operatorName, 'operatorName');
+      const operatorCompany = optionalText(body.operatorCompany, 'operatorCompany');
       const signature = optionalText(body.signature, 'signature');
       const photos = parsePhotos(body.photos);
       const location = optionalText(body.location, 'location');
@@ -149,6 +149,7 @@ export function parseChecklistCommand(body: unknown): ChecklistCommand {
         answers,
         ...(note !== undefined ? { note } : {}),
         ...(operatorName !== undefined ? { operatorName } : {}),
+        ...(operatorCompany !== undefined ? { operatorCompany } : {}),
         ...(signature ? { signature } : {}),
         ...(photos ? { photos } : {}),
       };
@@ -183,6 +184,7 @@ export function parseOperatorRun(body: unknown): OperatorRunInput {
     answers: parsed.answers,
     ...(parsed.note !== undefined ? { note: parsed.note } : {}),
     operatorName: text(body.operatorName, 'operatorName'),
+    operatorCompany: text(body.operatorCompany, 'operatorCompany'),
     signature: text(body.signature, 'signature'),
     ...(parsed.photos ? { photos: parsed.photos } : {}),
   };
@@ -411,13 +413,12 @@ export function planChecklistCommand(
         r.modelId === model.id &&
         checklistKey(r.location) === checklistKey(location);
 
+      // O mesmo checklist pode ser preenchido mais de uma vez no dia (20/11/2026, pedido da equipe de SST: "acontece
+      // do equipamento ser usado por mais de uma pessoa no dia"). Só a liberação segue única.
       if (ctx.viaLink) {
-        // Pelo link do operador: só inspeção nova, de hoje, e só o que ainda está pendente no período.
+        // Pelo link do operador: só inspeção nova e de hoje.
         if (current) fail('Pelo link não se edita uma inspeção. Procure o técnico de segurança.');
         if (command.doneOn !== today) fail('Pelo link só se registra a inspeção de hoje.');
-        const period = periodKey(model.frequency, today);
-        if (model.frequency !== 'once' && data.runs.some(r => sameSpot(r) && periodKey(model.frequency, r.doneOn) === period))
-          fail(`"${model.name}"${where} já foi preenchido ${FREQUENCY_DONE[model.frequency]}. Atualize a página.`);
       }
       // A liberação é feita uma única vez (por local, quando o modelo pede): vale para a tela e para o link.
       if (model.frequency === 'once') {
@@ -428,8 +429,6 @@ export function planChecklistCommand(
               (ctx.viaLink ? 'Procure o técnico de segurança.' : 'Abra a inspeção para editar.'),
           );
       }
-      if (data.runs.some(r => sameSpot(r) && r.doneOn === command.doneOn))
-        fail(`"${model.name}" já foi preenchido para ${equipment.name}${where} neste dia. Abra a inspeção para editar.`);
 
       // Na edição valem os itens que a inspeção guardou; na nova, os do modelo de hoje.
       const expected = current ? current.answers.map(a => ({ id: a.itemId, text: a.text })) : model.items;
@@ -452,6 +451,22 @@ export function planChecklistCommand(
       const operatorName = command.operatorName === undefined ? (current?.operatorName ?? '') : cleanChecklistText(command.operatorName);
       if (operatorName.length > CHECKLIST_LIMITS.operator) fail(`Nome do operador: até ${CHECKLIST_LIMITS.operator} caracteres.`);
       if (ctx.viaLink && operatorName.split(' ').length < 2) fail('Escreva seu nome completo (nome e sobrenome).');
+      const operatorCompany =
+        command.operatorCompany === undefined ? (current?.operatorCompany ?? '') : cleanChecklistText(command.operatorCompany);
+      if (operatorCompany.length > CHECKLIST_LIMITS.company) fail(`Empresa do operador: até ${CHECKLIST_LIMITS.company} caracteres.`);
+      if (ctx.viaLink && !operatorCompany) fail('Informe a empresa em que você trabalha.');
+      // O toque dobrado ou o reenvio depois de uma queda de sinal: a mesma pessoa, o mesmo checklist, há instantes.
+      if (
+        ctx.viaLink &&
+        data.runs.some(
+          r =>
+            sameSpot(r) &&
+            r.source === 'link' &&
+            checklistKey(r.operatorName) === checklistKey(operatorName) &&
+            Math.abs(Date.parse(ctx.now) - Date.parse(r.createdAt)) < CHECKLIST_RESEND_MS,
+        )
+      )
+        fail(`"${model.name}"${where} acabou de ser enviado por ${operatorName}. Atualize a página.`);
 
       // Assinatura: uma nova substitui a guardada (o arquivo antigo sai); sem nova, fica a que existe.
       let signaturePath = current?.signaturePath ?? null;
@@ -497,6 +512,7 @@ export function planChecklistCommand(
           answers,
           note,
           operatorName,
+          operatorCompany,
           signaturePath,
           signedAt,
           photos,
@@ -515,6 +531,7 @@ export function planChecklistCommand(
           answers,
           note,
           operatorName,
+          operatorCompany,
           signaturePath,
           signedAt,
           photos,

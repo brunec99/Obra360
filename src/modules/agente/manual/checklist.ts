@@ -1,7 +1,7 @@
 import type { ManualSection } from './types';
 
 /** Manual da aba 9, Checklist de equipamentos (11/11/2026; operador pelo QR, assinatura, fotos e cadastro só com admin em 12/11/2026;
- * checklists de cada QR em 16/11/2026). Escrito a partir do código da tela e dos
+ * checklists de cada QR em 16/11/2026; empresa do operador e preenchimento repetido no dia em 20/11/2026). Escrito a partir do código da tela e dos
  * comandos; descreve só o que está implementado. */
 export const sections: ManualSection[] = [
   {
@@ -44,6 +44,13 @@ export const sections: ManualSection[] = [
       'tirar checklist do qr',
       'desativar checklist do equipamento',
       'vincular checklist',
+      'empresa do operador',
+      'empresa do colaborador',
+      'empreiteira',
+      'preencher de novo',
+      'preenchimento duplicado',
+      'mais de uma pessoa no dia',
+      'registrar outra inspeção',
     ],
     screen: 'checklist',
     body: `## O que é a aba 3.2, Checklist de equipamentos
@@ -69,7 +76,8 @@ export const sections: ManualSection[] = [
 
 1. (Admin) Em **Modelos de checklist**, clique em **Novo checklist**, preencha nome, tipo e periodicidade e escreva os itens. "Colar vários itens de uma vez" aceita a lista da ficha em papel, um item por linha. As setas mudam a ordem.
 2. (Admin) Em **Equipamentos da obra**, cadastre cada equipamento com a identificação e o tipo. Um tipo sem modelo aparece com o aviso "Nenhum checklist para o tipo".
-3. No quadro, clique no checklist do equipamento: âmbar é **pendente** no período, verde é **feito**, vermelho é **feito com não conformidade**. Responda os itens e clique em **Registrar inspeção**. "Marcar os demais como conforme" preenche o que ficou em branco. Na tela logada dá para anexar **até 4 fotos**, escrever o **nome do operador** e colher a **assinatura** dele no quadro (os três são opcionais ali; quem assina precisa ter o nome escrito).
+3. No quadro, clique no checklist do equipamento: âmbar é **pendente** no período, verde é **feito**, vermelho é **feito com não conformidade**. Responda os itens e clique em **Registrar inspeção**. "Marcar os demais como conforme" preenche o que ficou em branco. Na tela logada dá para anexar **até 4 fotos**, escrever o **nome do operador** e a **empresa** em que ele trabalha e colher a **assinatura** dele no quadro (tudo opcional ali; quem assina precisa ter o nome escrito).
+4. Clicar num checklist já feito abre a inspeção mais recente para conferir ou corrigir. Se outra pessoa usou o equipamento, **Registrar outra inspeção**, no alto do formulário, abre uma inspeção nova do mesmo checklist (desde 20/11/2026).
 
 ### Checklists do QR: incluir e tirar checklists de um equipamento (16/11/2026)
 
@@ -88,18 +96,18 @@ O modelo pode pedir o nº do equipamento ou o pavimento a quem preenche, a perio
 ### Checklist pelo QR (operador, sem login)
 
 - Cada equipamento tem um **link secreto**. Na linha do equipamento, **QR do operador** mostra o QR, o endereço, **Copiar link** e **Imprimir etiqueta**; **Imprimir etiquetas com QR**, no alto do quadro, gera a folha com todos os equipamentos ativos da obra, para recortar e colar nas máquinas.
-- O operador aponta a câmera do celular para a etiqueta. Abre uma tela só daquele equipamento, com os checklists dele: **pendente** tem o botão **Preencher**; **feito** mostra o dia e quem fez.
-- No formulário ele responde C / NC / N/A, pode tirar **até 4 fotos** e escrever uma observação, e precisa escrever o **nome completo** e **assinar com o dedo**. Depois toca em **Enviar checklist**. Se houver item não conforme, o técnico de segurança da obra recebe um e-mail e a confirmação manda falar com ele antes de operar.
-- Pelo link só se registra **o dia de hoje** e só o que está **pendente no período** (diário uma vez por dia, semanal uma por semana, mensal uma por mês). O operador não edita nem apaga: corrigir é com TST ou admin, na tela logada.
+- O operador aponta a câmera do celular para a etiqueta. Abre uma tela só daquele equipamento, com os checklists dele: **pendente** tem o botão **Preencher**; **feito** mostra o dia, quem fez e a empresa, e tem o botão **Preencher de novo**.
+- No formulário ele responde C / NC / N/A, pode tirar **até 4 fotos** e escrever uma observação, e precisa escrever o **nome completo** e a **empresa em que trabalha** (desde 20/11/2026) e **assinar com o dedo**. O nome e a empresa ficam guardados no celular para a próxima vez. Depois toca em **Enviar checklist**. Se houver item não conforme, o técnico de segurança da obra recebe um e-mail e a confirmação manda falar com ele antes de operar.
+- Pelo link só se registra **o dia de hoje**. Desde 20/11/2026 o checklist já feito pode ser **preenchido de novo**, quantas vezes for preciso: o mesmo equipamento é usado por mais de uma pessoa no dia, e cada uma faz a sua inspeção (o cartão mostra quantas já foram feitas). Só a **liberação** segue única. O reenvio da mesma pessoa em menos de um minuto é recusado, para o toque dobrado não gravar duas vezes. O operador não edita nem apaga: corrigir é com TST ou admin, na tela logada.
 - O link continua sem login e não depende de módulo: a liberação por pessoa de 12/11/2026 vale só para a tela logada.
 - Quem tem o link vê apenas aquele equipamento, nada mais do sistema. Se o link vazar, o admin clica em **Gerar novo link**: a etiqueta antiga para de funcionar e é preciso imprimir a nova. Equipamento desativado também fecha o link.
-- No histórico, a inspeção mostra o nome do operador e a marca **pelo QR**; "Ver respostas" mostra a assinatura (com data e hora) e as fotos.
+- No histórico, a inspeção mostra o nome do operador com a empresa entre parênteses e a marca **pelo QR**; "Ver respostas" mostra a assinatura (com data e hora) e as fotos.
 - O link precisa de internet no celular; não funciona sem sinal.
 
 ### Regras
 
 - O período do diário é o dia; do semanal, a semana de segunda a domingo; do mensal, o mês. A liberação não tem período: é feita uma única vez.
-- O mesmo modelo só é preenchido uma vez por equipamento por dia (por local, quando o modelo pede o nº do equipamento ou o pavimento); abrir de novo edita a inspeção.
+- O mesmo modelo pode ser preenchido mais de uma vez por equipamento no mesmo dia (desde 20/11/2026), pelo QR e pela tela: cada inspeção fica no histórico com quem fez. O checklist do quadro continua contando como um só: fica feito com a primeira inspeção do período e vermelho se qualquer uma delas tiver não conformidade. A liberação é a exceção: uma única vez.
 - Não se registra inspeção com data futura.
 - A inspeção guarda os itens como estavam no dia: editar o modelo depois não muda o histórico.
 - Modelo e equipamento não são excluídos, são **desativados** (saem do quadro, o histórico fica) e podem ser reativados.
@@ -138,9 +146,9 @@ Preenchimento sem internet, foto presa a um item específico, impressão da insp
     body: `## Checklist de equipamentos (aba 3.2): local, liberação e aviso ao TST (17/11/2026)
 
 - **Nº do equipamento ou pavimento:** no modelo, o administrador marca **Pedir o nº do equipamento ou o pavimento a quem preenche**. Serve para o checklist que vale para vários lugares, como "Rede U (piso a piso)" num QR geral. Ao preencher, pela tela ou pelo QR, o campo **Nº do equipamento ou pavimento** fica obrigatório (até 60 caracteres).
-- Com essa opção, o checklist pode ser preenchido **mais de uma vez no período, uma por local**: o 3º pavimento e o 4º pavimento na mesma semana, por exemplo. O mesmo local não se repete no mesmo dia (a comparação ignora acento e maiúsculas), e pelo QR não se repete no período. No quadro, o checklist mostra os locais já feitos; para quem registra, clicar nele abre uma inspeção nova para outro local, e as feitas ficam em "Últimas inspeções". No QR, o botão vira **Preencher outro** e a tela lista os locais já feitos. Basta uma inspeção do período com não conformidade para o checklist ficar vermelho.
+- Com essa opção, o checklist pode ser preenchido **mais de uma vez no período, uma por local**: o 3º pavimento e o 4º pavimento na mesma semana, por exemplo. Desde 20/11/2026 o mesmo local também pode ser repetido (outra pessoa conferiu o mesmo lugar). No quadro, o checklist mostra os locais já feitos; para quem registra, clicar nele abre uma inspeção nova, e as feitas ficam em "Últimas inspeções". No QR, o botão é **Preencher de novo** e a tela lista os locais já feitos. Basta uma inspeção do período com não conformidade para o checklist ficar vermelho.
 - **Liberação:** na **Periodicidade** do modelo há a opção **Liberação (uma única vez)**. Esse checklist fica **pendente de liberação** até ser preenchido e depois fica feito para sempre: não volta a ser cobrado e não aceita outra inspeção, nem pela tela nem pelo QR (a mensagem diz o dia em que foi registrada). A própria liberação pode ser editada ou excluída por TST e admin; excluída, volta a ficar pendente. Se o modelo também pede o local, a liberação é uma por nº de equipamento ou pavimento. Quando há liberações, a tela mostra o cartão **Liberações pendentes**.
-- **Aviso ao TST:** quando uma inspeção **nova** é registrada com algum item não conforme, pelo QR ou pela tela, os **TSTs que têm a obra** recebem um **e-mail** com o equipamento, o checklist, o local, quem preencheu, os itens não conformes com a descrição e o link da tela. Quem registrou a inspeção não recebe o próprio aviso. Editar uma inspeção antiga não envia outro e-mail. O e-mail sai pela fila do Takt Hub, em até cerca de 5 minutos. Se a obra não tiver ninguém marcado como TST, ninguém é avisado; por isso, no QR, a confirmação só diz "o técnico de segurança foi avisado por e-mail" quando o aviso saiu, e nos outros casos manda avisar o técnico pessoalmente.
+- **Aviso ao TST:** quando uma inspeção **nova** é registrada com algum item não conforme, pelo QR ou pela tela, os **TSTs que têm a obra** recebem um **e-mail** com o equipamento, o checklist, o local, quem preencheu (com a empresa), os itens não conformes com a descrição e o link da tela. Quem registrou a inspeção não recebe o próprio aviso. Editar uma inspeção antiga não envia outro e-mail. O e-mail sai pela fila do Takt Hub, em até cerca de 5 minutos. Se a obra não tiver ninguém marcado como TST, ninguém é avisado; por isso, no QR, a confirmação só diz "o técnico de segurança foi avisado por e-mail" quando o aviso saiu, e nos outros casos manda avisar o técnico pessoalmente.
 - Depende da migração 0053; sem ela, o resto da aba segue normal e gravar um modelo com a opção de local ou com a periodicidade Liberação responde "Aplique a migração 0053_checklist_location_release.sql".`,
   },
 ];

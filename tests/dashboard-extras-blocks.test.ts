@@ -388,6 +388,7 @@ const run = (over: Partial<ChecklistRun> = {}): ChecklistRun => ({
   ],
   note: '',
   operatorName: '',
+  operatorCompany: '',
   signaturePath: null,
   signedAt: null,
   photos: [],

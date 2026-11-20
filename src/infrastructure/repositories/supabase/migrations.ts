@@ -340,6 +340,14 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
     effect: 'O modelo não grava "pedir o nº do equipamento ou pavimento" nem a periodicidade Liberação; o resto da aba 3.2 segue normal.',
     critical: false,
   },
+  {
+    migration: '0054_checklist_company_repeat',
+    label: 'Checklist de equipamentos: empresa do operador e preenchimento repetido no dia',
+    probe: { kind: 'column', table: 'checklist_runs', column: 'operator_company' },
+    effect:
+      'O checklist pelo QR não grava (a empresa do operador é obrigatória ali) e a segunda inspeção do mesmo checklist no dia é recusada; o resto da aba 3.2 segue normal.',
+    critical: false,
+  },
 ];
 
 export type MigrationStatus = { migration: string; label: string; effect: string; critical: boolean; applied: boolean; detail?: string };

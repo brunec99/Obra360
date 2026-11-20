@@ -7,6 +7,7 @@ import {
   CHECKLIST_TOKEN,
   doneLocations,
   modelsFor,
+  operatorLabel,
   operatorDues,
   periodKey,
   type ChecklistData,
@@ -78,6 +79,7 @@ const run = (over: Partial<ChecklistRun> = {}): ChecklistRun => ({
   ],
   note: '',
   operatorName: '',
+  operatorCompany: '',
   signaturePath: null,
   signedAt: null,
   photos: [],
@@ -238,11 +240,12 @@ test('checklist: a inspeção guarda o texto dos itens e exige todos respondidos
   assert.throws(() => parseChecklistCommand({ ...base, answers: [{ itemId: 'i1', answer: 'ok' }] }), /Resposta inválida/);
 });
 
-test('checklist: recusa data futura, dia repetido, tipo diferente e modelo ou equipamento desativado', () => {
+test('checklist: recusa data futura, tipo diferente e modelo ou equipamento desativado; o dia repetido é aceito', () => {
   const base = { type: 'save_run', workId: 'obra-1', equipmentId: 'e1', modelId: 'm-dia', answers: answersOk };
   assert.throws(() => plan(data(), { ...base, doneOn: '2026-11-12' }), /futuro/);
   assert.throws(() => plan(data(), { ...base, doneOn: '2026-02-30' }), /Data inválida/);
-  assert.throws(() => plan(data({ runs: [run()] }), { ...base, doneOn: TODAY }), /já foi preenchido/);
+  // 20/11/2026: o mesmo checklist aceita outra inspeção no mesmo dia (o equipamento usado por mais de uma pessoa).
+  assert.equal(plan(data({ runs: [run()] }), { ...base, doneOn: TODAY }).insert.runs.length, 1);
   assert.throws(() => plan(data({ models: [model({ active: false })] }), { ...base, doneOn: TODAY }), /checklist está desativado/);
   assert.throws(() => plan(data({ equipment: [equipment({ active: false })] }), { ...base, doneOn: TODAY }), /equipamento está desativado/);
   assert.throws(() => plan(data({ equipment: [equipment({ equipmentType: 'Guincho' })] }), { ...base, doneOn: TODAY }), /é de Betoneira/);
@@ -314,6 +317,7 @@ test('checklist pelo QR: registra hoje com nome, assinatura e fotos, e os arquiv
     modelId: 'm-dia',
     answers: answersOk,
     operatorName: '  Carlos   Henrique da Silva ',
+    operatorCompany: '  Construtora   Alfa ',
     signature: PNG,
     photos: [{ id: 'foto-1', data: JPEG }],
     // O que o operador tentar mandar a mais é ignorado: obra, equipamento, data e id são do servidor.
@@ -328,6 +332,7 @@ test('checklist pelo QR: registra hoje com nome, assinatura e fotos, e os arquiv
   assert.equal(saved.doneOn, TODAY);
   assert.equal(saved.source, 'link');
   assert.equal(saved.operatorName, 'Carlos Henrique da Silva');
+  assert.equal(saved.operatorCompany, 'Construtora Alfa');
   assert.equal(saved.signedAt, NOW);
   assert.ok(saved.signaturePath?.startsWith(`obra-1/${saved.id}/assinatura-`));
   assert.deepEqual(saved.photos, [{ id: 'foto-1', path: `obra-1/${saved.id}/foto-1.jpg` }]);
@@ -340,21 +345,25 @@ test('checklist pelo QR: registra hoje com nome, assinatura e fotos, e os arquiv
   );
 });
 
-test('checklist pelo QR: exige nome completo e assinatura, e só aceita o que está pendente no período', () => {
-  const base = { modelId: 'm-dia', answers: answersOk, operatorName: 'Carlos Silva', signature: PNG };
+test('checklist pelo QR: exige nome completo, empresa e assinatura, e aceita de novo o que já foi feito no período', () => {
+  const base = { modelId: 'm-dia', answers: answersOk, operatorName: 'Carlos Silva', operatorCompany: 'Construtora Alfa', signature: PNG };
   const send = (d: ChecklistData, body: unknown) => planOperatorRun(d, parseOperatorRun(body), ctx(), equipment());
   assert.throws(() => send(data(), { ...base, operatorName: 'Carlos' }), /nome completo/);
+  assert.throws(() => parseOperatorRun({ ...base, operatorCompany: undefined }), /operatorCompany/);
+  assert.throws(() => send(data(), { ...base, operatorCompany: '   ' }), /Informe a empresa/);
+  assert.throws(() => send(data(), { ...base, operatorCompany: 'x'.repeat(81) }), /Empresa do operador: até 80/);
   assert.throws(() => parseOperatorRun({ ...base, signature: undefined }), /signature/);
   assert.throws(() => send(data(), { ...base, signature: 'nao-e-png' }), /Assinatura inválida/);
   assert.throws(() => send(data(), { ...base, photos: [{ id: 'f1', data: PNG }] }), /Foto inválida/);
   assert.throws(() => send(data(), { ...base, photos: [{ id: '../x', data: JPEG }] }), /Foto inválida/);
   assert.throws(() => send(data(), { ...base, photos: [1, 2, 3, 4, 5].map(n => ({ id: `f${n}`, data: JPEG })) }), /até 4 fotos/);
-  assert.throws(() => send(data({ runs: [run()] }), base), /já foi preenchido/);
+  // Já feito hoje (por outra pessoa): o link aceita mais uma inspeção.
+  assert.equal(send(data({ runs: [run()] }), base).insert.runs[0].operatorCompany, 'Construtora Alfa');
   assert.throws(() => send(data({ equipment: [equipment({ active: false })] }), base), /desativado/);
-  // Semanal feito na segunda: na quarta da mesma semana o link não aceita de novo.
+  // Semanal feito na segunda: na quarta da mesma semana o link aceita de novo.
   const weekly = model({ id: 'm-sem', name: 'Betoneira — semanal', frequency: 'weekly' });
   const done = run({ id: 'r-sem', modelId: 'm-sem', frequency: 'weekly', doneOn: '2026-11-09' });
-  assert.throws(() => send(data({ models: [weekly], runs: [done] }), { ...base, modelId: 'm-sem' }), /já foi preenchido nesta semana/);
+  assert.equal(send(data({ models: [weekly], runs: [done] }), { ...base, modelId: 'm-sem' }).insert.runs[0].doneOn, TODAY);
   // A tela logada segue podendo repetir o semanal em outro dia da semana.
   const again = plan(data({ models: [weekly], runs: [done] }), {
     type: 'save_run',
@@ -491,10 +500,15 @@ test('checklists do QR: inspeção nova só do que está ligado ao QR; a antiga 
   // Pelo link do operador vale a mesma escolha.
   assert.throws(
     () =>
-      planOperatorRun(d, { modelId: 'm-dia', answers: answersOk as never, operatorName: 'José Almeida', signature: PNG }, ctx(), {
-        id: 'e1',
-        workId: 'obra-1',
-      }),
+      planOperatorRun(
+        d,
+        { modelId: 'm-dia', answers: answersOk as never, operatorName: 'José Almeida', operatorCompany: 'Alfa', signature: PNG },
+        ctx(),
+        {
+          id: 'e1',
+          workId: 'obra-1',
+        },
+      ),
     /foi tirado do QR/,
   );
   // A inspeção feita antes de tirar o modelo continua editável.
@@ -552,33 +566,43 @@ test('checklist com local: o modelo pede o nº do equipamento ou pavimento e a i
   assert.equal(plan(data(), fill({ modelId: 'm-dia', location: 'Térreo' })).insert.runs[0].location, '');
 });
 
-test('checklist com local: repete no período, uma vez por local, na tela e pelo QR', () => {
+test('checklist com local: repete no período, por local e no mesmo local, na tela e pelo QR', () => {
   const done = run({ id: 'r-3', modelId: 'm-rede', frequency: 'weekly', doneOn: '2026-11-09', location: '3º Pavimento' });
   const d = data({ models: [redeU()], runs: [done] });
   // Outro pavimento no mesmo dia e na mesma semana: aceito.
   assert.equal(plan(d, fill({ doneOn: '2026-11-09', location: '4º pavimento' })).insert.runs[0].location, '4º pavimento');
-  // O mesmo pavimento no mesmo dia (sem acento nem maiúsculas): recusado.
-  assert.throws(
-    () => plan(d, fill({ doneOn: '2026-11-09', location: '3º pavimento' })),
-    /já foi preenchido para Betoneira 01 \(3º pavimento\) neste dia/,
-  );
-  // Pela tela, o mesmo pavimento em outro dia da semana segue permitido, como antes.
+  // O mesmo pavimento no mesmo dia: aceito desde 20/11/2026 (outra pessoa conferiu o mesmo lugar).
+  assert.equal(plan(d, fill({ doneOn: '2026-11-09', location: '3º pavimento' })).insert.runs[0].location, '3º pavimento');
   assert.equal(plan(d, fill({ location: '3º pavimento' })).insert.runs.length, 1);
 
   const viaQr = (location: string) =>
     planOperatorRun(
       d,
-      parseOperatorRun({ modelId: 'm-rede', location, answers: answersOk, operatorName: 'José da Silva', signature: SIGNATURE }),
+      parseOperatorRun({
+        modelId: 'm-rede',
+        location,
+        answers: answersOk,
+        operatorName: 'José da Silva',
+        operatorCompany: 'Alfa',
+        signature: SIGNATURE,
+      }),
       ctx(),
       {
         id: 'e1',
         workId: 'obra-1',
       },
     );
-  assert.throws(() => viaQr('3º PAVIMENTO'), /"Rede U \(piso a piso\)" \(3º PAVIMENTO\) já foi preenchido nesta semana/);
+  assert.equal(viaQr('3º PAVIMENTO').insert.runs[0].location, '3º PAVIMENTO');
   assert.equal(viaQr('5º pavimento').insert.runs[0].location, '5º pavimento');
   assert.equal(
-    parseOperatorRun({ modelId: 'm-rede', location: 'Térreo', answers: answersOk, operatorName: 'a b', signature: 'x' }).location,
+    parseOperatorRun({
+      modelId: 'm-rede',
+      location: 'Térreo',
+      answers: answersOk,
+      operatorName: 'a b',
+      operatorCompany: 'c',
+      signature: 'x',
+    }).location,
     'Térreo',
   );
 
@@ -605,7 +629,7 @@ test('checklist com local: repete no período, uma vez por local, na tela e pelo
   const edit = { ...fill({ id: 'r-3', doneOn: '2026-11-09' }) };
   assert.equal(plan(both, edit).update.runs[0].location, '3º Pavimento');
   assert.equal(plan(both, { ...edit, location: '6º pavimento' }).update.runs[0].location, '6º pavimento');
-  assert.throws(() => plan(both, { ...edit, doneOn: TODAY, location: '4º pavimento' }), /neste dia/);
+  assert.equal(plan(both, { ...edit, doneOn: TODAY, location: '4º pavimento' }).update.runs[0].location, '4º pavimento');
 });
 
 test('liberação: periodicidade feita uma única vez, pendente até ser preenchida e depois feita para sempre', () => {
@@ -636,7 +660,13 @@ test('liberação: periodicidade feita uma única vez, pendente até ser preench
     () =>
       planOperatorRun(
         released,
-        parseOperatorRun({ modelId: 'm-lib', answers: answersOk, operatorName: 'José da Silva', signature: SIGNATURE }),
+        parseOperatorRun({
+          modelId: 'm-lib',
+          answers: answersOk,
+          operatorName: 'José da Silva',
+          operatorCompany: 'Alfa',
+          signature: SIGNATURE,
+        }),
         ctx(),
         {
           id: 'e1',
@@ -663,6 +693,7 @@ test('aviso ao TST: o e-mail da não conformidade leva o checklist, o local, que
     modelName: 'Grua grande porte — operador',
     location: 'Grua 02',
     operatorName: 'Paulo Sampaio',
+    operatorCompany: 'Gruas Beta',
     source: 'link',
     createdBy: 'qr',
     answers: [
@@ -679,7 +710,7 @@ test('aviso ao TST: o e-mail da não conformidade leva o checklist, o local, que
     checklist: 'Grua grande porte — operador',
     periodicidade: 'Diário',
     local: 'Grua 02',
-    operador: 'Paulo Sampaio',
+    operador: 'Paulo Sampaio (Gruas Beta)',
     origem: 'qr',
     data: '11/11/2026',
     total: 2,
@@ -705,4 +736,44 @@ test('aviso ao TST: o e-mail da não conformidade leva o checklist, o local, que
   assert.ok(big.payload.itens.length >= 1 && big.payload.itens.length <= 10);
   assert.ok(new TextEncoder().encode(JSON.stringify({ primeiroNome: 'x'.repeat(40), ...big.payload })).length < 4096);
   assert.ok(big.subject.length <= 200);
+});
+
+// ─── 20/11/2026: empresa do operador e preenchimento repetido no dia ─────────────────────────────────
+
+test('checklist: guarda a empresa do operador e aceita mais de uma inspeção do mesmo checklist no dia', () => {
+  const base = { type: 'save_run', workId: 'obra-1', equipmentId: 'e1', modelId: 'm-dia', doneOn: TODAY, answers: answersOk };
+  // Na tela logada a empresa é opcional; a edição mantém a que existe quando o comando não a traz.
+  assert.equal(plan(data(), base).insert.runs[0].operatorCompany, '');
+  assert.equal(plan(data(), { ...base, operatorCompany: ' Construtora  Alfa ' }).insert.runs[0].operatorCompany, 'Construtora Alfa');
+  const first = run({ operatorName: 'José Almeida', operatorCompany: 'Alfa', source: 'link', createdBy: 'qr' });
+  assert.equal(plan(data({ runs: [first] }), { ...base, id: 'r1' }).update.runs[0].operatorCompany, 'Alfa');
+  assert.equal(plan(data({ runs: [first] }), { ...base, id: 'r1', operatorCompany: 'Beta' }).update.runs[0].operatorCompany, 'Beta');
+  assert.equal(operatorLabel(first), 'José Almeida (Alfa)');
+  assert.equal(operatorLabel(run({ operatorName: 'José Almeida' })), 'José Almeida');
+  assert.equal(operatorLabel(run()), '');
+
+  // Segunda pessoa no mesmo dia, pelo QR: entra, e o quadro passa a ter duas inspeções no período.
+  const body = { modelId: 'm-dia', answers: answersOk, operatorName: 'Maria Souza', operatorCompany: 'Beta', signature: SIGNATURE };
+  const send = (d: ChecklistData, input: unknown, now = NOW) =>
+    planOperatorRun(d, parseOperatorRun(input), { ...ctx(), now }, { id: 'e1', workId: 'obra-1' });
+  const second = send(data({ runs: [first] }), body).insert.runs[0];
+  assert.equal(second.operatorCompany, 'Beta');
+  const both = data({ runs: [first, { ...second, createdAt: '2026-11-11T12:30:00.000Z' }] });
+  const [due] = operatorDues(both, 'e1', TODAY);
+  assert.equal(due.doneCount, 2);
+  assert.equal(due.canRepeat, true);
+  assert.equal(due.doneBy, 'Maria Souza');
+  assert.equal(due.doneCompany, 'Beta');
+  assert.equal(checklistBoard(both, TODAY)[0].dues[0].periodRuns.length, 2);
+
+  // O reenvio da mesma pessoa em menos de um minuto (toque dobrado, queda de sinal) não duplica; depois disso, sim.
+  const mine = { ...body, operatorName: 'josé  almeida', operatorCompany: 'Alfa' };
+  assert.throws(() => send(data({ runs: [first] }), mine, '2026-11-11T12:00:40.000Z'), /acabou de ser enviado por josé almeida/);
+  assert.equal(send(data({ runs: [first] }), mine, '2026-11-11T12:02:00.000Z').insert.runs.length, 1);
+
+  // A liberação segue única: feita, o QR não oferece preencher de novo.
+  const release = model({ id: 'm-lib', name: 'Liberação', frequency: 'once' });
+  const released = data({ models: [release], runs: [run({ id: 'r-lib', modelId: 'm-lib', frequency: 'once' })] });
+  assert.equal(operatorDues(released, 'e1', TODAY)[0].canRepeat, false);
+  assert.throws(() => send(released, { ...body, modelId: 'm-lib' }), /já foi registrada/);
 });

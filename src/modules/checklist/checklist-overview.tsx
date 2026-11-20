@@ -30,6 +30,7 @@ import {
   formatChecklistDay,
   modelsFor,
   nonConformities,
+  operatorLabel,
   recentRuns,
   type ChecklistCommand,
   type ChecklistDue,
@@ -82,12 +83,21 @@ const signedAtText = (iso: string) =>
 /** O que a inspeção guarda além das respostas: quem operou, a assinatura e as fotos. */
 function RunEvidence({ workId, run }: { workId: string; run: ChecklistRun }) {
   const files = useRunFiles(workId, run);
-  if (!run.operatorName && !run.signaturePath && !run.photos.length) return null;
+  if (!run.operatorName && !run.operatorCompany && !run.signaturePath && !run.photos.length) return null;
   return (
     <div className="mt-2 space-y-2 border-t border-slate-200 pt-2 text-sm text-slate-700">
-      {run.operatorName && (
+      {(run.operatorName || run.operatorCompany) && (
         <p>
-          Operador: <strong>{run.operatorName}</strong>
+          {run.operatorName && (
+            <>
+              Operador: <strong>{run.operatorName}</strong>
+            </>
+          )}
+          {run.operatorCompany && (
+            <>
+              {run.operatorName ? ' · ' : ''}Empresa: <strong>{run.operatorCompany}</strong>
+            </>
+          )}
           {run.source === 'link' && <span className="text-slate-500"> · preenchido pelo QR, sem login</span>}
         </p>
       )}
@@ -350,7 +360,9 @@ function dueText(due: ChecklistDue): string {
   const nc = due.periodRuns.reduce((sum, run) => sum + nonConformities(run), 0);
   // Com local, o período pode ter várias inspeções: a linha lista os locais já feitos.
   const places = due.model.asksLocation ? doneLocations(due.periodRuns) : [];
-  const where = places.length ? ` · ${places.join(', ')}` : '';
+  // Sem local, mais de uma inspeção no período é o equipamento usado por mais de uma pessoa: a linha diz quantas.
+  const count = !places.length && due.periodRuns.length > 1 ? ` · ${due.periodRuns.length} inspeções` : '';
+  const where = places.length ? ` · ${places.join(', ')}` : count;
   return nc ? `${nc} não conforme${nc > 1 ? 's' : ''} · ${day}${where}` : `feito em ${day}${where}`;
 }
 
@@ -366,6 +378,7 @@ function RunForm({
   busy,
   execute,
   onClose,
+  onNew,
 }: {
   filling: Filling;
   workId: string;
@@ -374,6 +387,8 @@ function RunForm({
   busy: boolean;
   execute: Execute;
   onClose: () => void;
+  /** Abre uma inspeção nova do mesmo checklist; ausente quando ele não aceita outra. */
+  onNew?: () => void;
 }) {
   const { equipment, model, run } = filling;
   // Na edição valem os itens que a inspeção guardou; na nova, os do modelo.
@@ -388,6 +403,7 @@ function RunForm({
     Object.fromEntries((run?.answers ?? []).map(a => [a.itemId, { answer: a.answer, note: a.note }])),
   );
   const [operatorName, setOperatorName] = useState(run?.operatorName ?? '');
+  const [operatorCompany, setOperatorCompany] = useState(run?.operatorCompany ?? '');
   const [signature, setSignature] = useState<string>();
   const [resign, setResign] = useState(!run?.signaturePath);
   // As fotos já gravadas entram pelo id; a miniatura chega quando as URLs assinadas carregam.
@@ -412,6 +428,7 @@ function RunForm({
         answers: items.map(item => ({ itemId: item.id, answer: answers[item.id]!.answer!, note: answers[item.id]?.note ?? '' })),
         note,
         operatorName,
+        operatorCompany,
         ...(signature ? { signature } : {}),
         photos: photos.map(photo => ({ id: photo.id, ...(photo.data ? { data: photo.data } : {}) })),
       },
@@ -433,10 +450,23 @@ function RunForm({
             {run ? ' · editando a inspeção registrada' : ''}
           </p>
         </div>
-        <button type="button" className="button-ghost" onClick={onClose}>
-          <X size={15} aria-hidden />
-          Fechar
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {run && onNew && (
+            <button
+              type="button"
+              className="button-ghost"
+              title="Outra pessoa usou o equipamento: registre mais uma inspeção deste checklist"
+              onClick={onNew}
+            >
+              <Plus size={15} aria-hidden />
+              Registrar outra inspeção
+            </button>
+          )}
+          <button type="button" className="button-ghost" onClick={onClose}>
+            <X size={15} aria-hidden />
+            Fechar
+          </button>
+        </div>
       </div>
       <form onSubmit={submit}>
         <fieldset disabled={!canEdit || busy} className="space-y-4">
@@ -489,20 +519,32 @@ function RunForm({
             />
           </div>
           <div className="grid gap-4 rounded-xl bg-slate-50 p-3 sm:grid-cols-2">
-            <label className="text-sm font-medium text-slate-700">
-              Operador do equipamento (opcional)
-              <input
-                className="field mt-1"
-                value={operatorName}
-                maxLength={CHECKLIST_LIMITS.operator}
-                placeholder="Nome completo de quem opera"
-                required={!!signature}
-                onChange={e => setOperatorName(e.target.value)}
-              />
-              <span className="mt-1 block text-xs font-normal text-slate-500">
-                Preenchendo junto com o operador, escreva o nome dele e peça a assinatura ao lado.
-              </span>
-            </label>
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                Operador do equipamento (opcional)
+                <input
+                  className="field mt-1"
+                  value={operatorName}
+                  maxLength={CHECKLIST_LIMITS.operator}
+                  placeholder="Nome completo de quem opera"
+                  required={!!signature}
+                  onChange={e => setOperatorName(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Empresa do operador (opcional)
+                <input
+                  className="field mt-1"
+                  value={operatorCompany}
+                  maxLength={CHECKLIST_LIMITS.company}
+                  placeholder="Empresa em que ele trabalha"
+                  onChange={e => setOperatorCompany(e.target.value)}
+                />
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  Preenchendo junto com o operador, escreva o nome e a empresa dele e peça a assinatura ao lado.
+                </span>
+              </label>
+            </div>
             <div>
               <p className="mb-1 text-sm font-medium text-slate-700">Assinatura do operador (opcional)</p>
               {resign ? (
@@ -966,6 +1008,18 @@ export function ChecklistOverview({ workId }: { workId: string }) {
           busy={busy}
           execute={execute}
           onClose={() => setFilling(undefined)}
+          onNew={
+            // Outra inspeção do mesmo checklist (o equipamento usado por mais de uma pessoa no dia): tudo, menos a
+            // liberação, que é única (por local, quando o modelo pede).
+            canEdit &&
+            fillingRun &&
+            fillingEquipment.active &&
+            fillingModel &&
+            (fillingModel.frequency !== 'once' || fillingModel.asksLocation) &&
+            modelsFor(fillingEquipment, data.models).some(m => m.id === fillingModel.id)
+              ? () => setFilling({ equipmentId: fillingEquipment.id, modelId: fillingModel.id })
+              : undefined
+          }
         />
       )}
 
@@ -1190,7 +1244,7 @@ export function ChecklistOverview({ workId }: { workId: string }) {
             {history.map(run => {
               const nc = nonConformities(run);
               const open = openRun === run.id;
-              const author = run.operatorName || planning.data.users.find(u => u.id === run.createdBy)?.name;
+              const author = operatorLabel(run) || planning.data.users.find(u => u.id === run.createdBy)?.name;
               return (
                 <li key={run.id} className="p-3">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
