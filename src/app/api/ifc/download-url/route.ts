@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { requireModuleAccess } from '@/infrastructure/auth/supabase-server';
 import { getServiceClient } from '@/infrastructure/repositories/supabase/client';
 import { SupabasePlanningRepository } from '@/infrastructure/repositories/supabase/planning-repository';
+import { IFC_PATH_INVALIDO, isIfcStoragePathOf } from '@/domain/ifc-storage';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +35,9 @@ export async function GET(request: NextRequest) {
       { error: 'Esta versão não tem o arquivo guardado — ela vale pelas tabelas transcritas, que é o que as telas leem.' },
       { status: 400 },
     );
+
+  // Só assina arquivo que mora na pasta deste modelo (ver domain/ifc-storage.ts).
+  if (!isIfcStoragePathOf(version.storagePath, model)) return NextResponse.json({ error: IFC_PATH_INVALIDO }, { status: 409 });
 
   const { data, error } = await getServiceClient().storage.from('ifc').createSignedUrl(version.storagePath, EXPIRES_IN);
   if (error || !data) return NextResponse.json({ error: 'Não foi possível abrir o arquivo do modelo. Tente novamente.' }, { status: 502 });

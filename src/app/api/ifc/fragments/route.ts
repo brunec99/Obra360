@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { requireModuleAccess } from '@/infrastructure/auth/supabase-server';
 import { getServiceClient } from '@/infrastructure/repositories/supabase/client';
 import { SupabasePlanningRepository } from '@/infrastructure/repositories/supabase/planning-repository';
+import { IFC_PATH_INVALIDO, isIfcStoragePathOf } from '@/domain/ifc-storage';
 
 export const runtime = 'nodejs';
 
@@ -41,6 +42,9 @@ export async function POST(request: NextRequest) {
   }));
   if ('error' in access) return access.error;
   if (access.profile.role === 'viewer') return NextResponse.json({ error: 'Seu perfil permite apenas consulta.' }, { status: 403 });
+  // Só o caminho que o upload-url gerou para ESTE modelo: outro caminho seria assinado (e o anterior apagado)
+  // com a chave de serviço, mesmo sendo de outra obra.
+  if (!isIfcStoragePathOf(storagePath, access.model, 'frag')) return NextResponse.json({ error: IFC_PATH_INVALIDO }, { status: 400 });
 
   const client = getServiceClient();
   try {
@@ -80,6 +84,8 @@ export async function GET(request: NextRequest) {
         { error: 'Esta versão ainda não tem geometria convertida. Reenvie o modelo em Modelos IFC para gerá-la.' },
         { status: 404 },
       );
+    // Segunda barreira: um registro de outra obra nunca é assinado, mesmo que tenha entrado antes da conferência.
+    if (!isIfcStoragePathOf(data.storage_path, access.model)) return NextResponse.json({ error: IFC_PATH_INVALIDO }, { status: 409 });
     const signed = await client.storage.from('ifc').createSignedUrl(data.storage_path, 60 * 30);
     if (signed.error || !signed.data) throw new Error('não foi possível abrir a geometria convertida.');
     return NextResponse.json(
