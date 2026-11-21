@@ -17,8 +17,24 @@ export type PrevisionViewer = { role: string; workIds: string[] };
 
 export type PrevisionProjectAccess = 'propria' | 'livre' | 'de-outra-obra';
 
+/** Identificador canônico de projeto do Prevision: só dígitos, sem zero à esquerda. `0100` e `100` seriam o
+ * mesmo projeto para o Prevision, mas textos diferentes na comparação de acesso; aceitar só a forma canônica
+ * fecha esse desvio. */
+export const PREVISION_PROJECT_ID = /^[1-9]\d{0,18}$/;
+
+/** Forma canônica de um id vindo do banco (ex.: `0100` gravado antes da regra) ou `null` se não for id. */
+export function canonicalPrevisionId(value: string | null | undefined): string | null {
+  const text = value?.trim() ?? '';
+  if (!/^\d{1,19}$/.test(text)) return null;
+  const canon = text.replace(/^0+(?=\d)/, '');
+  return canon === '0' ? null : canon;
+}
+
 export function previsionProjectAccess(projectId: string, works: WorkLink[], viewer: PrevisionViewer): PrevisionProjectAccess {
-  const linked = works.filter(w => w.previsionProjectId === projectId);
+  const id = canonicalPrevisionId(projectId);
+  // Id fora do formato nunca é liberado por engano: trata como de outra obra.
+  if (id === null) return 'de-outra-obra';
+  const linked = works.filter(w => canonicalPrevisionId(w.previsionProjectId) === id);
   if (linked.length === 0) return 'livre';
   if (viewer.role === 'admin' || linked.some(w => viewer.workIds.includes(w.id))) return 'propria';
   return 'de-outra-obra';

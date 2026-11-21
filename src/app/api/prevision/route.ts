@@ -4,6 +4,7 @@ import { requireModuleAccess } from '@/infrastructure/auth/supabase-server';
 import { getServiceClient } from '@/infrastructure/repositories/supabase/client';
 import {
   canSeePrevisionProject,
+  PREVISION_PROJECT_ID,
   PREVISION_PROJETO_DE_OUTRA_OBRA,
   visiblePrevisionProjects,
   type WorkLink,
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
       { status: 403 },
     );
   const projectId = request.nextUrl.searchParams.get('projectId');
-  if (projectId !== null && !/^\d+$/.test(projectId))
+  if (projectId !== null && !PREVISION_PROJECT_ID.test(projectId))
     return NextResponse.json({ error: 'Identificador de obra inválido.' }, { status: 400 });
   // Vínculo das obras com o Prevision, para mostrar a cada um só o que é da obra dele ou ainda está livre
   // (ver domain/prevision-access.ts). Conferido ANTES do cache, que é dividido entre todos.

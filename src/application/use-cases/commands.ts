@@ -28,6 +28,7 @@ import type {
 } from '../../domain/entities';
 import { LINK_TYPES, NON_FULFILLMENT_CAUSES, taskTeamIds } from '../../domain/entities';
 import { IFC_PATH_INVALIDO, isIfcStoragePathOf } from '../../domain/ifc-storage';
+import { PREVISION_PROJECT_ID } from '../../domain/prevision-access';
 import { actsAsManager, isTerminal, leadTimeDeadline, validateActivity, validateSequence } from '../../domain/rules';
 import { planSequenceRegeneration } from './regenerate-sequence';
 import { LONG_TERM_PREFIX, planLongTermSync, type LongTermSlot } from './sync-long-term-plan';
@@ -592,7 +593,8 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       if (data.works.some(w => w.code.toLowerCase() === code.toLowerCase())) throw new Error('Código de obra já utilizado.');
       if (
         command.previsionProjectId &&
-        (!/^\d+$/.test(command.previsionProjectId) || data.works.some(w => w.previsionProjectId === command.previsionProjectId))
+        (!PREVISION_PROJECT_ID.test(command.previsionProjectId) ||
+          data.works.some(w => w.previsionProjectId === command.previsionProjectId))
       )
         throw new Error('Projeto Prevision inválido ou já vinculado.');
       const work = {
@@ -888,7 +890,7 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       const workId = workOf(wagon);
       responsible(command.responsibleId, workId);
       checkReopen(wagon, command.reason);
-      if (!/^\d+$/.test(command.projectId)) throw new Error('Projeto Prevision inválido.');
+      if (!PREVISION_PROJECT_ID.test(command.projectId)) throw new Error('Projeto Prevision inválido.');
       const work = data.works.find(w => w.id === workId)!;
       if (
         (work.previsionProjectId && work.previsionProjectId !== command.projectId) ||
