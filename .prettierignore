@@ -8,3 +8,6 @@ test-results
 supabase/migrations
 *.md
 next-env.d.ts
+
+# Cópia do pacote padrão do Portal, conferida por hash: não se formata aqui.
+src/infrastructure/portal-kit/

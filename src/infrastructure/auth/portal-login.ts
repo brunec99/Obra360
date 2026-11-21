@@ -119,9 +119,7 @@ export function configDoReceptor(env: Env, criarCliente: ConfigReceptor['criarCl
   };
 }
 
-export type ResultadoTroca =
-  | { ok: true; email: string; tokenHash: string }
-  | { ok: false; status: number; code: string; mensagem: string };
+export type ResultadoTroca = { ok: true; email: string; tokenHash: string } | { ok: false; status: number; code: string; mensagem: string };
 
 const falha = (status: number, code: string, mensagem: string): ResultadoTroca => ({ ok: false, status, code, mensagem });
 
@@ -129,7 +127,12 @@ const falha = (status: number, code: string, mensagem: string): ResultadoTroca =
  * erro inesperado vira `indisponivel` (503). `origem` é o endereço público pelo qual o navegador chegou. */
 export async function trocarTokenDoPortal(
   token: unknown,
-  { origem, env = process.env, criarCliente = createClient, log = console }: {
+  {
+    origem,
+    env = process.env,
+    criarCliente = createClient,
+    log = console,
+  }: {
     origem: string;
     env?: Env;
     criarCliente?: ConfigReceptor['criarCliente'];
@@ -160,7 +163,9 @@ export async function trocarTokenDoPortal(
     try {
       const { payload } = await verificarTokenPortal(token, { chaves, audiencias: [PORTAL_APP_SLUG], escopo: 'sso' });
       if (payload.app_slug !== PORTAL_APP_SLUG) return falha(403, 'app_invalido', MENSAGENS_PORTAL.tokenInvalido);
-      email = String(payload.email ?? '').trim().toLowerCase();
+      email = String(payload.email ?? '')
+        .trim()
+        .toLowerCase();
     } catch (err) {
       if (err instanceof ErroTokenPortal) return falha(401, err.codigo, MENSAGENS_PORTAL.tokenInvalido);
       throw err;

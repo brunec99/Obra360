@@ -77,7 +77,8 @@ export async function POST(request: NextRequest) {
   const troca = await trocarTokenDoPortal(token, { origem });
   if (!troca.ok) return paraLogin(request, troca.mensagem);
   if (atual) {
-    if (atual.email?.toLowerCase() === troca.email) return NextResponse.redirect(new URL('/obras', origem), { status: 303, headers: SEM_CACHE });
+    if (atual.email?.toLowerCase() === troca.email)
+      return NextResponse.redirect(new URL('/obras', origem), { status: 303, headers: SEM_CACHE });
     return paraLogin(request, MENSAGENS_PORTAL.outraSessao);
   }
 

@@ -22,5 +22,17 @@ export default [
       'react/no-unescaped-entities': 'off',
     },
   },
-  { ignores: ['.next/**', 'node_modules/**', 'public/**', 'scripts/**', 'playwright-report/**', 'test-results/**', 'next-env.d.ts'] },
+  {
+    ignores: [
+      '.next/**',
+      'node_modules/**',
+      'public/**',
+      'scripts/**',
+      'playwright-report/**',
+      'test-results/**',
+      'next-env.d.ts',
+      // Cópia do pacote padrão do Portal, conferida por hash (verify:portal-kit): não se edita aqui.
+      'src/infrastructure/portal-kit/**',
+    ],
+  },
 ];

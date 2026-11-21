@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "validate:migrations": "node scripts/validate-plan-database.mjs",
     "bootstrap:sql": "node scripts/build-bootstrap-sql.mjs",
-    "copy-assets": "node scripts/copy-assets.mjs"
+    "copy-assets": "node scripts/copy-assets.mjs",
+    "verify:portal-kit": "node src/infrastructure/portal-kit/verificar.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

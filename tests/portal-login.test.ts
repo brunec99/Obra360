@@ -193,7 +193,10 @@ test('origem que não é a do Obra 360 não troca token (configuração)', async
 
 test('origensDoApp: só https, sem repetição, com o endereço oficial primeiro', () => {
   assert.deepEqual(
-    origensDoApp({ PUBLIC_SITE_URL: 'https://obra360.x.com.br/', PORTAL_ORIGENS_APP: ' https://teste.x.com.br ,http://inseguro.x, https://obra360.x.com.br' }),
+    origensDoApp({
+      PUBLIC_SITE_URL: 'https://obra360.x.com.br/',
+      PORTAL_ORIGENS_APP: ' https://teste.x.com.br ,http://inseguro.x, https://obra360.x.com.br',
+    }),
     ['https://obra360.x.com.br', 'https://teste.x.com.br'],
   );
 });
