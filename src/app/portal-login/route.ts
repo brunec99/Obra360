@@ -25,6 +25,13 @@ const SEM_CACHE = {
   'Content-Security-Policy': "frame-ancestors 'none'",
 };
 
+/** Política da página que se reenvia por POST. NÃO pode ser `no-referrer`: com ela o navegador manda
+ * `Origin: null` no POST do formulário (especificação Fetch, "append a request Origin header") e a
+ * conferência de origem do POST recusava toda entrada real pelo Portal (achado na 1ª entrada em produção,
+ * 21/11/2026; o teste com curl passava porque mandava o Origin na mão). `same-origin` mantém o Origin no
+ * POST para o próprio site e não manda nada para fora; o token já saiu da barra (replaceState) antes do envio. */
+const REFERRER_DA_PAGINA = { 'Referrer-Policy': 'same-origin' };
+
 function origemPublica(request: NextRequest) {
   return publicOrigin(request.headers, request.nextUrl.origin, process.env.PUBLIC_SITE_URL);
 }
@@ -43,7 +50,7 @@ export async function GET(request: NextRequest) {
   if (!token) return paraLogin(request, MENSAGENS_PORTAL.semToken);
   const html = `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer"><title>Entrando no Obra 360…</title>
+<meta name="referrer" content="same-origin"><title>Entrando no Obra 360…</title>
 <style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100dvh;margin:0;color:#0f172a}button{font:inherit;padding:.6rem 1.2rem;border-radius:.5rem;border:1px solid #cbd5e1;background:#fff}</style>
 </head><body>
 <form id="f" method="post" action="/portal-login">
@@ -53,7 +60,10 @@ export async function GET(request: NextRequest) {
 </form>
 <script>history.replaceState(null,'','/portal-login');document.getElementById('f').submit();</script>
 </body></html>`;
-  return new NextResponse(html, { status: 200, headers: { ...SEM_CACHE, 'Content-Type': 'text/html; charset=utf-8' } });
+  return new NextResponse(html, {
+    status: 200,
+    headers: { ...SEM_CACHE, ...REFERRER_DA_PAGINA, 'Content-Type': 'text/html; charset=utf-8' },
+  });
 }
 
 export async function POST(request: NextRequest) {
