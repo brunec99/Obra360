@@ -1,0 +1,37 @@
+{
+  "kit": "airon-lab/atr-portal-kit",
+  "versao": "0.5.0",
+  "commit": "ddbd8da01b76dca5e144921733d71f9b44ea0e92",
+  "modulos": [
+    "core",
+    "server"
+  ],
+  "arquivos": {
+    "core/pedidoCanal.d.mts": "899bad09b2e8e9b547d718548ec39d3a3f476983db327345c87176f49b0ad4a9",
+    "core/pedidoCanal.mjs": "e382d2c96767efc9f3f054db3d9c6669300ed1e1c229c7610eee04c8ef8d66eb",
+    "core/ssoV2.d.mts": "770feb823389f7455912f929a5563babcf8a69fcb4315959ecf03eb45d260a5c",
+    "core/ssoV2.mjs": "563d33e9a89179db9952f99f3092d0013ca19309daa067e3af3c6aab5d1f9298",
+    "server/adaptador-perfis-ativo.d.mts": "0d40b8ce3ec1d022e6b8360d26274775606c13f362c20e355af9a06dd86979d5",
+    "server/adaptador-perfis-ativo.mjs": "c7a05b7535139019ea6f35d4cb579906ffe0700f6dc7e1a68e4e1a86f84f1746",
+    "server/adaptador-profiles-approved.d.mts": "13623a4356985b8b5376369c1c6b0302b67f2fb0ce778ce965c87e873cb4d97d",
+    "server/adaptador-profiles-approved.mjs": "4d3d194be1bb91d463a8d44053b597d35ca4db5f1e9cad8610abceb34e9ad7a4",
+    "server/adaptador-profiles-is-admin.d.mts": "eb6af1f220340b79367003c18fcae2ebfe49bdb4de126abee3d6ff27e73928af",
+    "server/adaptador-profiles-is-admin.mjs": "2746d616b166bb98997ea2c57c1536cf919a3d64dbc9ed886591fd6299a2e50f",
+    "server/adaptador-rpc-comercial.d.mts": "94ae30738a76030dfb7b75102de504de0539376068b4ee9efb8b5454eb6cc798",
+    "server/adaptador-rpc-comercial.mjs": "08f764f7eecbb75a46256fd70c840c8aecfbf016e20dce1a1fcdcde61d454ee2",
+    "server/adaptador-usuarios-portal-funcao-app.d.mts": "b9a10ec90f9996163a0f4be3066ebfc79c8c876deccf2d813d22e4f031be1bfc",
+    "server/adaptador-usuarios-portal-funcao-app.mjs": "fa57186937bf5b999620f2c5a2e3e3cbfaaacb5185513a18bec234e5127085ec",
+    "server/convite.d.mts": "2aa07256966d8c5ac88b83de34002528bc6813bfc29657f65a9005e368048dea",
+    "server/convite.mjs": "8225b24749b0ed028cfed69530ac694a06c51604e89926f732c8068536d08fa0",
+    "server/http.d.mts": "56697f7e3354332e0b06f831c24308113e03f0221fa78db60a8e72875c417146",
+    "server/http.mjs": "ef5918fdc129c17863831cffd25d15150b2d5de7e20d9238df8a6692174060a6",
+    "server/pre-aprovacao.d.mts": "68f125e938aad6e680cc3063b9d5e1298a8e862a47988b0ba058f5d08eb3302d",
+    "server/pre-aprovacao.mjs": "ee9130f6d5d73cc32323836adf6189cddc4d7a17c7fab1376c4d31e85bfdfeba",
+    "server/receptor.d.mts": "9b8aa92af7e6bd49957f5b9e9cd2191b0e2e3d015844514607c029d876d4e3a1",
+    "server/receptor.mjs": "3e67b01b6ad27df3386c3ec2410a64ce14a3b6872f382980ada0c35d59bcdf3d",
+    "server/revogacao.d.mts": "9fc4bbe0b33e1a73c65edba00a3884227b93b893cc6bd4c6d61b1c7ffdf3bf4d",
+    "server/revogacao.mjs": "7e30b2c89e9395ca292c57557b94455db1380916510496d27241ba79f2dc43d8",
+    "server/usuarios.d.mts": "e4f0da062ef68d90e57373a967c4d9c40ba3f532412fe9b21a63523342168d14",
+    "server/usuarios.mjs": "0d3efa026bccf83d8f1fe6e158c68519fa4a57be1651b7c82871fb7c138695d0"
+  }
+}
