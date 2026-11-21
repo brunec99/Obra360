@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PORTAL_APP_SLUG, RPC_USO_UNICO, origensDoApp, trocarTokenDoPortal } from '../src/infrastructure/auth/portal-login';
+import {
+  PORTAL_APP_SLUG,
+  RPC_USO_UNICO,
+  ambienteDoServidor,
+  origensDoApp,
+  trocarTokenDoPortal,
+} from '../src/infrastructure/auth/portal-login';
 import { assinarTokenV2 } from '../src/infrastructure/portal-kit/core/ssoV2.mjs';
 
 // Entrada pelo Portal Inteligência: token ES256 gerado na hora, cliente do Supabase falso (sem rede).
@@ -199,4 +205,28 @@ test('origensDoApp: só https, sem repetição, com o endereço oficial primeiro
     }),
     ['https://obra360.x.com.br', 'https://teste.x.com.br'],
   );
+});
+
+test('sem URL do Supabase no ambiente, recusa como configuração e diz no log o que falta', async () => {
+  const { privada, jwks } = await parDeChaves();
+  const erros: string[] = [];
+  const r = await trocarTokenDoPortal(await token(privada), {
+    origem: ORIGEM,
+    env: { PUBLIC_SITE_URL: ORIGEM, SUPABASE_SERVICE_ROLE_KEY: 'chave', PORTAL_SSO_V2_JWKS: jwks },
+    criarCliente: clienteFalso().criarCliente as never,
+    log: { ...silencioso, error: (m: string) => erros.push(m) },
+  });
+  assert.equal(!r.ok && r.code, 'config');
+  assert.ok(erros.some(m => m.includes('SUPABASE_URL')));
+});
+
+test('ambienteDoServidor leva a NEXT_PUBLIC_SUPABASE_URL lida por extenso', () => {
+  const antes = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://projeto.supabase.co';
+  try {
+    assert.equal(ambienteDoServidor().NEXT_PUBLIC_SUPABASE_URL, 'https://projeto.supabase.co');
+  } finally {
+    if (antes === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    else process.env.NEXT_PUBLIC_SUPABASE_URL = antes;
+  }
 });
