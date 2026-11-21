@@ -135,8 +135,9 @@ export async function proxy(request: NextRequest) {
 // a página de login no lugar do módulo, e o visualizador falharia sem dizer por quê.
 // `/checklist/<token>` e `/api/publico/` (12/11/2026) são o checklist de equipamentos pelo QR: o operador não
 // tem conta, e quem autoriza é o segredo do link, conferido pela própria rota. Nada mais mora em `api/publico/`.
+// `/portal-login` é a entrada pelo Portal Inteligência: chega sem sessão e quem autoriza é o token do Portal.
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon\\.ico|icon\\.svg|apple-icon|manifest\\.webmanifest|login|privacidade|auth/callback|campo/|checklist/|api/publico/|campo-sw\\.js|.*\\.(?:png|jpg|jpeg|svg|webp|gif|ico|wasm)$).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|icon\\.svg|apple-icon|manifest\\.webmanifest|login|portal-login|privacidade|auth/callback|campo/|checklist/|api/publico/|campo-sw\\.js|.*\\.(?:png|jpg|jpeg|svg|webp|gif|ico|wasm)$).*)',
   ],
 };
