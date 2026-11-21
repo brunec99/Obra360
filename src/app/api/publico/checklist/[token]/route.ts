@@ -22,6 +22,7 @@ import { notifyChecklistNc } from '@/infrastructure/email/checklist-nc';
 import { publicOrigin } from '@/infrastructure/public-origin';
 import { commandContext } from '@/infrastructure/clock';
 import { logRouteError } from '@/infrastructure/log';
+import { readTextLimited } from '@/infrastructure/http/read-limited';
 
 export const runtime = 'nodejs';
 const headers = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' };
@@ -94,8 +95,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   let input: OperatorRunInput;
   try {
-    const raw = await request.text();
-    if (raw.length > MAX_BODY) return responseError('Envio grande demais. Remova uma foto.', 413);
+    // Leitura com corte: sem `Content-Length`, `request.text()` guardaria um envio de qualquer tamanho.
+    const raw = await readTextLimited(request, MAX_BODY);
+    if (raw === null) return responseError('Envio grande demais. Remova uma foto.', 413);
     input = parseOperatorRun(JSON.parse(raw));
   } catch (error) {
     return responseError(
