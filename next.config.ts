@@ -19,7 +19,7 @@ const nextConfig: NextConfig = {
           { key: 'Strict-Transport-Security', value: 'max-age=31536000' },
         ],
       },
-      // `/portal-login` define o próprio (`no-referrer`): o token do Portal chega na barra de endereço.
+      // `/portal-login` define o próprio (`same-origin` na página, `no-referrer` nos redirecionamentos): o token do Portal chega na barra de endereço.
       {
         source: '/((?!portal-login).*)',
         headers: [{ key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }],
