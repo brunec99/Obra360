@@ -27,6 +27,7 @@ import type {
   WeeklyCommitment,
 } from '../../domain/entities';
 import { LINK_TYPES, NON_FULFILLMENT_CAUSES, taskTeamIds } from '../../domain/entities';
+import { IFC_PATH_INVALIDO, isIfcStoragePathOf } from '../../domain/ifc-storage';
 import { actsAsManager, isTerminal, leadTimeDeadline, validateActivity, validateSequence } from '../../domain/rules';
 import { planSequenceRegeneration } from './regenerate-sequence';
 import { LONG_TERM_PREFIX, planLongTermSync, type LongTermSlot } from './sync-long-term-plan';
@@ -1938,6 +1939,8 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       if (!/\.ifc$/i.test(fileName)) throw new Error('O repositório armazena apenas modelos IFC.');
       // Sem arquivo guardado a versão vale pelas tabelas transcritas; com arquivo, o caminho é único.
       const storagePath = command.storagePath?.trim() || undefined;
+      // Só o caminho que o upload-url gerou para este modelo (ver domain/ifc-storage.ts).
+      if (storagePath && !isIfcStoragePathOf(storagePath, model, 'ifc')) throw new Error(IFC_PATH_INVALIDO);
       if (storagePath && data.ifcVersions.some(v => v.storagePath === storagePath)) throw new Error('Esta versão já foi registrada.');
       if (!Number.isFinite(command.fileSize) || command.fileSize <= 0) throw new Error('Arquivo vazio.');
       // Versões anteriores nunca são substituídas: cada envio empilha uma nova.

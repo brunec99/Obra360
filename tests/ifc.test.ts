@@ -17,8 +17,32 @@ const run = (d: PlanningData, c: Command, actorId = 'user-1') => applyCommand(d,
 const stamp = { createdAt: '2026-08-20T12:00:00Z', updatedAt: '2026-08-20T12:00:00Z' };
 const newModel = (d: PlanningData, name = 'Estrutura', workId = 'obra-1', actorId = 'user-1') =>
   run(d, { type: 'create_ifc_model', workId, name, discipline: 'Estrutural' }, actorId);
-const upload = (d: PlanningData, modelId: string, storagePath: string, storeys: string[] = ['Térreo'], actorId = 'user-1') =>
-  run(d, { type: 'add_ifc_version', modelId, fileName: 'torre.ifc', fileSize: 2048, storagePath, storeys, elementCount: 120 }, actorId);
+// Caminho no formato que o /api/ifc/upload-url gera (`<obra>/<modelo>/<uuid>-<nome>`, ver domain/ifc-storage.ts):
+// o mesmo modelo + nome dá sempre o mesmo caminho, para o teste de "caminho já registrado".
+const caminhos = new Map<string, string>();
+const caminho = (d: PlanningData, modelId: string, nome: string) => {
+  const chave = `${modelId}|${nome}`;
+  if (!caminhos.has(chave)) {
+    const workId = d.ifcModels.find(m => m.id === modelId)?.workId ?? 'obra-1';
+    const uuid = `00000000-0000-4000-8000-${String(caminhos.size + 1).padStart(12, '0')}`;
+    caminhos.set(chave, `${workId}/${modelId}/${uuid}-${nome.replace(/[^A-Za-z0-9._-]/g, '_')}`);
+  }
+  return caminhos.get(chave)!;
+};
+const upload = (d: PlanningData, modelId: string, nome: string, storeys: string[] = ['Térreo'], actorId = 'user-1') =>
+  run(
+    d,
+    {
+      type: 'add_ifc_version',
+      modelId,
+      fileName: 'torre.ifc',
+      fileSize: 2048,
+      storagePath: caminho(d, modelId, nome),
+      storeys,
+      elementCount: 120,
+    },
+    actorId,
+  );
 const newRule = (d: PlanningData, serviceName: string, criteria: LinkRuleCriterion[], workId = 'obra-1', actorId = 'user-1') =>
   run(d, { type: 'create_link_rule', workId, serviceName, criteria }, actorId);
 const rule = (order: number, serviceName: string, criteria: LinkRuleCriterion[], ruleId = `regra-${order}`): LinkRule => ({
@@ -159,7 +183,7 @@ test('o repositório aceita apenas arquivos .ifc', () => {
       modelId,
       fileName: 'TORRE.IFC',
       fileSize: 10,
-      storagePath: 'obra-1/maiuscula',
+      storagePath: caminho(d, modelId, 'TORRE.IFC'),
       storeys: [],
       elementCount: 0,
     }).length > 0,
@@ -178,7 +202,7 @@ test('versão recusa caminho já registrado, arquivo vazio e modelo inexistente'
         modelId,
         fileName: 'torre.ifc',
         fileSize: 0,
-        storagePath: 'obra-1/estrutura/v2.ifc',
+        storagePath: caminho(d, modelId, 'v2.ifc'),
         storeys: [],
         elementCount: 0,
       }),
@@ -191,7 +215,7 @@ test('versão recusa caminho já registrado, arquivo vazio e modelo inexistente'
         modelId,
         fileName: 'torre.ifc',
         fileSize: -1,
-        storagePath: 'obra-1/estrutura/v3.ifc',
+        storagePath: caminho(d, modelId, 'v3.ifc'),
         storeys: [],
         elementCount: 0,
       }),
@@ -435,4 +459,21 @@ test('a classe IFC vira rótulo de obra, e o desconhecido continua legível', as
   // Classe fora do mapa não vira "Outros": o modelo tem o que tem, e a tela mostra.
   assert.equal(groupOf('IfcBuildingElementPart'), 'Building Element Part');
   assert.equal(groupOf('IFCFOOTING'), 'Fundação');
+});
+test('versão recusa arquivo fora da pasta do próprio modelo (outra obra, outro modelo, subpasta)', () => {
+  const d = createMockData();
+  const modelId = newModel(d);
+  const outro = newModel(d, 'Arquitetura');
+  const fora = [
+    'obra-2/m9/00000000-0000-4000-8000-000000000001-torre.ifc',
+    caminho(d, outro, 'torre.ifc'),
+    `obra-1/${modelId}/sub/00000000-0000-4000-8000-000000000001-torre.ifc`,
+    `obra-1/${modelId}/torre.ifc`,
+  ];
+  for (const storagePath of fora)
+    assert.throws(
+      () => run(d, { type: 'add_ifc_version', modelId, fileName: 'torre.ifc', fileSize: 10, storagePath, storeys: [], elementCount: 0 }),
+      /fora do lugar deste modelo/,
+    );
+  assert.equal(d.ifcVersions.length, 0);
 });

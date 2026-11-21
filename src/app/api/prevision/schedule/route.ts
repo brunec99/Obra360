@@ -6,6 +6,7 @@ import { SupabasePlanningRepository } from '@/infrastructure/repositories/supaba
 import { applyCommand, type ImportedActivity } from '@/application/use-cases/commands';
 import { planSequenceRegeneration } from '@/application/use-cases/regenerate-sequence';
 import { commandContext, todayInSaoPaulo } from '@/infrastructure/clock';
+import { PREVISION_PROJETO_DE_OUTRA_OBRA } from '@/domain/prevision-access';
 
 export const runtime = 'nodejs';
 
@@ -71,6 +72,17 @@ export async function POST(request: NextRequest) {
   const projectId = work.prevision_project_id ?? (typeof body.projectId === 'string' ? body.projectId : null);
   if (!projectId || !/^\d+$/.test(projectId))
     return NextResponse.json({ error: 'Esta obra ainda não está vinculada a um projeto do Prevision.' }, { status: 400 });
+  // Projeto escolhido pelo navegador (obra ainda sem vínculo): não pode ser um já ligado a outra obra.
+  if (!work.prevision_project_id) {
+    const { data: taken, error: takenError } = await service
+      .from('works')
+      .select('id')
+      .eq('prevision_project_id', projectId)
+      .neq('id', auth.workId)
+      .limit(1);
+    if (takenError) return NextResponse.json({ error: 'Falha ao consultar as obras.' }, { status: 502 });
+    if (taken && taken.length > 0) return NextResponse.json({ error: PREVISION_PROJETO_DE_OUTRA_OBRA }, { status: 403 });
+  }
 
   let rows: ImportedActivity[];
   let skipped: number;
