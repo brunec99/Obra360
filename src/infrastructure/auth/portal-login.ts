@@ -45,6 +45,7 @@ export const MENSAGENS_PORTAL = {
   contaNaoVerificada: 'Não foi possível confirmar a sua conta. Peça ajuda a um administrador do Obra 360.',
   indisponivel: 'Não foi possível entrar pelo Portal agora. Tente de novo em instantes.',
   config: 'A entrada pelo Portal ainda não está configurada neste endereço.',
+  outraSessao: 'Este navegador já está com outra conta no Obra 360. Saia dela e entre de novo pelo Portal.',
 } as const;
 
 /** Perfil do Obra 360 (`public.profiles`: id, name, role, work_ids, module_access). Sem e-mail na tabela,

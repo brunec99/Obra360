@@ -16,7 +16,14 @@ export const dynamic = 'force-dynamic';
  *
  * Fica fora do proxy (`src/proxy.ts`): quem chega aqui ainda não tem sessão. */
 
-const SEM_CACHE = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
+// Nunca dentro de moldura de outro site: a página se envia sozinha, e um site alheio a esconderia num iframe.
+const SEM_CACHE = {
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+  'X-Robots-Tag': 'noindex',
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "frame-ancestors 'none'",
+};
 
 function origemPublica(request: NextRequest) {
   return publicOrigin(request.headers, request.nextUrl.origin, process.env.PUBLIC_SITE_URL);
@@ -60,11 +67,21 @@ export async function POST(request: NextRequest) {
     return paraLogin(request, MENSAGENS_PORTAL.semToken);
   }
 
+  const supabase = await createServerSupabase();
+  // Quem já está logado aqui não é trocado por outra pessoa: um link do Portal de terceiro (mandado por
+  // mensagem, por exemplo) não pode pôr o navegador de alguém na conta de outro. A mesma pessoa segue.
+  const {
+    data: { user: atual },
+  } = await supabase.auth.getUser();
+
   const troca = await trocarTokenDoPortal(token, { origem });
   if (!troca.ok) return paraLogin(request, troca.mensagem);
+  if (atual) {
+    if (atual.email?.toLowerCase() === troca.email) return NextResponse.redirect(new URL('/obras', origem), { status: 303, headers: SEM_CACHE });
+    return paraLogin(request, MENSAGENS_PORTAL.outraSessao);
+  }
 
   // Sessão criada aqui, nos cookies desta resposta (o mesmo caminho do link de convite em /auth/callback).
-  const supabase = await createServerSupabase();
   const { data, error } = await supabase.auth.verifyOtp({ token_hash: troca.tokenHash, type: 'magiclink' });
   if (error || data.user?.email?.toLowerCase() !== troca.email) {
     if (!error) await supabase.auth.signOut({ scope: 'local' });
