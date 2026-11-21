@@ -368,3 +368,11 @@ test('regenerate_sequence é bloqueado para quem só tem consulta', () => {
     /apenas consulta/,
   );
 });
+
+test('create_work: vínculo com o Prevision só por id canônico e sem repetir projeto gravado com zero à esquerda', () => {
+  const d = createMockData();
+  d.works[0].previsionProjectId = '0100';
+  assert.throws(() => run(d, { type: 'create_work', name: 'Nova', code: 'NOVA-1', previsionProjectId: '100' }), /já vinculado/);
+  assert.throws(() => run(d, { type: 'create_work', name: 'Nova', code: 'NOVA-2', previsionProjectId: '0101' }), /inválido/);
+  assert.ok(run(d, { type: 'create_work', name: 'Nova', code: 'NOVA-3', previsionProjectId: '101' }));
+});

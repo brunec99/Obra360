@@ -28,7 +28,7 @@ import type {
 } from '../../domain/entities';
 import { LINK_TYPES, NON_FULFILLMENT_CAUSES, taskTeamIds } from '../../domain/entities';
 import { IFC_PATH_INVALIDO, isIfcStoragePathOf } from '../../domain/ifc-storage';
-import { PREVISION_PROJECT_ID } from '../../domain/prevision-access';
+import { canonicalPrevisionId, PREVISION_PROJECT_ID } from '../../domain/prevision-access';
 import { actsAsManager, isTerminal, leadTimeDeadline, validateActivity, validateSequence } from '../../domain/rules';
 import { planSequenceRegeneration } from './regenerate-sequence';
 import { LONG_TERM_PREFIX, planLongTermSync, type LongTermSlot } from './sync-long-term-plan';
@@ -594,7 +594,7 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       if (
         command.previsionProjectId &&
         (!PREVISION_PROJECT_ID.test(command.previsionProjectId) ||
-          data.works.some(w => w.previsionProjectId === command.previsionProjectId))
+          data.works.some(w => canonicalPrevisionId(w.previsionProjectId) === command.previsionProjectId))
       )
         throw new Error('Projeto Prevision inválido ou já vinculado.');
       const work = {
@@ -893,8 +893,8 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       if (!PREVISION_PROJECT_ID.test(command.projectId)) throw new Error('Projeto Prevision inválido.');
       const work = data.works.find(w => w.id === workId)!;
       if (
-        (work.previsionProjectId && work.previsionProjectId !== command.projectId) ||
-        data.works.some(w => w.id !== workId && w.previsionProjectId === command.projectId)
+        (work.previsionProjectId && canonicalPrevisionId(work.previsionProjectId) !== command.projectId) ||
+        data.works.some(w => w.id !== workId && canonicalPrevisionId(w.previsionProjectId) === command.projectId)
       )
         throw new Error('A obra selecionada não corresponde ao vínculo com este projeto Prevision.');
       if (!command.rows.length) throw new Error('Selecione ao menos uma atividade.');
@@ -2093,7 +2093,7 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       checkWork(workId);
       responsible(command.responsibleId, workId);
       const work = data.works.find(w => w.id === workId)!;
-      if (work.previsionProjectId && work.previsionProjectId !== command.projectId)
+      if (work.previsionProjectId && canonicalPrevisionId(work.previsionProjectId) !== command.projectId)
         throw new Error('A obra selecionada não corresponde ao vínculo com este projeto Prevision.');
       const plan = planSequenceRegeneration(data, command.sequenceId, command.projectId, command.rows, sequence.defaultTaktDays, today);
       if (plan.aborted) throw new Error(plan.reason);
