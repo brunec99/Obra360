@@ -123,13 +123,21 @@ export type ResultadoTroca = { ok: true; email: string; tokenHash: string } | { 
 
 const falha = (status: number, code: string, mensagem: string): ResultadoTroca => ({ ok: false, status, code, mensagem });
 
+/** Ambiente do servidor para a troca. A `NEXT_PUBLIC_SUPABASE_URL` vem escrita por extenso de propósito: o
+ * Next grava o valor dela no código durante o build (como em `repositories/supabase/client.ts`), e no
+ * container ela não existe como variável. Lida por `env[nome]`, chegava vazia e o /portal-login respondia
+ * "ainda não está configurada" (achado na 1ª subida de produção, 21/11/2026). */
+export function ambienteDoServidor(): Env {
+  return { ...process.env, NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL };
+}
+
 /** Troca o token do Portal pelo `token_hash` do magic link (para `verifyOtp`). Nunca lança: qualquer
  * erro inesperado vira `indisponivel` (503). `origem` é o endereço público pelo qual o navegador chegou. */
 export async function trocarTokenDoPortal(
   token: unknown,
   {
     origem,
-    env = process.env,
+    env = ambienteDoServidor(),
     criarCliente = createClient,
     log = console,
   }: {
@@ -156,7 +164,10 @@ export async function trocarTokenDoPortal(
       log.error(`[${PORTAL_APP_SLUG}] portal-login: PORTAL_SSO_V2_JWKS inválido`, err);
       return falha(500, 'config', MENSAGENS_PORTAL.config);
     }
-    if (!supabaseUrl || !chaveServico) return falha(500, 'config', MENSAGENS_PORTAL.config);
+    if (!supabaseUrl || !chaveServico) {
+      log.error(`[${PORTAL_APP_SLUG}] portal-login: falta ${!supabaseUrl ? 'SUPABASE_URL' : 'SUPABASE_SERVICE_ROLE_KEY'} no servidor`);
+      return falha(500, 'config', MENSAGENS_PORTAL.config);
+    }
 
     // 1. Conferência prévia, sem queimar o token: assinatura, prazo, app e e-mail.
     let email: string;
