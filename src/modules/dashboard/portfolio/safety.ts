@@ -1,5 +1,5 @@
 import type { LocalDate } from '@/domain/entities';
-import { SAFETY_CONSEQUENCES, type SafetyType } from '@/domain/safety';
+import { SAFETY_CONSEQUENCES, type SafetyConsequence, type SafetyType } from '@/domain/safety';
 import { addDays } from '@/domain/validation';
 import { compareText } from '@/modules/curto-prazo/sheet-view';
 import { NONE, NO_TYPE_LABEL, OPEN_OVER_DAYS } from '@/modules/seguranca/safety-view';
@@ -24,6 +24,10 @@ const correctedBy = (item: PortfolioSafetyItem, date: LocalDate) =>
 /** Em aberto ao fim do dia: apontado até ele e não corrigido até ele. */
 const openAt = (item: PortfolioSafetyItem, date: LocalDate) => item.observedOn <= date && !correctedBy(item, date);
 const inRange = (date: string | undefined, from: LocalDate, to: LocalDate) => !!date && date >= from && date <= to;
+
+/** A consequência mais grave da escala (a mesma do cartão "Risco de morte em aberto" da aba 3.1). */
+const DEATH: SafetyConsequence = 'Morte';
+const average = (values: readonly number[]) => values.reduce((sum, days) => sum + days, 0) / values.length;
 
 export interface SafetyPeriod {
   /** Segunda-feira da primeira semana do período. */
@@ -52,6 +56,10 @@ export function buildSafetyBlock(
   const made = items.filter(item => inRange(item.observedOn, start, end));
   const finished = items.filter(item => item.status === 'resolved' && inRange(item.correctedOn, start, end));
   const resolveDays = finished.map(item => daysBetween(item.observedOn, item.correctedOn!));
+  // Risco de morte (23/11/2026): em aberto no sábado final, há quantos dias o mais antigo espera (os dias contam
+  // como nos "abertos há mais de 7 dias") e quanto tempo levaram os finalizados no período.
+  const deathOpen = openItems.filter(item => item.consequence === DEATH);
+  const deathDays = finished.filter(item => item.consequence === DEATH).map(item => daysBetween(item.observedOn, item.correctedOn!));
 
   const byConsequence = SAFETY_CONSEQUENCES.map(() => 0);
   const byType = new Map<string, { key: string; label: string; count: number; order: number }>();
@@ -77,8 +85,14 @@ export function buildSafetyBlock(
     opened: made.length,
     resolved: finished.length,
     // Sem arredondar: o consolidado pondera a média de cada obra pelos finalizados; a tela arredonda.
-    ...(resolveDays.length ? { averageDaysToResolve: resolveDays.reduce((sum, days) => sum + days, 0) / resolveDays.length } : {}),
+    ...(resolveDays.length ? { averageDaysToResolve: average(resolveDays) } : {}),
     byConsequence,
+    death: {
+      open: deathOpen.length,
+      ...(deathOpen.length ? { oldestOpenDays: Math.max(...deathOpen.map(item => daysBetween(item.observedOn, countUntil))) } : {}),
+      resolved: deathDays.length,
+      ...(deathDays.length ? { averageDaysToResolve: average(deathDays) } : {}),
+    },
     // Do tipo com mais feitos ao com menos; no empate, a ordem do cadastro e o nome, com "Sem tipo" por último.
     byType: [...byType.values()]
       .sort((a, b) => b.count - a.count || a.order - b.order || compareText(a.label, b.label))

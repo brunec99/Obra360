@@ -494,6 +494,28 @@ Feita em 06/11/2026, antes do commit:
 - **Divergência com o texto do modelo:** a linha embaixo do quadro, no modelo, dizia "Sem apontamentos de segurança no período"; o código considera sem dado só a obra sem nenhum apontamento até o sábado final (obra com histórico e sem apontamento no período aparece com o fluxo zerado).
 - **Cor do número nos cartões:** se o usuário quiser o número do cartão em vermelho/verde (e não só a etiqueta), ajustar a regra `.dsh-stat .v` de `styles.ts`, que vale também para a aba 0.
 
+### Quadro redesenhado em 23/11/2026 (pedido da equipe de SST)
+
+**Pedido** (e-mail da responsável de SST em 23/11/2026, com a imagem do quadro): "Visualização de indicador geral não está muito claro e didático [...] o que sugiro é usarmos um modelo como tínhamos no DASHBOARD GERAL com colunas e gráfico de pizza, bem como termos a facilidade de visualizar os dias de risco de morte no geral e não somente no campo da obra."
+
+**O que mudou.** Os três blocos da regra 7 (barras deitadas com os números numa linha só de texto, "3 em aberto (−6) · 3 > 7 d · 7,6 d") saíram. O quadro agora tem, de cima para baixo:
+
+1. **Seis cartões** somando as obras, com o nome de cada número por extenso: feitos no período, finalizados no período, em aberto no sábado final (com ▲/▼ e o número do início), abertos há mais de 7 dias (em N obras), média de dias para resolver e **Risco de morte em aberto**. São os mesmos na tela e na folha do PDF (na folha, o cartão "Graves (Morte + Severa)" deu lugar ao do risco de morte; os graves seguem embaixo da pizza e na tabela).
+2. **Colunas** de feitos (laranja) × finalizados (azul) por obra, com o valor em cima de cada coluna.
+3. **Pizza por consequência** (a rosca da aba 3.1) dos feitos no período, somando as obras, com a cor de cada consequência e, embaixo, os graves.
+4. **Pizza por tipo** dos feitos no período, somando as obras: até 6 tipos cabem inteiros; com mais, os 5 maiores e "Outros (N tipos)". A dica de cada tipo na legenda traz a contagem por obra (antes era uma coluna da lista de tipos).
+5. **Tabela "Por obra"**, uma linha por obra e a linha "Todas as obras", com título em cada coluna, em três grupos: no período (feitos, finalizados, dias para resolver, graves), no sábado final (em aberto, variação, há mais de 7 dias) e risco de morte (em aberto, mais antigo, finalizados, dias para resolver).
+
+**Risco de morte (regra nova).** Apontamentos de consequência "Morte". Segue a regra 3 (fluxo no período, retrato no sábado final): `death.open` = em aberto no sábado final; `death.oldestOpenDays` = dias do mais antigo deles, contados como os "abertos há mais de 7 dias" (até o sábado final, ou até hoje no período em andamento); `death.resolved` e `death.averageDaysToResolve` = finalizados no período e a média de dias. No consolidado: soma dos abertos, obras com algum aberto, o mais antigo entre todas (com a obra; empate pelo nome) e a média ponderada pelos finalizados de cada obra. É diferente do cartão da aba 3.1, que conta até hoje e segue os filtros da tela.
+
+**Decisões minhas (Claude), não revistas antes pelo usuário:** o desenho acima; "pizza" feita com a rosca que a aba 3.1 já usa, para os dois lugares falarem a mesma língua; o risco de morte no retrato do sábado final, como o resto do quadro; a lista de tipos com a contagem por obra virou pizza com a contagem na dica. Não houve modelo de UX publicado antes: o usuário pediu "faça as correções necessárias" a partir do e-mail.
+
+**Arquitetura.** Componentes novos em `portfolio/safety-charts.tsx` (`SafetyKpis`, `SafetyColumns`, `SafetyConsequencePie`, `SafetyTypePie`, `SafetyWorksTable`, e as funções puras `deathHint` e `safetyTypeSlices`), usados pela tela e pela folha do PDF; `SafetyRows`, `SafetyRiskRows` e `SafetyTypesList` saíram de `portfolio-charts.tsx`. `PortfolioSafety` ganhou `death` (calculado em `buildSafetyBlock`, que também serve à aba 0), `PortfolioTotals.safety` ganhou `death` e `PortfolioSafetyTypes` ganhou `kinds` (quantos tipos tiveram apontamento). O `DonutRing` aceita `colors` para a cor da consequência. O texto que a Claudia lê cita o risco de morte em aberto da obra, quando existe. **Sem migração** e sem mudança de rota: a rota já entregava a consequência de cada apontamento.
+
+**Validação (23/11/2026).** Testes em `tests/dashboard-portfolio-safety.test.ts` (risco de morte por obra e no consolidado, texto do cartão, fatias da pizza por tipo). Conferido em imagem, com dados de exemplo e o estilo real, o quadro em 1240, 900 e 390 px de largura e a folha do PDF (sem estouro da folha de 732 px com seis obras); a página inteira logada **não** foi aberta.
+
+**Pendências.** Uso real logado e PDF real; confirmar com a equipe de SST se o desenho atende; a aba 0 de cada obra não ganhou o risco de morte no quadro de segurança (o dado já vem no bloco); com muitas obras (mais de 12), as colunas ficam estreitas e a tabela pode passar da folha do PDF.
+
 ---
 
 # Dashboards com todos os módulos (12/11/2026)

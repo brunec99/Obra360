@@ -134,6 +134,9 @@ function safetyText(row: PortfolioRow, compact: boolean): string {
   ];
   if (!compact && s.averageDaysToResolve !== undefined)
     parts.push(`tempo médio ${plural(Math.round(s.averageDaysToResolve), 'dia', 'dias')}`);
+  // Risco de morte em aberto no sábado final (23/11/2026): só aparece quando existe, com a idade do mais antigo.
+  if (s.death.open)
+    parts.push(`risco de morte em aberto ${int(s.death.open)} (o mais antigo há ${plural(s.death.oldestOpenDays ?? 0, 'dia', 'dias')})`);
   return parts.join(', ');
 }
 

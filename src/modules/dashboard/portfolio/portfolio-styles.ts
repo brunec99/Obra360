@@ -14,11 +14,13 @@
  * - `.pf-kpis` contêiner dos cartões do topo; `.dsh-kpis.k7` os sete cartões (regra 8 da segurança, 06/11/2026):
  *   uma linha quando a área do conteúdo tem 1000 px ou mais, quatro por linha abaixo e dois no celular; no
  *   papel, sete colunas;
- * - Segurança do trabalho (aba 6): `.pf-sst-box` contêiner do quadro, `.pf-sst-cols` os três blocos (três
- *   colunas a partir de 1100 px de quadro, duas a partir de 820 px com os tipos embaixo, uma abaixo disso),
- *   `.pf-sst` linhas por obra com a coluna do nome mais estreita, `.pf-rowx.total` a linha "Todas" e
- *   `.pf-sst-kpis` os seis números da folha do PDF. Consulta de contêiner, e não de tela, porque a largura do
- *   conteúdo depende da lateral aberta ou recolhida.
+ * - Segurança do trabalho (aba 6, quadro redesenhado em 23/11/2026): `.pf-sst-box` contêiner do quadro,
+ *   `.pf-sst-kpis` os seis cartões (tela e PDF; `.death` o do risco de morte com aberto), `.pf-sst-cols` os três
+ *   gráficos (três colunas a partir de 1100 px de quadro, as colunas em cima e as duas pizzas embaixo a partir
+ *   de 760 px, um por linha abaixo disso), `.pf-cols`/`.pf-col` as colunas de feitos × finalizados por obra,
+ *   `.pf-pie` a pizza com a legenda, `table.pf-sstt` a tabela por obra (sobre `pf-cmp`; `.sep` a divisa dos
+ *   grupos de colunas). Consulta de contêiner, e não de tela, porque a largura do conteúdo depende da lateral
+ *   aberta ou recolhida.
  * - Quadros de 12/11/2026: `.dsh-kpis.k9` oito ou nove cartões em duas linhas (cinco por linha na tela larga e
  *   no papel, três na média, dois no celular); `table.pf-svc` "Serviços medidos em mais de uma obra" (o mapa de
  *   calor sem a rampa de cor: `.strong` a melhor obra da linha, `.tot` a coluna "Todas"). */
@@ -120,21 +122,48 @@ table.pf-svc td.tot { background: #eaf4fa; color: #0a364d; }
 table.pf-svc th.rowh { max-width: 220px; }
 .pf-rowx .dsh-tag { vertical-align: 1px; }
 
-/* Segurança do trabalho */
+/* Segurança do trabalho (quadro redesenhado em 23/11/2026) */
 .pf-sst-box { container-type: inline-size; }
 .pf-sst-cols { grid-template-columns: minmax(0, 1fr); }
-.pf-sst > .pf-rowx { grid-template-columns: 92px minmax(0, 1fr) auto; }
-@container (min-width: 820px) {
+@container (min-width: 760px) {
   .pf-sst-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .pf-sst-cols > .dsh-blk:nth-child(3) { grid-column: 1 / -1; }
+  .pf-sst-cols > .dsh-blk:nth-child(1) { grid-column: 1 / -1; }
 }
 @container (min-width: 1100px) {
-  .pf-sst-cols { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 1fr); }
-  .pf-sst-cols > .dsh-blk:nth-child(3) { grid-column: auto; }
+  .pf-sst-cols { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .pf-sst-cols > .dsh-blk:nth-child(1) { grid-column: auto; }
 }
+.pf-sst-box .pf-sst-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+@container (min-width: 560px) { .pf-sst-box .pf-sst-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (min-width: 1100px) { .pf-sst-box .pf-sst-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.pf-sst-box .dsh-kpi { border-radius: 10px; padding: 10px 12px 11px; background: #fff; }
+.pf-sst-box .dsh-kpi.main { background: #f3f8fe; }
+.pf-sst-box .dsh-kpi .l { font-size: 10px; }
+.pf-sst-box .dsh-kpi .v { font-size: 26px; }
+.pf-sst-box .dsh-kpi .h { font-size: 11.5px; }
+.pf-sst-kpis .dsh-kpi .v .dl { font-size: 12px; font-weight: 700; }
+.pf-sst-kpis .dsh-kpi.death { border-color: #be123c; background: #fff5f6; }
+.pf-cols { display: flex; gap: 6px; margin-top: 6px; }
+.pf-col { flex: 1 1 0; min-width: 0; display: grid; grid-template-rows: 150px auto; gap: 4px; text-align: center; }
+.pf-col .bars { display: flex; align-items: flex-end; justify-content: center; gap: 3px; border-bottom: 1px solid #c4d3df; min-width: 0; }
+.pf-col .c { flex: 1 1 0; max-width: 28px; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.pf-col .c em { font-style: normal; font-size: 10.5px; font-weight: 700; line-height: 15px; color: #1b3348; font-variant-numeric: tabular-nums; }
+.pf-col .c b { display: block; width: 100%; min-height: 1px; border-radius: 3px 3px 0 0; }
+.pf-col .nm { font-size: 11px; font-weight: 700; color: #1b3348; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-pie { margin-top: 6px; }
+.pf-pie .dsh-donut-leg > div { grid-template-columns: 10px minmax(0, 1fr) 34px 36px; }
+.pf-pie-note { margin: 8px 0 0; font-size: 11.5px; color: #59738a; }
+.pf-pie-note b { color: #1b3348; }
+.pf-sstt-scroll { overflow-x: auto; max-width: 100%; margin-top: 4px; }
+.pf-sstt th { vertical-align: bottom; white-space: normal; line-height: 1.25; }
+.pf-sstt th .grp { white-space: nowrap; }
+.pf-sstt th:not(:first-child) { min-width: 62px; max-width: 104px; }
+.pf-sstt th .grp { color: #59738a; }
+.pf-sstt th.sep, .pf-sstt td.sep, .pf-sstt td.sep ~ td.v { border-left: 1px solid #c4d3df; }
+.pf-sstt tr.total td { border-top: 1px solid #c4d3df; }
 @container (max-width: 520px) {
-  .pf-sst > .pf-rowx { grid-template-columns: 84px minmax(0, 1fr); }
-  .pf-sst > .pf-rowx .meta { grid-column: 2; text-align: left; white-space: normal; }
+  .pf-pie { grid-template-columns: 92px minmax(0, 1fr) !important; }
+  .pf-pie svg { width: 92px; height: 92px; }
 }
 
 @media (max-width: 1080px) { .pf-mods-2 { grid-template-columns: minmax(0, 1fr); } }
@@ -179,7 +208,15 @@ table.pf-svc th.rowh { max-width: 220px; }
 .dsh-paper .dsh-kpis.k9 .dsh-kpi .h { font-size: 8.5px; line-height: 1.25; }
 .dsh-paper table.pf-svc td { min-width: 40px; }
 .dsh-paper .pf-rowx .dsh-tag { font-size: 8.5px; padding: 0 5px; }
-.dsh-paper .pf-sst-kpis .dsh-kpi .v.t-bad { color: #be123c; }
-.dsh-paper .pf-sst-kpis .dsh-kpi .v.t-good { color: #047857; }
+.pf-sst-kpis .dsh-kpi .v.t-bad { color: #be123c; }
+.pf-sst-kpis .dsh-kpi .v.t-good { color: #047857; }
 .dsh-paper .pf-sst-kpis .dsh-kpi .v .dl { font-size: 11px; font-weight: 700; }
+.dsh-paper .pf-sst-row { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); flex: none; }
+.dsh-paper .pf-col { grid-template-rows: 112px auto; }
+.dsh-paper .pf-col .c em { font-size: 9px; line-height: 13px; }
+.dsh-paper .pf-col .nm { font-size: 9.5px; }
+.dsh-paper .pf-pie svg { width: 100px; height: 100px; margin-top: 0; }
+.dsh-paper .pf-pie-note { font-size: 9.5px; margin-top: 5px; }
+.dsh-paper .pf-sst-table { flex: 1; }
+.dsh-paper .pf-sstt th .grp { font-size: 7px; }
 `;

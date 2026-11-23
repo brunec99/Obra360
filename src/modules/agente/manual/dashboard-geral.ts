@@ -319,11 +319,15 @@ Que data conta:
 - O período é o mesmo do resto da página, de semanas inteiras: outubro de 2026 vai da segunda 05/10 ao sábado 31/10, e não de 01/10 a 31/10.
 - O histórico importado da planilha "SST - Controle geral" conta igual ao lançado no sistema, então dá para olhar meses e trimestres passados.
 
-Os três blocos:
+O quadro (redesenhado em 23/11/2026, a pedido da equipe de SST), de cima para baixo:
 
-1. **Apontamentos feitos × finalizados no período**: duas barras por obra e, à direita, o em aberto no sábado final (com a variação), os abertos há mais de 7 dias e a média de dias para resolver dos finalizados no período (no consolidado, cada obra pesa pelos finalizados dela).
-2. **Risco dos apontamentos feitos no período**: uma barra por obra dividida pela "Risco: consequência", da mais grave para a mais leve (Morte, Severa, Significativa, Leve, Nenhuma, Autuação/Multa), e a linha "Todas". À direita, os **graves** (Morte + Severa) e a parte deles nos feitos da obra.
-3. **Tipos com mais apontamentos no período, somando as obras**: até 6 tipos, com o total e a contagem em cada obra. A lista de tipos é a mesma em todas as obras.
+1. **Seis cartões**, somando as obras: feitos no período, finalizados no período, em aberto no sábado final (com a variação e quantos eram no início), abertos há mais de 7 dias (e em quantas obras), média de dias para resolver dos finalizados no período (cada obra pesa pelos finalizados dela) e **Risco de morte em aberto**.
+2. **Feitos × finalizados no período, por obra**: duas colunas por obra (feitos em laranja, finalizados em azul), com o valor em cima de cada uma.
+3. **Feitos no período por consequência**: uma pizza somando as obras, com a cor de cada consequência (Morte, Severa, Significativa, Leve, Nenhuma, Autuação/Multa), a quantidade e a parte de cada uma; embaixo, os **graves** (Morte + Severa) e a parte deles nos feitos.
+4. **Feitos no período por tipo**: uma pizza somando as obras. Com até 6 tipos, todos aparecem; com mais, os 5 maiores e "Outros". Passar o mouse num tipo da legenda mostra a contagem em cada obra. A lista de tipos é a mesma em todas as obras.
+5. **Por obra**: uma tabela com uma linha por obra e a linha "Todas as obras". Colunas do período (feitos, finalizados, dias para resolver, graves), do sábado final (em aberto, variação, há mais de 7 dias) e do risco de morte (em aberto, mais antigo, finalizados, dias para resolver).
+
+**Risco de morte** são os apontamentos com "Risco: consequência" igual a "Morte". "Em aberto" é o retrato do sábado final; "mais antigo" diz há quantos dias o mais antigo deles espera (contados até o sábado final, ou até hoje se o período ainda está em andamento); "finalizados" e "dias para resolver" são os finalizados no período. O cartão mostra o total em aberto, o mais antigo entre todas as obras (com o código da obra) e em quantas obras há algum; sem nenhum aberto, mostra quantos foram finalizados no período e em quantos dias, em média.
 
 Embaixo, as obras sem nenhum apontamento até o fim do período. Com um empreiteiro escolhido no topo, o quadro continua mostrando a vistoria inteira das obras que ficam na tela e avisa "sem recorte de empreiteiro" no subtítulo: a vistoria não registra a empresa responsável. A segurança não muda o estado da obra. As fotos dos apontamentos não são carregadas aqui; ficam na aba 3.1.`,
   },
@@ -410,7 +414,7 @@ Ao lado de "Gerar PDF", administradores veem o botão que envia o resumo semanal
 - **Quadro de Restrições e Linha de Balanço** (desde 12/11/2026, depois da folha 3): o IDP de cada obra com real × planejado, o Gantt de legalização (marcos, atrasadas, próximo marco), os cards em aberto por coluna com vencidos e começo atrasado, e os responsáveis com mais cards vencidos.
 - **Médio prazo e terminalidade**: tarefas por situação, atrasadas e variação contra a linha de base; pendências abertas × resolvidas e responsáveis terceiros.
 - **Controles de obra e SST** (desde 12/11/2026): a segunda tabela do comparativo (efetivo médio, dias lançados no histograma e na produtividade, produção medida, cards vencidos, IDP e checklists vencidos), os serviços medidos em mais de uma obra e os quadros de histograma, produtividade e checklist.
-- **Segurança do trabalho** (desde 06/11/2026, no fim): seis números (em aberto no sábado final, com a variação e quantos eram no início; abertos há mais de 7 dias e em quantas obras; feitos no período; finalizados no período; média de dias para resolver; graves, Morte + Severa, com a parte nos feitos) e os três blocos da tela (feitos × finalizados, risco por consequência e tipos com mais apontamentos). O rodapé cita as obras sem apontamentos.
+- **Segurança do trabalho** (desde 06/11/2026, no fim): os mesmos seis cartões da tela (feitos, finalizados, em aberto no sábado final, abertos há mais de 7 dias, média de dias para resolver e risco de morte em aberto), as colunas de feitos × finalizados por obra, as duas pizzas (por consequência e por tipo) e a tabela por obra, com o risco de morte de cada uma. O rodapé cita as obras sem apontamentos.
 - **Rodapé** de cada folha: o período, as obras, quem gerou e quando, e "Folha N de M".
 
 Só saem as folhas dos quadros presentes: sem longo prazo nem vagões (por falta de acesso, de dado ou por escolha em "Quadros"), a folha 3 não sai; com a chave "Segurança" desmarcada, a folha da segurança não sai. Com tudo presente são sete folhas. Um quadro cujo dado não chegou a tempo sai como indisponível, e o resto do PDF sai normalmente.

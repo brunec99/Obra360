@@ -1,9 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useId, type ReactNode } from 'react';
-import { SAFETY_CONSEQUENCES } from '@/domain/safety';
 import { addDays } from '@/domain/validation';
-import { NONE } from '@/modules/seguranca/safety-view';
 import { formatDate } from '@/shared/format';
 import { Legend } from '../charts';
 import { PORTFOLIO_MODULES, monthShort, pct, plural, signedDays, signedPoints, type PortfolioModule, type Tone } from '../model';
@@ -19,8 +17,6 @@ import type {
   PortfolioReady,
   PortfolioResponsibles,
   PortfolioRow,
-  PortfolioSafetyTypes,
-  PortfolioTotals,
   PortfolioWork,
 } from './types';
 
@@ -34,9 +30,9 @@ import type {
  *   70% em âmbar, abaixo de 60% em vermelho;
  * - Regra 12: medido × planejado, vagões por status, tarefas por situação, abertas × resolvidas e responsáveis
  *   terceiros (faixas do físico: atrás do planejado em âmbar, mais de 10 p.p. em vermelho).
- * Segurança do trabalho (aba 6, modelo aprovado em 06/11/2026): três colunas no comparativo (regra 6) e os três
- * blocos do quadro (regra 7): feitos × finalizados por obra, risco dos feitos pela consequência e os tipos com
- * mais apontamentos somando as obras. A cor da consequência sempre vem com o nome (legenda, dica e leitor de tela).
+ * Segurança do trabalho (aba 6, modelo aprovado em 06/11/2026): três colunas no comparativo (regra 6). O quadro
+ * (regra 7) foi redesenhado em 23/11/2026 e mora em `safety-charts.tsx`; daqui saem só a cor de cada
+ * consequência e a conta dos graves. A cor da consequência sempre vem com o nome (legenda, dica e leitor de tela).
  * Tudo só lê `PortfolioData`; nenhum cálculo de indicador acontece aqui além de ordenar e escalar barras. */
 
 export type ChartVariant = 'screen' | 'paper';
@@ -1566,155 +1562,10 @@ export function ResponsiblesList({ responsibles }: { responsibles: PortfolioResp
   );
 }
 
-// ─── Segurança do trabalho (aba 6, modelo aprovado em 06/11/2026, regra 7) ─────────────────────────────
+// ─── Segurança do trabalho (aba 6): o quadro mora em `safety-charts.tsx` desde 23/11/2026 ──────────────
 
 /** Cor de cada consequência, na ordem de `SAFETY_CONSEQUENCES` (Morte → Autuação/Multa). Nunca sozinha: o nome
  * vai na legenda, na dica e no leitor de tela. */
 export const SAFETY_CONSEQUENCE_COLORS = ['#be123c', '#ea580c', '#f5a524', '#10b981', '#cbd5e1', '#7c3aed'] as const;
 /** Morte + Severa: os índices 0 e 1 de `SAFETY_CONSEQUENCES`. */
 export const safetyGrave = (byConsequence: readonly number[]) => (byConsequence[0] ?? 0) + (byConsequence[1] ?? 0);
-const sumOf = (values: readonly number[]) => values.reduce((total, value) => total + value, 0);
-const consequenceText = (byConsequence: readonly number[]) =>
-  SAFETY_CONSEQUENCES.map((name, index) => `${name}: ${byConsequence[index] ?? 0}`).join(' · ');
-
-/** Feitos × finalizados no período por obra; à direita, em aberto no sábado final (e a variação no período),
- * abertos há mais de 7 dias e a média de dias para resolver dos finalizados, com uma casa decimal. */
-export function SafetyRows({ rows }: { rows: readonly PortfolioRow[] }) {
-  const list = rows.filter(row => row.safety);
-  if (!list.length) return <p className="dsh-empty">Nenhuma obra com apontamentos de segurança.</p>;
-  const peak = Math.max(1, ...list.map(row => Math.max(row.safety!.opened, row.safety!.resolved)));
-  return (
-    <>
-      <div className="pf-rows pf-sst">
-        {list.map(row => {
-          const s = row.safety!;
-          const diff = s.open - s.openAtStart;
-          return (
-            <div
-              key={row.work.id}
-              className="pf-rowx"
-              title={`${row.work.name}\n${s.opened} feitos e ${s.resolved} finalizados no período\nEm aberto: ${s.openAtStart} no início, ${s.open} no fim\n${plural(
-                s.openOver7,
-                'aberto',
-                'abertos',
-              )} há mais de 7 dias`}
-            >
-              <Name work={row.work} />
-              <div className="pf-pair" role="img" aria-label={`${s.opened} feitos e ${s.resolved} finalizados no período`}>
-                <div>
-                  <span className="tr">
-                    <b style={{ width: `${(s.opened / peak) * 100}%`, background: OPENED }} />
-                  </span>
-                  <span className="n">{s.opened}</span>
-                </div>
-                <div>
-                  <span className="tr">
-                    <b style={{ width: `${(s.resolved / peak) * 100}%`, background: RESOLVED }} />
-                  </span>
-                  <span className="n">{s.resolved}</span>
-                </div>
-              </div>
-              <span className="meta">
-                <b>{int(s.open)}</b> em aberto <span className={diff > 0 ? 't-bad' : 't-good'}>({signedDays(diff)})</span> ·{' '}
-                <span className={s.openOver7 ? 't-bad' : undefined}>{s.openOver7} &gt; 7 d</span> ·{' '}
-                {s.averageDaysToResolve === undefined ? '—' : `${oneDecimal(s.averageDaysToResolve)} d`}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <Legend
-        items={[
-          { color: OPENED, text: 'feitos no período' },
-          { color: RESOLVED, text: 'finalizados no período' },
-        ]}
-      />
-    </>
-  );
-}
-
-function RiskBar({ byConsequence }: { byConsequence: readonly number[] }) {
-  return (
-    <span className="pf-stackb" role="img" aria-label={`Risco: ${consequenceText(byConsequence)}`}>
-      {byConsequence.map((value, index) =>
-        value ? (
-          <b key={SAFETY_CONSEQUENCES[index] ?? index} style={{ flex: value, background: SAFETY_CONSEQUENCE_COLORS[index] }} />
-        ) : null,
-      )}
-    </span>
-  );
-}
-
-function GraveMeta({ byConsequence }: { byConsequence: readonly number[] }) {
-  const made = sumOf(byConsequence);
-  const grave = safetyGrave(byConsequence);
-  return (
-    <span className="meta">
-      <b>{grave}</b> {grave === 1 ? 'grave' : 'graves'} · {pct((grave / made) * 100)}
-    </span>
-  );
-}
-
-/** Risco dos apontamentos feitos no período por obra, numa barra empilhada pela consequência (da mais grave para
- * a mais leve); à direita, os graves (Morte + Severa) e a parte deles nos feitos da obra. Última linha: todas. */
-export function SafetyRiskRows({ rows, total }: { rows: readonly PortfolioRow[]; total: PortfolioTotals['safety'] }) {
-  const list = rows.filter(row => row.safety);
-  if (!list.length) return <p className="dsh-empty">Nenhuma obra com apontamentos de segurança.</p>;
-  const all = total.byConsequence;
-  const allMade = sumOf(all);
-  return (
-    <>
-      <div className="pf-rows pf-sst">
-        {list.map(row => {
-          const counts = row.safety!.byConsequence;
-          const made = sumOf(counts);
-          return (
-            <div
-              key={row.work.id}
-              className="pf-rowx"
-              title={`${row.work.name}: ${plural(made, 'feito', 'feitos')} no período\n${consequenceText(counts)}`}
-            >
-              <Name work={row.work} sub={plural(made, 'feito', 'feitos')} />
-              {made ? <RiskBar byConsequence={counts} /> : <span className="muted">nenhum feito no período</span>}
-              {made ? <GraveMeta byConsequence={counts} /> : <span />}
-            </div>
-          );
-        })}
-        <div className="pf-rowx total" title={`Todas as obras: ${plural(allMade, 'feito', 'feitos')} no período\n${consequenceText(all)}`}>
-          <span className="nm">
-            Todas
-            <small>{plural(allMade, 'feito', 'feitos')}</small>
-          </span>
-          {allMade ? <RiskBar byConsequence={all} /> : <span className="muted">nenhum feito no período</span>}
-          {allMade ? <GraveMeta byConsequence={all} /> : <span />}
-        </div>
-      </div>
-      <Legend items={SAFETY_CONSEQUENCES.map((name, index) => ({ color: SAFETY_CONSEQUENCE_COLORS[index], text: name }))} />
-    </>
-  );
-}
-
-/** Os tipos com mais apontamentos feitos no período, somando as obras (até 6), com a contagem em cada obra. */
-export function SafetyTypesList({ types }: { types: PortfolioSafetyTypes }) {
-  if (!types.rows.length) return <p className="dsh-empty">Nenhum apontamento feito no período.</p>;
-  return (
-    <div className="dsh-grid pf-g3 pf-wrap">
-      <div className="thd">
-        <span>Tipo de apontamento</span>
-        <span className="num">Apont.</span>
-        <span>Por obra</span>
-      </div>
-      {types.rows.map(row => (
-        <div key={row.key}>
-          <span className={`txt${row.key === NONE ? ' muted' : ''}`} title={row.label}>
-            {row.label}
-          </span>
-          <span className="num">{row.total}</span>
-          <span className="muted txt" title={row.byWork.map(item => `${item.work.name}: ${item.count}`).join('\n')}>
-            {row.byWork.map(item => `${item.work.code || item.work.name} ${item.count}`).join(' · ')}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}

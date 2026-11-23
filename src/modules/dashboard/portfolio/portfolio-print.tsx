@@ -20,18 +20,14 @@ import {
   PpcByWorkBars,
   PpcHeat,
   ResponsiblesList,
-  SafetyRiskRows,
-  SafetyRows,
-  SafetyTypesList,
   TerminalityRows,
   WagonRows,
   comparisonModules,
   hasExtraColumns,
   moduleBoard,
-  oneDecimal,
-  safetyGrave,
   type ModuleBoard,
 } from './portfolio-charts';
+import { SafetyColumns, SafetyConsequencePie, SafetyKpis, SafetyTypePie, SafetyWorksTable } from './safety-charts';
 import {
   CardOwnersList,
   ChecklistRows,
@@ -478,83 +474,39 @@ function Sheets({ ready, params }: { ready: PortfolioReady; params: PortfolioPar
   }
   if (shown('seguranca')) {
     const safety = data.totals.safety;
-    const diff = safety.open - safety.openAtStart;
-    const made = safety.byConsequence.reduce((sum, value) => sum + value, 0);
-    const grave = safetyGrave(safety.byConsequence);
     sheets.push({
       title: 'SEGURANÇA DO TRABALHO',
       aside: `${safety.works} de ${plural(data.rows.length, 'obra', 'obras')} com apontamentos · fluxo no período, retrato em ${end}`,
       body: (
         <>
-          <div className="dsh-kpis pf-sst-kpis">
-            <div className="dsh-kpi main">
-              <div className="l">
-                <span>Em aberto em {end}</span>
-              </div>
-              <div className="v">
-                {safety.open}
-                <span className={`dl ${diff > 0 ? 't-bad' : diff < 0 ? 't-good' : 't-mut'}`}>
-                  {diff > 0 ? `▲ ${diff}` : diff < 0 ? `▼ ${-diff}` : '= 0'}
-                </span>
-              </div>
-              <div className="h">{safety.openAtStart} no início do período</div>
-            </div>
-            <div className="dsh-kpi">
-              <div className="l">
-                <span>Abertos há mais de 7 dias</span>
-              </div>
-              <div className={`v ${safety.openOver7 ? 't-bad' : 't-good'}`}>{safety.openOver7}</div>
-              <div className="h">{safety.worksOver7 ? `em ${plural(safety.worksOver7, 'obra', 'obras')}` : 'em nenhuma obra'}</div>
-            </div>
-            <div className="dsh-kpi">
-              <div className="l">
-                <span>Feitos no período</span>
-              </div>
-              <div className="v">{safety.opened}</div>
-              <div className="h">pela data do apontamento</div>
-            </div>
-            <div className="dsh-kpi">
-              <div className="l">
-                <span>Finalizados no período</span>
-              </div>
-              <div className="v">{safety.resolved}</div>
-              <div className="h">pela data de correção</div>
-            </div>
-            <div className="dsh-kpi">
-              <div className="l">
-                <span>Média de dias para resolver</span>
-              </div>
-              <div className="v">{safety.averageDaysToResolve === undefined ? '—' : oneDecimal(safety.averageDaysToResolve)}</div>
-              <div className="h">dos finalizados no período</div>
-            </div>
-            <div className="dsh-kpi">
-              <div className="l">
-                <span>Graves (Morte + Severa)</span>
-              </div>
-              <div className="v">{grave}</div>
-              <div className="h">{made ? `${pct((grave / made) * 100)} dos feitos no período` : 'nenhum feito no período'}</div>
-            </div>
-          </div>
-          <div className="dsh-row" style={{ gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 1fr)' }}>
+          <SafetyKpis total={safety} end={end} />
+          <div className="dsh-row pf-sst-row">
             <div className="dsh-panel">
-              <h3>Feitos × finalizados no período</h3>
+              <h3>Feitos × finalizados no período, por obra</h3>
               <p className="dsh-desc">
-                À direita: em aberto em {end} (variação) · &gt; 7 dias · média de dias.
+                Feitos pela data do apontamento; finalizados pela data de correção.
                 {params.companies ? ' Sem recorte de empreiteiro: a vistoria não registra a empresa.' : ''}
               </p>
-              <SafetyRows rows={data.rows} />
-              <NoDataNote module="seguranca" data={data} />
+              <SafetyColumns rows={data.rows} />
             </div>
             <div className="dsh-panel">
-              <h3>Risco dos feitos no período</h3>
-              <p className="dsh-desc">Pela consequência. À direita: graves (Morte + Severa).</p>
-              <SafetyRiskRows rows={data.rows} total={safety} />
+              <h3>Feitos no período por consequência</h3>
+              <p className="dsh-desc">Pela “Risco: consequência”, somando as obras.</p>
+              <SafetyConsequencePie total={safety} />
             </div>
             <div className="dsh-panel">
-              <h3>Tipos com mais apontamentos</h3>
-              <p className="dsh-desc">Somando as obras, com a contagem em cada uma.</p>
-              <SafetyTypesList types={data.safetyTypes} />
+              <h3>Feitos no período por tipo</h3>
+              <p className="dsh-desc">Os tipos com mais apontamentos, somando as obras.</p>
+              <SafetyTypePie types={data.safetyTypes} total={safety} />
             </div>
+          </div>
+          <div className="dsh-panel pf-sst-table">
+            <h3>Por obra</h3>
+            <p className="dsh-desc">
+              O período, o retrato em {end} e o risco de morte: em aberto, há quantos dias o mais antigo espera e os finalizados no período.
+            </p>
+            <SafetyWorksTable rows={data.rows} total={safety} end={end} />
+            <NoDataNote module="seguranca" data={data} />
           </div>
         </>
       ),

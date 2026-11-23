@@ -110,6 +110,20 @@ export interface PortfolioSafety {
   byConsequence: number[];
   /** Feitos no período por tipo, do mais frequente ao menos; `key` = id do tipo ou `NONE` (sem tipo). */
   byType: { key: string; label: string; count: number }[];
+  /** Risco de morte (consequência "Morte"), pedido da equipe de SST em 23/11/2026. */
+  death: PortfolioSafetyDeath;
+}
+
+/** Os apontamentos com risco de morte de uma obra: o retrato do sábado final e os finalizados no período. */
+export interface PortfolioSafetyDeath {
+  /** Em aberto no sábado final. */
+  open: number;
+  /** Há quantos dias o mais antigo deles está aberto (até o sábado final, ou até hoje no período em andamento);
+   * ausente sem nenhum aberto. */
+  oldestOpenDays?: number;
+  /** Finalizados no período (data de correção) e a média de dias que levaram, sem arredondar. */
+  resolved: number;
+  averageDaysToResolve?: number;
 }
 
 /** Linha de Balanço e legalização (1.1) de uma obra (12/11/2026, regra 7): o IDP vem da rota dos quadros novos
@@ -181,6 +195,9 @@ export interface PortfolioTotals {
     averageDaysToResolve?: number;
     /** Soma das obras, na ordem de `SAFETY_CONSEQUENCES`. */
     byConsequence: number[];
+    /** Risco de morte somando as obras: `works` = obras com algum em aberto; `oldestOpenDays` é o mais antigo
+     * entre todas, na obra `oldestWork`; a média pondera pelos finalizados de cada obra. */
+    death: PortfolioSafetyDeath & { works: number; oldestWork?: PortfolioWork };
   };
   /** Histograma (2.2): o efetivo médio das obras somado e os dias úteis lançados sobre os esperados. */
   headcount: {
@@ -298,6 +315,9 @@ export interface PortfolioResponsibles {
 export interface PortfolioSafetyTypes {
   /** Até 6 tipos com mais apontamentos feitos no período, somando as obras (a lista de tipos é a mesma em todas). */
   rows: { key: string; label: string; total: number; byWork: { work: PortfolioWork; count: number }[] }[];
+  /** Quantos tipos tiveram apontamento no período, contando os que não couberam em `rows` (a pizza "Por tipo"
+   * junta o resto em "Outros"). */
+  kinds: number;
 }
 
 export interface PortfolioData {

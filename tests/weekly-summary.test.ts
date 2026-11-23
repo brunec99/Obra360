@@ -63,7 +63,16 @@ const production = (missing: string[] = [], measuredShare: number | undefined = 
 });
 const safety = (openOver7: number): ExtrasCell<PortfolioSafety> => ({
   kind: 'ready',
-  data: { open: openOver7 + 2, openAtStart: 3, openOver7, opened: 4, resolved: 2, byConsequence: [], byType: [] },
+  data: {
+    open: openOver7 + 2,
+    openAtStart: 3,
+    openOver7,
+    opened: 4,
+    resolved: 2,
+    byConsequence: [],
+    byType: [],
+    death: { open: 0, resolved: 0 },
+  },
 });
 const work = (name: string, weekLines: WeeklyLine[], extras: Omit<WorkExtras, 'workId'> = {}): WeeklyWorkInput => ({
   work: { id: name.toLowerCase().replace(/\s+/g, '-'), name, code: name.slice(0, 3).toUpperCase() },

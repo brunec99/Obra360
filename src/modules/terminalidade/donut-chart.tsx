@@ -18,12 +18,16 @@ export function DonutRing({
   title,
   className,
   noun = ['pendência', 'pendências'],
+  colors,
 }: {
   slices: DonutSlice[];
   total: number;
   title: string;
   className?: string;
   noun?: readonly [string, string];
+  /** Cor de cada fatia, na ordem de `slices`, quando a cor tem significado (a consequência da segurança no
+   * Dashboard geral); sem ela, a paleta categórica. */
+  colors?: readonly string[];
 }) {
   const size = 120;
   const radius = 46;
@@ -50,7 +54,7 @@ export function DonutRing({
               cy={size / 2}
               r={radius}
               fill="none"
-              stroke={donutColor(slice, i)}
+              stroke={colors?.[i] ?? donutColor(slice, i)}
               strokeWidth={thickness}
               strokeDasharray={`${visible} ${circumference - visible}`}
               strokeDashoffset={-starts[i]}

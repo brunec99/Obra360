@@ -127,6 +127,14 @@ function totalsOf(rows: readonly PortfolioRow[]): PortfolioTotals {
   // Média de dias para resolver da segurança somando as obras: cada obra pesa pelos finalizados no período.
   const safetyTimed = safety.filter(item => item.averageDaysToResolve !== undefined && item.resolved > 0);
   const safetyResolvedTimed = sum(safetyTimed, item => item.resolved);
+  // Risco de morte somando as obras: o aberto mais antigo entre todas (no empate, a primeira obra pelo nome) e a
+  // média de dias dos finalizados, cada obra pesando pelos seus.
+  const deathRows = rows.flatMap(row => (row.safety ? [{ work: row.work, death: row.safety.death }] : []));
+  const deathOldest = deathRows
+    .filter(item => item.death.oldestOpenDays !== undefined)
+    .sort((a, b) => b.death.oldestOpenDays! - a.death.oldestOpenDays! || byName(a.work, b.work))[0];
+  const deathTimed = deathRows.filter(item => item.death.averageDaysToResolve !== undefined && item.death.resolved > 0);
+  const deathResolvedTimed = sum(deathTimed, item => item.death.resolved);
 
   return {
     works: rows.length,
@@ -178,6 +186,15 @@ function totalsOf(rows: readonly PortfolioRow[]): PortfolioTotals {
         ? { averageDaysToResolve: sum(safetyTimed, item => item.averageDaysToResolve! * item.resolved) / safetyResolvedTimed }
         : {}),
       byConsequence: SAFETY_CONSEQUENCES.map((_, at) => sum(safety, item => item.byConsequence[at] ?? 0)),
+      death: {
+        open: sum(deathRows, item => item.death.open),
+        works: deathRows.filter(item => item.death.open > 0).length,
+        ...(deathOldest ? { oldestOpenDays: deathOldest.death.oldestOpenDays!, oldestWork: deathOldest.work } : {}),
+        resolved: sum(deathRows, item => item.death.resolved),
+        ...(deathResolvedTimed
+          ? { averageDaysToResolve: sum(deathTimed, item => item.death.averageDaysToResolve! * item.death.resolved) / deathResolvedTimed }
+          : {}),
+      },
     },
     ...extraTotalsOf(rows),
   };
@@ -354,9 +371,8 @@ function safetyTypesOf(rows: readonly PortfolioRow[]): PortfolioSafetyTypes {
       total: sum(entry.byWork, cell => cell.count),
       byWork: [...entry.byWork].sort((a, b) => b.count - a.count || byName(a.work, b.work)),
     }))
-    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, 'pt-BR'))
-    .slice(0, SAFETY_TYPES_SHOWN);
-  return { rows: list };
+    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, 'pt-BR'));
+  return { rows: list.slice(0, SAFETY_TYPES_SHOWN), kinds: list.length };
 }
 
 function noDataOf(rows: readonly PortfolioRow[]): Record<PortfolioModule, PortfolioWork[]> {

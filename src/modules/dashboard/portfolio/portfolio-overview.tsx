@@ -15,6 +15,7 @@ import { portfolioPath, printPortfolioPath, type PortfolioParams } from './param
 import type { PortfolioReady, PortfolioRow, PortfolioWork } from './types';
 import { usePortfolio } from './use-portfolio-data';
 import { PORTFOLIO_STYLE } from './portfolio-styles';
+import { SafetyColumns, SafetyConsequencePie, SafetyKpis, SafetyTypePie, SafetyWorksTable } from './safety-charts';
 import { WeeklySummaryButton } from '../weekly/send-button';
 import { DashboardTabs } from '../dashboard-tabs';
 import {
@@ -41,9 +42,6 @@ import {
   PpcByWorkBars,
   PpcHeat,
   ResponsiblesList,
-  SafetyRiskRows,
-  SafetyRows,
-  SafetyTypesList,
   TerminalityRows,
   WagonRows,
   comparisonModules,
@@ -88,8 +86,9 @@ const HELP = (
     </p>
     <p>
       <strong>Segurança do trabalho (aba 3.1).</strong> Feitos contam pela data do apontamento e finalizados pela data de correção; o
-      histórico importado da planilha conta igual. Em aberto e abertos há mais de 7 dias são o retrato no sábado final (no período em
-      andamento, os dias contam até hoje). A vistoria não registra a empresa, então o quadro não tem recorte de empreiteiro.
+      histórico importado da planilha conta igual. Em aberto, abertos há mais de 7 dias e risco de morte em aberto são o retrato no sábado
+      final (no período em andamento, os dias contam até hoje). A vistoria não registra a empresa, então o quadro não tem recorte de
+      empreiteiro.
     </p>
     <p>
       <strong>Controles de obra e SST.</strong> O efetivo médio é por dia útil lançado, e “dias lançados” conta os dias úteis do período
@@ -699,27 +698,34 @@ function Ready({
               board={boards.seguranca}
             >
               <div className="pf-sst-box">
+                <div className="dsh-mod-b">
+                  <SafetyKpis total={totals.safety} end={end} />
+                </div>
                 <div className="dsh-mod-b pf-sst-cols">
                   <div className="dsh-blk">
-                    <h5>Apontamentos feitos × finalizados no período</h5>
-                    <p className="dsh-d">
-                      Feitos pela data do apontamento; finalizados pela data de correção. À direita, em aberto em {end} (e a variação no
-                      período), abertos há mais de 7 dias e a média de dias para resolver.
-                    </p>
-                    <SafetyRows rows={data.rows} />
+                    <h5>Feitos × finalizados no período, por obra</h5>
+                    <p className="dsh-d">Feitos pela data do apontamento; finalizados pela data de correção.</p>
+                    <SafetyColumns rows={data.rows} />
                   </div>
                   <div className="dsh-blk">
-                    <h5>Risco dos apontamentos feitos no período</h5>
-                    <p className="dsh-d">
-                      Pela “Risco: consequência”, da mais grave para a mais leve. À direita, os graves (Morte + Severa) e a parte deles no
-                      total da obra.
-                    </p>
-                    <SafetyRiskRows rows={data.rows} total={totals.safety} />
+                    <h5>Feitos no período por consequência</h5>
+                    <p className="dsh-d">Pela “Risco: consequência”, somando as obras.</p>
+                    <SafetyConsequencePie total={totals.safety} />
                   </div>
                   <div className="dsh-blk">
-                    <h5>Tipos com mais apontamentos no período, somando as obras</h5>
-                    <p className="dsh-d">A lista de tipos é a mesma em todas as obras. Até 6 tipos, com a contagem em cada obra.</p>
-                    <SafetyTypesList types={data.safetyTypes} />
+                    <h5>Feitos no período por tipo</h5>
+                    <p className="dsh-d">Os tipos com mais apontamentos, somando as obras.</p>
+                    <SafetyTypePie types={data.safetyTypes} total={totals.safety} />
+                  </div>
+                </div>
+                <div className="dsh-mod-b">
+                  <div className="dsh-blk">
+                    <h5>Por obra</h5>
+                    <p className="dsh-d">
+                      O que aconteceu no período, o que estava em aberto em {end} e os apontamentos com risco de morte: quantos estão em
+                      aberto, há quantos dias o mais antigo espera e quanto tempo levaram os finalizados no período.
+                    </p>
+                    <SafetyWorksTable rows={data.rows} total={totals.safety} end={end} />
                   </div>
                 </div>
                 {hasNoDataNote('seguranca', data) && (

@@ -7,6 +7,7 @@ import { resolvePeriod, type PeriodContext } from '../src/modules/dashboard/peri
 import { aggregatePortfolio, KPIS_SHOWN, SAFETY_TYPES_SHOWN } from '../src/modules/dashboard/portfolio/aggregate';
 import { parsePortfolioParams } from '../src/modules/dashboard/portfolio/params';
 import { buildSafetyBlock } from '../src/modules/dashboard/portfolio/safety';
+import { deathHint, safetyTypeSlices } from '../src/modules/dashboard/portfolio/safety-charts';
 import type {
   PortfolioCellStatus,
   PortfolioRow,
@@ -68,6 +69,33 @@ test('bloco da obra: feitos e finalizados no período, em aberto no sábado fina
     { key: 't1', label: 'Proteções periféricas', count: 1 },
     { key: NONE, label: 'Sem tipo', count: 1 },
   ]);
+  // Risco de morte (23/11/2026): um aberto em 31/10, apontado em 28/10 (3 dias); um finalizado no período em 2 dias.
+  assert.deepEqual(block.death, { open: 1, oldestOpenDays: 3, resolved: 1, averageDaysToResolve: 2 });
+});
+
+test('risco de morte: o mais antigo em aberto conta até hoje no período em andamento; sem aberto, sem idade', () => {
+  const week = { start: '2026-11-02', end: '2026-11-07' };
+  const items = [
+    open('2026-10-20', { consequence: 'Morte' }), // 15 dias até hoje (04/11), 18 até o sábado
+    open('2026-11-03', { consequence: 'Morte' }),
+    open('2026-09-01', { consequence: 'Severa' }), // não é risco de morte
+    done('2026-10-01', '2026-11-03', { consequence: 'Morte' }), // finalizado no período em 33 dias
+    done('2026-10-01', '2026-10-10', { consequence: 'Morte' }), // finalizado antes do período
+  ];
+  assert.deepEqual(buildSafetyBlock(items, TYPES, week, TODAY)!.death, {
+    open: 2,
+    oldestOpenDays: 15,
+    resolved: 1,
+    averageDaysToResolve: 33,
+  });
+  // Em outubro (encerrado) o de 20/10 conta até 31/10, e o corrigido em 03/11 ainda estava aberto, desde 01/10.
+  assert.deepEqual(buildSafetyBlock(items, TYPES, OCTOBER, TODAY)!.death, {
+    open: 2,
+    oldestOpenDays: 30,
+    resolved: 1,
+    averageDaysToResolve: 9,
+  });
+  assert.deepEqual(buildSafetyBlock([open('2026-10-10')], TYPES, OCTOBER, TODAY)!.death, { open: 0, resolved: 0 });
 });
 
 test('bloco da obra: sem apontamento até o sábado final a obra fica sem dado; sem finalizado, sem média', () => {
@@ -107,6 +135,7 @@ const safety = (over: Partial<PortfolioSafety>): PortfolioSafety => ({
   resolved: 0,
   byConsequence: [0, 0, 0, 0, 0, 0],
   byType: [],
+  death: { open: 0, resolved: 0 },
   ...over,
 });
 function row(w: PortfolioWork, block?: PortfolioSafety): PortfolioRow {
@@ -170,6 +199,62 @@ test('totais da segurança somando as obras; média ponderada pelos finalizados'
     data.noData.seguranca.map(w => w.name),
     ['Jardins'],
   );
+});
+
+test('risco de morte somando as obras: o mais antigo entre todas, a obra dele e a média ponderada', () => {
+  const data = aggregatePortfolio({
+    period: october,
+    rows: [
+      row(horizonte, safety({ open: 3, death: { open: 1, oldestOpenDays: 4, resolved: 1, averageDaysToResolve: 2 } })),
+      row(mirante, safety({ open: 5, death: { open: 2, oldestOpenDays: 19, resolved: 3, averageDaysToResolve: 6 } })),
+      row(jardins, safety({ open: 1 })),
+    ],
+    shown: ONLY_SAFETY,
+  });
+  const death = data.totals.safety.death;
+  assert.deepEqual([death.open, death.works, death.oldestOpenDays, death.oldestWork?.name, death.resolved], [3, 2, 19, 'Mirante', 4]);
+  assert.equal(death.averageDaysToResolve, (2 * 1 + 6 * 3) / 4);
+  assert.equal(deathHint(death), 'o mais antigo há 19 dias (MRT) · em 2 obras');
+  // Sem nenhum aberto: o cartão conta quanto tempo levaram os finalizados; sem nada, só "nenhum aberto".
+  const clean = aggregatePortfolio({
+    period: october,
+    rows: [row(horizonte, safety({ death: { open: 0, resolved: 2, averageDaysToResolve: 3.5 } }))],
+    shown: ONLY_SAFETY,
+  }).totals.safety.death;
+  assert.equal(clean.oldestOpenDays, undefined);
+  assert.equal(deathHint(clean), 'nenhum aberto · 2 finalizados no período, em 3,5 dias em média');
+  assert.equal(deathHint(aggregatePortfolio({ period: october, rows: rows(), shown: ONLY_SAFETY }).totals.safety.death), 'nenhum aberto');
+});
+
+test('pizza por tipo: até 6 tipos cabem inteiros; com mais, os 5 maiores e "Outros" com os tipos juntados', () => {
+  const few = aggregatePortfolio({ period: october, rows: rows(), shown: ONLY_SAFETY });
+  assert.equal(few.safetyTypes.kinds, 3);
+  // Os fixtures somam 37 por tipo; a pizza usa os feitos do período como total.
+  assert.deepEqual(
+    safetyTypeSlices(few.safetyTypes, 37).map(slice => [slice.label, slice.count, slice.others]),
+    [
+      ['Proteções periféricas', 21, undefined],
+      ['EPI', 12, undefined],
+      ['Sinalização', 4, undefined],
+    ],
+  );
+  const many = Array.from({ length: 9 }, (_, i) => ({ key: `t${i}`, label: `Tipo ${i}`, count: 9 - i }));
+  const capped = aggregatePortfolio({ period: october, rows: [row(horizonte, safety({ opened: 45, byType: many }))], shown: ONLY_SAFETY });
+  assert.equal(capped.safetyTypes.kinds, 9);
+  const slices = safetyTypeSlices(capped.safetyTypes, 45);
+  assert.deepEqual(
+    slices.map(slice => [slice.label, slice.count, slice.others]),
+    [
+      ['Tipo 0', 9, undefined],
+      ['Tipo 1', 8, undefined],
+      ['Tipo 2', 7, undefined],
+      ['Tipo 3', 6, undefined],
+      ['Tipo 4', 5, undefined],
+      ['Outros', 10, 4],
+    ],
+  );
+  assert.ok(Math.abs(slices.reduce((sum, slice) => sum + slice.share, 0) - 1) < 1e-9);
+  assert.deepEqual(safetyTypeSlices(capped.safetyTypes, 0), []);
 });
 
 test('o cartão de segurança e o trecho da frase (regra 8), com os mesmos números', () => {

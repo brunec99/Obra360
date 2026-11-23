@@ -109,7 +109,7 @@ export const steps: TourStep[] = [
   {
     target: 'geral-seguranca',
     title: 'Segurança do trabalho',
-    body: 'A vistoria dos TSTs (aba 3.1) comparando as obras: apontamentos feitos × finalizados no período, o risco dos feitos pela consequência (graves = Morte + Severa) e os tipos com mais apontamentos, somando as obras. Feitos contam pela data do apontamento e finalizados pela data de correção; em aberto e abertos há mais de 7 dias são o retrato do sábado final. A vistoria não registra empresa, então o filtro de empreiteiro não recorta este quadro.',
+    body: 'A vistoria dos TSTs (aba 3.1) comparando as obras. Em cima, seis cartões somando as obras, o último deles o risco de morte em aberto, com há quantos dias o mais antigo espera. Depois, colunas de feitos × finalizados por obra e duas pizzas dos feitos no período: por consequência (graves = Morte + Severa) e por tipo. Embaixo, a tabela por obra, com o risco de morte de cada uma. Feitos contam pela data do apontamento e finalizados pela data de correção; em aberto, abertos há mais de 7 dias e risco de morte em aberto são o retrato do sábado final. A vistoria não registra empresa, então o filtro de empreiteiro não recorta este quadro.',
   },
   {
     target: 'geral-checklist',

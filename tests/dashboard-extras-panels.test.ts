@@ -118,6 +118,7 @@ const safety: PortfolioSafety = {
   opened: 38,
   resolved: 31,
   averageDaysToResolve: 5.2,
+  death: { open: 0, resolved: 0 },
   byConsequence: [0, 3, 10, 20, 5, 0],
   byType: [
     { key: 't1', label: 'Trabalho em altura', count: 14 },
