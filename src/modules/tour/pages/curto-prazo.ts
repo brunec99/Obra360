@@ -73,7 +73,7 @@ export const steps: TourStep[] = [
   {
     target: 'curto-ajustar',
     title: 'Ajustar à tela',
-    body: 'Redistribui as colunas para a planilha caber na largura da tela, sem descer do mínimo legível de cada uma, e guarda o ajuste neste navegador. Só aparece em telas largas.',
+    body: 'As colunas já acompanham a largura da tela: levar a janela para um monitor maior ou para a TV amplia a planilha, que nesta aba ocupa a janela inteira. Se você arrastou a borda de alguma coluna, as larguras passam a ser suas (e mudam só na proporção da tela); este botão as esquece e volta ao ajuste automático. Só aparece em telas largas.',
   },
   {
     target: 'curto-semana-encerrada',
@@ -98,7 +98,7 @@ export const steps: TourStep[] = [
   {
     target: 'curto-colunas',
     title: 'Filtrar, classificar, redimensionar',
-    body: 'O funil de cada coluna classifica A→Z ou Z→A uma vez e filtra por valores, que só valem no OK. Arraste a borda do cabeçalho para mudar a largura; duplo clique volta ao padrão.',
+    body: 'O funil de cada coluna classifica A→Z ou Z→A uma vez e filtra por valores, que só valem no OK. Arraste a borda do cabeçalho para mudar a largura; duplo clique volta ao padrão. As larguras ficam guardadas neste navegador.',
   },
   {
     target: 'curto-linha-mover',
@@ -108,7 +108,7 @@ export const steps: TourStep[] = [
   {
     target: 'curto-marcar',
     title: 'Marcar várias linhas',
-    body: 'A caixa de cada linha (ou esta, que marca todas as visíveis) abre a barra "linhas marcadas": escolha Status, causa e justificativa uma vez e aplique a todas numa gravação só. Com a planilha filtrada, só as linhas à vista contam.',
+    body: 'A caixa de cada linha (ou esta, que marca todas as visíveis) abre a barra "linhas marcadas": escolha Status, causa e justificativa uma vez e aplique a todas numa gravação só. A mesma barra tem "Excluir N", que apaga as marcadas com uma confirmação só e um Desfazer só. Com a planilha filtrada, só as linhas à vista contam.',
   },
   {
     target: 'curto-faixa-semana',
@@ -188,17 +188,17 @@ export const steps: TourStep[] = [
   {
     target: 'curto-linha-inserir',
     title: 'Inserir linha acima',
-    body: 'Abre uma linha em branco logo acima desta, para pôr uma atividade no meio da semana. Escreva e tecle Enter: a linha entra ali, e a linha em branco continua aberta para a próxima. Esc ou Cancelar fecha sem criar.',
+    body: 'Abre uma linha em branco logo acima desta, para pôr uma atividade no meio da semana. Escreva e tecle Enter: a linha entra ali, e a linha em branco continua aberta para a próxima. Esc, Cancelar ou o ✕ da linha em branco fecham sem criar.',
   },
   {
     target: 'curto-linha-excluir',
     title: 'Excluir linha',
-    body: 'O ✕ apaga a linha, com o Status e a causa, depois de confirmar. A série do PPC e o Pareto deixam de contá-la. O Desfazer devolve a linha ao mesmo lugar.',
+    body: 'O ✕ da coluna "Ações", sempre à vista no fim da linha mesmo com a planilha rolada de lado, apaga a linha, com o Status e a causa, depois de confirmar. A série do PPC e o Pareto deixam de contá-la. O Desfazer devolve a linha ao mesmo lugar. Para apagar várias, marque as caixas e use "Excluir N" na barra de linhas marcadas.',
   },
   {
     target: 'curto-linha-nova',
     title: 'Nova linha',
-    body: 'Escreva a atividade e tecle Enter, ou saia da linha, para criá-la; no celular, use Adicionar. Empresa, local, equipe e datas podem ficar em branco: sem período, a linha nasce no primeiro dia da semana.',
+    body: 'Escreva a atividade e tecle Enter, ou saia da linha, para criá-la; no celular, use Adicionar. Empresa, local, equipe e datas podem ficar em branco: sem período, a linha nasce no primeiro dia da semana. Começou a preencher e desistiu? "Limpar" (ou Esc) esvazia a linha em branco.',
   },
 
   // Fechamento

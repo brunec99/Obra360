@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { NonFulfillmentCause, WeeklyCommitment } from '../src/domain/entities';
-import { bulkChoiceChanges, bulkFulfillmentItems, type BulkChoice } from '../src/modules/curto-prazo/bulk-bar';
+import { bulkChoiceChanges, bulkFulfillmentItems, deleteHint, type BulkChoice } from '../src/modules/curto-prazo/bulk-bar';
 
 /* Apontamento em lote do Curto prazo (26/10/2026): o que vai ser gravado em cada linha marcada a
  * partir de uma escolha de Status/Causa/Justificativa, respeitando a regra "Não exige causa; Sim
@@ -128,4 +128,11 @@ test('Nada escolhido não muda nada; qualquer escolha, inclusive "Trocar por…"
   assert.equal(bulkChoiceChanges(choice({ status: 'Não' })), true);
   assert.equal(bulkChoiceChanges(choice({ cause: 'Retrabalho' })), true);
   assert.equal(bulkChoiceChanges(choice({ justification: { mode: 'set', text: '' } })), true);
+});
+
+test('Excluir marcadas: a dica diz quantas saem e quantas ficam de fora', () => {
+  assert.equal(deleteHint(1, 1), 'Excluir a linha marcada, depois de confirmar.');
+  assert.equal(deleteHint(4, 4), 'Excluir as 4 linhas marcadas, depois de confirmar.');
+  assert.equal(deleteHint(5, 3), 'Excluir 3 das 5 marcadas, depois de confirmar; 2 ficam de fora: semana só para apontamento.');
+  assert.equal(deleteHint(3, 2), 'Excluir 2 das 3 marcadas, depois de confirmar; 1 fica de fora: semana só para apontamento.');
 });

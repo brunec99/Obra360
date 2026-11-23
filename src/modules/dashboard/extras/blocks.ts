@@ -229,7 +229,8 @@ export function buildRestrictionsBlock(
 /** O IDP da última medição fechada até o fim do período, no peso vigente (custo, ou duração sem custo
  * cadastrado). Só percentuais e o índice: nenhum valor em reais sai daqui. Sem bloco lançado, sem dado. */
 export function buildLobBlock(
-  data: Pick<LobData, 'services' | 'activities' | 'baselines' | 'measurements' | 'items' | 'costs'>,
+  // `calendar` (dias úteis da obra) segue junto no `...data` abaixo: o planejado do IDP conta por ele.
+  data: Pick<LobData, 'services' | 'activities' | 'baselines' | 'measurements' | 'items' | 'costs' | 'calendar'>,
   range: ExtrasRange,
 ): LobBlock | undefined {
   if (!data.activities.length) return undefined;

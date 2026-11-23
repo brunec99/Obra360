@@ -1,6 +1,6 @@
 'use client';
 import { useId, useMemo, useState } from 'react';
-import { CheckCheck, X } from 'lucide-react';
+import { CheckCheck, Trash2, X } from 'lucide-react';
 import type { WeeklyCommitment } from '@/domain/entities';
 
 /** Apontamento em lote da aba Curto prazo (26/10/2026): a obra confere a semana com o Google
@@ -9,7 +9,10 @@ import type { WeeklyCommitment } from '@/domain/entities';
  * pessoa trocar muda, e a regra do domínio continua valendo linha a linha: "Não" exige causa da
  * lista e "Sim" não tem causa. As linhas que a escolha não consegue gravar (um "Não" sem causa
  * nem na escolha nem na linha, ou "manter" numa linha ainda sem Status) ficam de fora e a barra
- * avisa antes de aplicar, em vez de inventar uma causa e poluir o Pareto. */
+ * avisa antes de aplicar, em vez de inventar uma causa e poluir o Pareto.
+ *
+ * "Excluir N" (23/11/2026): a mesma barra exclui as linhas marcadas de uma vez, com uma confirmação só.
+ * Só aparece para quem pode excluir (a trava da semana é a de cada linha). */
 
 export type BulkStatus = '' | 'Sim' | 'Não'; // '' = manter como está
 export interface BulkChoice {
@@ -87,6 +90,14 @@ function skipReason(rows: readonly WeeklyCommitment[], choice: BulkChoice, skipp
   return reasons.join(' e ');
 }
 
+/** A dica do botão "Excluir N": quantas saem e, se for o caso, quantas marcadas ficam (semana só para apontamento). */
+export function deleteHint(count: number, deletable: number): string {
+  const out = count - deletable;
+  const base = `Excluir ${deletable === 1 ? 'a linha marcada' : `as ${deletable} linhas marcadas`}, depois de confirmar`;
+  if (out <= 0) return `${base}.`;
+  return `Excluir ${deletable} das ${count} marcadas, depois de confirmar; ${out} ${out === 1 ? 'fica' : 'ficam'} de fora: semana só para apontamento.`;
+}
+
 const INITIAL = { status: '' as BulkStatus, cause: '', justMode: 'keep' as 'keep' | 'set', justText: '' };
 
 /** Barra das linhas marcadas: acima da planilha no computador, fixa no rodapé no celular. */
@@ -97,6 +108,8 @@ export function BulkBar({
   causes,
   busy = false,
   onApply,
+  deletable = 0,
+  onDelete,
   onSelectAll,
   onClear,
 }: {
@@ -106,6 +119,10 @@ export function BulkBar({
   causes: readonly string[];
   busy?: boolean;
   onApply: (choice: BulkChoice) => void;
+  /** Quantas das marcadas a pessoa pode excluir (semana aberta ou admin; nunca quem só consulta). Com 0, ou sem
+   * `onDelete`, o botão de excluir não aparece. Quem chama confirma, exclui e oferece o Desfazer. */
+  deletable?: number;
+  onDelete?: () => void;
   onSelectAll: () => void;
   onClear: () => void;
 }): React.JSX.Element {
@@ -263,6 +280,19 @@ export function BulkBar({
             <X size={15} aria-hidden />
             Desmarcar
           </button>
+          {onDelete && deletable > 0 && (
+            <button
+              type="button"
+              className="button-ghost text-danger hover:border-danger-ring hover:bg-danger-soft hover:text-danger"
+              onClick={onDelete}
+              disabled={busy}
+              title={deleteHint(count, deletable)}
+              aria-label={`Excluir ${deletable} ${deletable === 1 ? 'linha marcada' : 'linhas marcadas'}`}
+            >
+              <Trash2 size={15} aria-hidden />
+              Excluir {deletable}
+            </button>
+          )}
         </div>
 
         {preview.skipped > 0 && (

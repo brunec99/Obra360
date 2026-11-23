@@ -1,6 +1,7 @@
 import type {
   LobActivity,
   LobBaseline,
+  LobCalendar,
   LobCostItem,
   LobData,
   LobDependency,
@@ -14,11 +15,12 @@ import type {
   ServiceFlowDocument,
 } from '../../../domain/lob';
 import type { LobMutation, LobTable } from '../../../application/use-cases/lob-commands';
+import { normalizeLobCalendar } from '../../../domain/lob-calendar';
 import { logRouteError } from '../../log';
 import { getServiceClient } from './client';
 
-/** Leitura e gravação da Linha de Balanço e dos fluxos (migração 0038) e dos itens de custo
- * (migração 0044). Fora do snapshot: cada tabela é lida filtrada pela obra e cada comando grava só o
+/** Leitura e gravação da Linha de Balanço e dos fluxos (migração 0038), dos itens de custo
+ * (migração 0044) e do calendário de dias úteis da obra (migração 0056). Fora do snapshot: cada tabela é lida filtrada pela obra e cada comando grava só o
  * que mudou, na ordem que mantém o banco coerente sem transação (como a Terminalidade). */
 
 export const LOB_BUCKET = 'medicoes';
@@ -29,6 +31,8 @@ const SIGN_BATCH = 200;
 const DELETE_BATCH = 100;
 /** Linhas por requisição ao gravar itens de custo (a tela cola centenas de linhas do orçamento). */
 const COST_BATCH = 500;
+/** Blocos por requisição ao gravar datas (uma cascata mexe em centenas de blocos de uma vez). */
+const ACTIVITY_BATCH = 1000;
 
 export class LobUnavailableError extends Error {
   constructor() {
@@ -41,6 +45,14 @@ export class LobCostsUnavailableError extends Error {
   constructor() {
     super('Aplique a migração 0044_lob_costs.sql no Supabase para apropriar custos.');
     this.name = 'LobCostsUnavailableError';
+  }
+}
+/** Calendário de dias úteis sem a 0056 (23/11/2026): a leitura segue com o calendário padrão (segunda
+ * a sexta, sem feriados, como sempre foi); só a gravação recusa. */
+export class LobCalendarUnavailableError extends Error {
+  constructor() {
+    super('Aplique a migração 0056_lob_calendar.sql no Supabase para configurar o calendário da Linha de Balanço.');
+    this.name = 'LobCalendarUnavailableError';
   }
 }
 export class LobConflictError extends Error {
@@ -336,21 +348,79 @@ async function fetchCosts(workId: string): Promise<LobCostItem[] | null> {
   }
 }
 
-/** Tudo de uma obra, sem URLs de foto, e se a tabela de custos existe (11/11/2026): sem as tabelas
- * da 0038 lança `LobUnavailableError`, como antes; sem a 0044 devolve `costs: []` e
- * `costsAvailable: false`, para a rota responder `costAccess: 'unavailable'`. */
-export async function loadLobWithCosts(workId: string): Promise<{ data: LobData; costsAvailable: boolean }> {
-  const [rows, costs] = await Promise.all([Promise.all(LOB_TABLE_LIST.map(table => fetchWorkRows(table, workId))), fetchCosts(workId)]);
+const CALENDAR_TABLE = 'lob_calendars';
+/** O calendário de dias úteis da obra: `calendar` ausente = nunca configurado (vale segunda a sexta,
+ * sem feriados); `available: false` = banco sem a migração 0056, que para a leitura dá no mesmo. Uma
+ * linha gravada fora do padrão (não deveria existir: a tabela tem `check`) também cai no padrão, em
+ * vez de derrubar a Linha de Balanço inteira. */
+async function fetchCalendar(workId: string): Promise<{ calendar?: LobCalendar; available: boolean }> {
+  const { data, error } = await getServiceClient().from(CALENDAR_TABLE).select('weekdays, holidays').eq('work_id', workId).maybeSingle();
+  if (error) {
+    if (missingTable(error.code)) return { available: false };
+    throw new Error(`Falha ao ler ${CALENDAR_TABLE}: ${error.message}`);
+  }
+  if (!data) return { available: true };
+  const row = data as { weekdays: unknown; holidays: unknown };
+  try {
+    return {
+      available: true,
+      calendar: normalizeLobCalendar({
+        weekdays: Array.isArray(row.weekdays) ? row.weekdays.map(Number) : row.weekdays,
+        holidays: Array.isArray(row.holidays) ? row.holidays.map(d => String(d).slice(0, 10)) : row.holidays,
+      }),
+    };
+  } catch (cause) {
+    logRouteError('lob fetchCalendar', cause, { workId });
+    return { available: true };
+  }
+}
+
+/** Tudo de uma obra, sem URLs de foto, e se as tabelas opcionais existem: sem as tabelas da 0038
+ * lança `LobUnavailableError`, como antes; sem a 0044 devolve `costs: []` e `costsAvailable: false`,
+ * para a rota responder `costAccess: 'unavailable'`; sem a 0056 (ou sem calendário gravado) devolve
+ * `calendar` ausente, que todas as contas leem como segunda a sexta sem feriados. */
+export async function loadLobWithCosts(workId: string): Promise<{ data: LobData; costsAvailable: boolean; calendarAvailable: boolean }> {
+  const [rows, costs, calendar] = await Promise.all([
+    Promise.all(LOB_TABLE_LIST.map(table => fetchWorkRows(table, workId))),
+    fetchCosts(workId),
+    fetchCalendar(workId),
+  ]);
   const data = { costs: costs ?? [] } as LobData;
   LOB_TABLE_LIST.forEach((table, index) => {
     const convert = lobFromRow[table] as (r: Row) => unknown;
     (data as unknown as Record<LobTable, unknown[]>)[table] = rows[index].map(convert);
   });
-  return { data, costsAvailable: costs !== null };
+  if (calendar.calendar) data.calendar = calendar.calendar;
+  return { data, costsAvailable: costs !== null, calendarAvailable: calendar.available };
 }
-/** Tudo de uma obra, sem URLs de foto; `costs: []` sem a migração 0044. */
+/** Tudo de uma obra, sem URLs de foto; `costs: []` sem a migração 0044 e `calendar` ausente (segunda
+ * a sexta) sem a 0056 ou sem calendário configurado. */
 export async function loadLob(workId: string): Promise<LobData> {
   return (await loadLobWithCosts(workId)).data;
+}
+/** Só o que um comando de datas (mover, esticar, devolver) precisa para calcular: blocos, dependências
+ * e o calendário da obra. As demais listas voltam vazias: NÃO serve para os outros comandos nem para
+ * responder a obra à tela. Três ou quatro leituras no lugar das doze da obra inteira (23/11/2026). */
+export async function loadLobSchedule(workId: string): Promise<LobData> {
+  const [activities, dependencies, calendar] = await Promise.all([
+    fetchWorkRows('activities', workId),
+    fetchWorkRows('dependencies', workId),
+    fetchCalendar(workId),
+  ]);
+  const data: LobData = {
+    locals: [],
+    services: [],
+    activities: activities.map(lobFromRow.activities),
+    dependencies: dependencies.map(lobFromRow.dependencies),
+    baselines: [],
+    launches: [],
+    measurements: [],
+    items: [],
+    photos: [],
+    costs: [],
+  };
+  if (calendar.calendar) data.calendar = calendar.calendar;
+  return data;
 }
 /** As tabelas da 0038; os custos (0044) são lidos à parte, tolerando a tabela ausente. */
 const LOB_TABLE_LIST: Exclude<LobTable, 'costs'>[] = [
@@ -429,8 +499,34 @@ const toRow = (table: LobTable, record: AnyRecord) => (lobToRow[table] as unknow
 const chunks = <T>(list: T[], size: number) =>
   Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
 
+/** As linhas que o upsert dos blocos RECRIOU (não existiam mais no banco): o `created_at` devolvido
+ * não é o que foi lido. Linha que o banco não devolveu, ou com data ilegível, não é acusada. */
+export function recreatedRows(sent: Pick<LobActivity, 'id' | 'createdAt'>[], returned: { id: string; created_at: string }[]) {
+  const read = new Map(sent.map(a => [a.id, Date.parse(a.createdAt)]));
+  return returned.filter(row => {
+    const before = read.get(row.id);
+    const after = Date.parse(row.created_at);
+    return before !== undefined && Number.isFinite(before) && Number.isFinite(after) && before !== after;
+  });
+}
+
 export async function applyLobMutation(mutation: LobMutation): Promise<void> {
   const client = getServiceClient();
+  // O calendário vai primeiro: sem a tabela (0056 não aplicada) a gravação para aqui, antes de mexer
+  // em qualquer data. Uma linha por obra, trocada inteira.
+  if (mutation.calendar) {
+    const { value, updatedBy, updatedAt } = mutation.calendar;
+    const { error } = await client
+      .from(CALENDAR_TABLE)
+      .upsert(
+        { work_id: mutation.workId, weekdays: value.weekdays, holidays: value.holidays, updated_by: updatedBy, updated_at: updatedAt },
+        { onConflict: 'work_id' },
+      );
+    if (error) {
+      if (missingTable(error.code)) throw new LobCalendarUnavailableError();
+      throw new Error(`Falha ao gravar em ${CALENDAR_TABLE}: ${error.message}`);
+    }
+  }
   for (const table of DELETE_ORDER) {
     for (const ids of chunks(mutation.delete[table], DELETE_BATCH)) {
       const { error } = await client.from(TABLE_NAMES[table]).delete().in('id', ids).eq('work_id', mutation.workId);
@@ -457,8 +553,46 @@ export async function applyLobMutation(mutation: LobMutation): Promise<void> {
     );
     check(error, `atualizar ${TABLE_NAMES.costs}`, 'costs');
   }
+  // Blocos alterados: também em lote (23/11/2026). Arrastar um bloco numa obra de 600 empurra centenas
+  // de sucessoras, e um UPDATE por bloco eram centenas de requisições a cada movimento. O upsert manda a
+  // linha inteira (todas as colunas da tabela menos `created_at`), e só com ids lidos desta obra pelo
+  // planejador (o `work_id` de cada linha é o da obra do comando).
+  //
+  // Bloco apagado por outra pessoa entre a leitura e a gravação: o upsert o RECRIARIA (sem as
+  // dependências, que o banco apagou junto). Para o comando sair como conflito, como saía no update
+  // por linha, `created_at` não vai na gravação: numa linha que existe ele fica como está, e numa
+  // recriada o banco põe a hora de agora. A resposta traz o `created_at` de cada linha; a que voltou
+  // diferente do que foi lido foi recriada: ela é apagada de novo (só ela, pelo `created_at` novo) e o
+  // comando falha com conflito, o que faz a tela reler a obra. Se o serviço ou o local também tiverem
+  // sido apagados, a chave estrangeira recusa antes e o comando sai como conflito do mesmo jeito.
+  for (const batch of chunks(mutation.update.activities, ACTIVITY_BATCH)) {
+    if (batch.some(a => a.workId !== mutation.workId)) throw new LobConflictError();
+    const { data, error } = await client
+      .from(TABLE_NAMES.activities)
+      .upsert(
+        batch.map(r => {
+          const row = toRow('activities', r);
+          delete row.created_at;
+          return row;
+        }),
+        { onConflict: 'id' },
+      )
+      .select('id,created_at');
+    check(error, `atualizar ${TABLE_NAMES.activities}`, 'activities');
+    const recreated = recreatedRows(batch, (data ?? []) as { id: string; created_at: string }[]);
+    if (recreated.length) {
+      const removed = await Promise.all(
+        recreated.map(row =>
+          client.from(TABLE_NAMES.activities).delete().eq('id', row.id).eq('work_id', mutation.workId).eq('created_at', row.created_at),
+        ),
+      );
+      const failed = removed.find(result => result.error);
+      if (failed?.error) logRouteError('lob applyMutation', failed.error, { workId: mutation.workId, recreated: recreated.length });
+      throw new LobConflictError();
+    }
+  }
   for (const table of INSERT_ORDER) {
-    if (table === 'costs') continue;
+    if (table === 'costs' || table === 'activities') continue;
     const records = mutation.update[table] as AnyRecord[];
     if (!records.length) continue;
     const results = await Promise.all(

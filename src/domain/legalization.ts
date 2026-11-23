@@ -416,7 +416,7 @@ export interface LobServiceRow {
 }
 /** Um resumo por serviço da Linha de Balanço, na ordem dos serviços. */
 export function lobServiceRows(
-  lob: Pick<LobData, 'services' | 'activities' | 'measurements' | 'items'>,
+  lob: Pick<LobData, 'services' | 'activities' | 'measurements' | 'items' | 'calendar'>,
   window: { start: LocalDate; end: LocalDate },
 ): LobServiceRow[] {
   const percents = measuredPercents(lob.measurements, lob.items);
@@ -425,7 +425,8 @@ export function lobServiceRows(
     .sort((a, b) => a.orderIndex - b.orderIndex || a.name.localeCompare(b.name))
     .flatMap(service => {
       const blocks = lob.activities.filter(a => a.serviceId === service.id);
-      const span = lobSpan(blocks);
+      // O término sai do calendário de dias úteis da Linha de Balanço da obra (`lob.calendar`).
+      const span = lobSpan(blocks, lob.calendar);
       if (!span) return [];
       const weight = blocks.reduce((n, a) => n + Math.max(1, a.durationDays), 0);
       const done = blocks.reduce((n, a) => n + Math.max(1, a.durationDays) * (percents[a.id] ?? 0), 0);

@@ -3,6 +3,7 @@ import { NON_FULFILLMENT_CAUSES, taskTeamIds, type NonFulfillmentCause } from '.
 import { commitmentCompanyOf, nameKey, type BriefingLevel } from '../../domain/agent-briefing';
 import { isMonthlyPlan, newestPlanFirst } from '../../domain/legalization';
 import { daysBetween, floorSchedule, latestPercents, type LongTermPlanDocument } from '../../domain/long-term-plan';
+import { clampToWeek, weekLineFromTask } from '../../domain/plan-to-week';
 import { ppc, rollUpPlan, targetPercent } from '../../domain/rules';
 import { addDays, startOfWeek } from '../../domain/validation';
 import { canEditWeek } from '../../domain/week-lock';
@@ -410,14 +411,13 @@ function proposeCreate(input: Record<string, unknown>, ctx: ToolContext): ToolOu
   const items = asArray(input.itens).filter((i): i is Record<string, unknown> => !!i && typeof i === 'object');
   if (!items.length) return { result: 'Informe ao menos um item.', error: true };
   if (items.length > MAX_PROPOSAL_ITEMS) return { result: `Proponha até ${MAX_PROPOSAL_ITEMS} linhas por vez.`, error: true };
-  const weekEnd = addDays(week.weekStart, 6);
   const teams = ctx.data.teams.filter(t => t.workId === ctx.workId);
   const rows = ctx.data.commitments.filter(c => c.workId === ctx.workId && c.weekStart === week.weekStart);
   const live = ctx.levels.includes('medio') ? livePlan(ctx) : undefined;
   const commands: Command[] = [];
   const lines: string[] = [];
   const skipped: string[] = [];
-  const clamp = (date: string) => (date < week.weekStart ? week.weekStart : date > weekEnd ? weekEnd : date);
+  const clamp = (date: string) => clampToWeek(date, week.weekStart);
   for (const item of items) {
     const teamName = text(item.equipe);
     let name = text(item.nome),
@@ -433,11 +433,13 @@ function proposeCreate(input: Record<string, unknown>, ctx: ToolContext): ToolOu
         skipped.push(`${taskHandle}: tarefa do plano do mês não encontrada`);
         continue;
       }
-      name = name || task.name;
-      team = teamOf(task.teamId, teams);
-      company = company || team?.company || '';
-      start = start || clamp(task.plannedStart);
-      end = end || clamp(task.plannedEnd);
+      // A mesma regra do botão "Levar para o curto prazo" do médio prazo (src/domain/plan-to-week.ts).
+      const line = weekLineFromTask(task, teams, week.weekStart);
+      name = name || line.name;
+      team = line.team;
+      company = company || line.supplier;
+      start = start || line.startDate;
+      end = end || line.endDate;
       activityNote = ` (do plano do mês: ${dm(task.plannedStart)}–${dm(task.plannedEnd)})`;
     }
     if (!name) {

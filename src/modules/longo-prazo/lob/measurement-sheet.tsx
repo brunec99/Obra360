@@ -115,12 +115,12 @@ export function buildSheet(data: LobData, measurement: LobMeasurement): Record<S
       activity,
       service: services.get(activity.serviceId) ?? UNKNOWN_SERVICE(activity.serviceId),
       local: locals.get(activity.localId) ?? UNKNOWN_LOCAL(activity.localId),
-      planned: plannedPercent(activity, measurement.date),
+      planned: plannedPercent(activity, measurement.date, data.calendar),
       previous: before,
       item,
       photos: itemPhotos,
       value,
-      late: isLate(activity, value, measurement.date),
+      late: isLate(activity, value, measurement.date, data.calendar),
       needsPhoto: !!item && item.value > item.previousValue && itemPhotos.length === 0,
     };
   };
@@ -808,7 +808,7 @@ export function MeasurementSheet({
                                   <span className="text-xs text-slate-500">
                                     {row.local.name}
                                     {row.service.unit ? ` · ${row.service.unit}` : ''} · {shortDate(row.activity.start)}–
-                                    {shortDate(activityFinish(row.activity))}
+                                    {shortDate(activityFinish(row.activity, data.calendar))}
                                   </span>
                                 </span>
                               </span>

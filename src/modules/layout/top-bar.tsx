@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { usePlanning } from '@/modules/planejamento/planning-provider';
 import { SUPPORT, WORK_TABS } from '@/modules/layout/work-nav';
+import { isFullWidthPath } from '@/modules/curto-prazo/full-width';
 import { workPath } from '@/shared/format';
 
 type Crumb = { label: string; href?: string };
@@ -37,14 +38,32 @@ function useCrumbs(): Crumb[] {
   return crumbs;
 }
 
+/** O teto de largura do conteúdo, o mesmo na barra de cima e no quadro da página, para os dois ficarem
+ * alinhados: 1600 px em todo o sistema, menos nas telas de largura inteira (o curto prazo, 23/11/2026). */
+function useFrameWidth(): string {
+  return isFullWidthPath(usePathname()) ? '' : 'max-w-[1600px]';
+}
+
+/** O quadro do conteúdo de toda tela logada. É componente de cliente só para ler o endereço e decidir o
+ * teto de largura; o conteúdo (`children`) continua vindo do servidor. */
+export function AppMain({ children }: { children: React.ReactNode }) {
+  const frame = useFrameWidth();
+  return (
+    <main id="main" className={`mx-auto w-full flex-1 p-4 sm:p-5 md:p-8 ${frame}`}>
+      {children}
+    </main>
+  );
+}
+
 /** Cabeçalho fixo, translúcido, como o do Takt Hub: a trilha diz onde se está e os atalhos (modo
  * reunião, ajuda) ficam à mão em telas longas sem roubar espaço. No celular só a página atual
  * aparece na trilha; o resto está no menu. */
 export function TopBar({ start, end }: { start?: React.ReactNode; end?: React.ReactNode }) {
   const crumbs = useCrumbs();
+  const frame = useFrameWidth();
   return (
     <header className="sticky top-0 z-30 shrink-0 border-b border-slate-200/80 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/70">
-      <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center gap-3 px-3 sm:px-5 md:px-8">
+      <div className={`mx-auto flex h-14 w-full items-center gap-3 px-3 sm:px-5 md:px-8 ${frame}`}>
         {start}
         <nav aria-label="Trilha" className="min-w-0 flex-1">
           <ol className="flex items-center gap-1.5 truncate text-sm text-slate-500">

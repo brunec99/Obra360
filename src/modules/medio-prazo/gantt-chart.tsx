@@ -17,7 +17,8 @@ import type { LinkType } from '@/domain/entities';
 import type { DayEdge, WorkCalendar } from '@/domain/plan-schedule';
 import { CHART, SERIES_COLORS, STATUS } from '@/shared/palette';
 
-/* Gráfico de Gantt de acompanhamento, no molde do "Gantt de acompanhamento" do Project: barra
+/* Gantt de controle, no molde do "Gantt de controle" do Project em português (Tracking Gantt,
+ * também chamado de Gantt de acompanhamento): barra
  * azul-clara com o avanço em azul-escuro (vermelha quando crítica), linha de base cinza logo
  * abaixo, resumo em colchete preto, marco em losango com a data ao lado, vínculos em cotovelo,
  * seta de prazo final, linha de folga, nome do recurso à direita da barra, tarefa dividida (trecho

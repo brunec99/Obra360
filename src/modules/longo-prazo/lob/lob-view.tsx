@@ -4,10 +4,13 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Building2,
+  CalendarDays,
+  Check,
   ChevronDown,
   Coins,
   Download,
   Flag,
+  LoaderCircle,
   Lock,
   LockOpen,
   Minus,
@@ -23,6 +26,7 @@ import {
 } from 'lucide-react';
 import {
   activityFinish,
+  baselineFinishDate,
   closedMeasurements,
   delayDays,
   isLate,
@@ -30,10 +34,13 @@ import {
   measuredPercents,
   normalizeName,
   plannedPercent,
+  workdayDelta,
   type LobActivity,
+  type LobCalendar,
   type LobCommand,
   type LocalDate,
 } from '@/domain/lob';
+import { isDefaultLobCalendar, lobCalendarLabel } from '@/domain/lob-calendar';
 import {
   formatIdp,
   IDP_TONE_LABEL,
@@ -46,7 +53,8 @@ import {
   type LobPerformance,
 } from '@/domain/lob-performance';
 import { lobCriticalPath } from '@/domain/lob-critical';
-import { addDays, daysBetween, isLocalDate } from '@/domain/long-term-plan';
+import { addDays, isLocalDate } from '@/domain/long-term-plan';
+import { isLobScheduleCommand } from '@/application/use-cases/lob-commands';
 import { useDeveloper, useModules, usePlanning } from '@/modules/planejamento/planning-provider';
 import { hasSectionAccess } from '@/application/module-access';
 import { CreatePendingDialog, type PendingSource } from '@/modules/pendencias/create-pending-dialog';
@@ -55,27 +63,29 @@ import { useConfirm } from '@/modules/layout/confirm';
 import { useToast } from '@/modules/layout/toast';
 import { HelpNote } from '@/modules/layout/help-note';
 import { formatDate, workPath } from '@/shared/format';
-import { useLob } from './lob-api';
+import { useLob, type LobDateChange, type LobSync } from './lob-api';
 import { LobChart, type LobZoom } from './lob-chart';
-import { CRITICAL_COLOR, ZOOM_SCALE_MAX, ZOOM_SCALE_MIN, ZOOM_SCALE_STEP } from './lob-model';
+import { CRITICAL_COLOR, ZOOM_SCALE_MAX, ZOOM_SCALE_MIN, ZOOM_SCALE_STEP, signedWorkdays } from './lob-model';
 import { LobTable } from './lob-table';
 import { LobActivityPanel } from './lob-activity-panel';
 import { LobLocalsPanel } from './lob-locals-panel';
 import { LobLaunchDialog } from './lob-launch-dialog';
 import { LobBaselinesPanel } from './lob-baselines-panel';
+import { LobCalendarDialog } from './lob-calendar-dialog';
 import { Pill } from './measurement-sheet';
 
 /** Visão "Linha de Balanço" da aba 1 (modelo aprovado em 04/11/2026, tela 1): barra de ferramentas,
  * cinco indicadores (o quinto, o IDP, desde 11/11/2026), o painel da atividade selecionada e, abaixo dele,
  * o gráfico (ou tabela) com legenda.
- * Os dados vêm de `useLob`; toda alteração é um comando ao servidor, que devolve a obra inteira já
- * recalculada (cascata de sucessoras incluída). "Desfazer" guarda, por comando, as datas que ele
- * mudou e as reenvia; vale na sessão (regra 16). */
+ * Os dados vêm de `useLob`; toda alteração é um comando ao servidor. Os de datas (mover, esticar,
+ * desfazer) aparecem NA HORA, calculados aqui com a mesma regra do servidor, e gravam em segundo
+ * plano, em fila (23/11/2026); os demais esperam a obra inteira de volta. "Desfazer" guarda, por
+ * comando, as datas que ele mudou e as devolve numa gravação só; vale na sessão (regra 16). */
 
 type Period = 'all' | '3m' | '6m' | 'custom';
-type Panel = 'locals' | 'baselines' | 'launch' | 'late';
+type Panel = 'locals' | 'baselines' | 'launch' | 'late' | 'calendar';
 /** Datas que um comando alterou, para "Desfazer" devolvê-las. */
-type UndoEntry = { id: string; start: LocalDate; durationDays: number }[];
+type UndoEntry = LobDateChange[];
 const UNDO_DEPTH = 50;
 const ZOOMS: { id: LobZoom; label: string }[] = [
   { id: 'semana', label: 'Semana' },
@@ -317,6 +327,40 @@ function LateDialog({
   );
 }
 
+/** Indicador discreto da gravação em segundo plano: "Salvando…" enquanto há alteração na fila,
+ * "Salvo" por alguns segundos quando ela esvazia, e o aviso quando a última falhou. */
+function SaveStatus({ sync }: { sync: LobSync }) {
+  const [hidden, setHidden] = useState<LobSync>();
+  useEffect(() => {
+    if (sync !== 'saved') return;
+    const timer = window.setTimeout(() => setHidden('saved'), 3000);
+    return () => {
+      window.clearTimeout(timer);
+      setHidden(undefined);
+    };
+  }, [sync]);
+  const shown = sync === 'idle' || hidden === sync ? undefined : sync;
+  return (
+    <span role="status" aria-live="polite" className="inline-flex min-w-[5.5rem] items-center gap-1.5 text-xs text-slate-500">
+      {shown === 'saving' && (
+        <>
+          <LoaderCircle size={13} aria-hidden className="animate-spin" /> Salvando…
+        </>
+      )}
+      {shown === 'saved' && (
+        <>
+          <Check size={13} aria-hidden className="text-success" /> Salvo
+        </>
+      )}
+      {shown === 'error' && (
+        <span className="inline-flex items-center gap-1.5 font-semibold text-danger">
+          <TriangleAlert size={13} aria-hidden /> Não salvou
+        </span>
+      )}
+    </span>
+  );
+}
+
 // ─── IDP ─────────────────────────────────────────────────────────────────────────
 
 const IDP_CARD_TONE: Record<IdpTone, 'success' | 'warning' | 'danger'> = { good: 'success', warn: 'warning', bad: 'danger' };
@@ -424,7 +468,7 @@ function LobViewInner({ workId }: { workId: string }) {
   const confirm = useConfirm();
   const { toast } = useToast();
   const searchParams = useSearchParams();
-  const { state, reload, execute } = useLob(workId);
+  const { state, sync, reload, execute, dispatch } = useLob(workId);
 
   const [hiddenServiceIds, setHiddenServiceIds] = useState<ReadonlySet<string>>(() => new Set());
   const [localFilter, setLocalFilter] = useState<ReadonlySet<string>>(); // indefinido = todos
@@ -434,6 +478,9 @@ function LobViewInner({ workId }: { workId: string }) {
   const [zoom, setZoom] = useState<LobZoom>('obra');
   // Ajuste fino do zoom (botões − e +, Ctrl+roda no gráfico): multiplica a escala do nível escolhido.
   const [zoomScale, setZoomScale] = useState(1);
+  // Cada clique num nível de zoom pede o encaixe de novo; entre um e outro a escala do gráfico fica
+  // congelada, para uma edição de datas não redesenhar a obra inteira.
+  const [fitToken, setFitToken] = useState(0);
   // Datas travadas: o gráfico não arrasta nem move pelas setas. Evita reprogramar sem querer.
   const [locked, setLocked] = useState(true);
   const [showCritical, setShowCritical] = useState(false);
@@ -467,7 +514,7 @@ function LobViewInner({ workId }: { workId: string }) {
     [data],
   );
   const lateActivities = useMemo(
-    () => (data ? data.activities.filter(a => isLate(a, percents[a.id], today)) : []),
+    () => (data ? data.activities.filter(a => isLate(a, percents[a.id], today, data.calendar)) : []),
     [data, percents, today],
   );
   // IDP e peso da aba (11/11/2026): o cartão do IDP segue a linha de base do seletor (vazio = regra 4) e
@@ -476,6 +523,16 @@ function LobViewInner({ workId }: { workId: string }) {
   const performance = useMemo(() => (data ? lobPerformance(data, { baselineId: baselineId || undefined }) : undefined), [data, baselineId]);
   const weights = performance?.weights;
   const progress = useMemo(() => (data && weights ? weightedProgress(data, today, weights) : undefined), [data, today, weights]);
+  // Começo e fim do cronograma e o término da linha de base escolhida: memorizados, porque percorrem
+  // todos os blocos e a tela redesenha a cada passagem do mouse.
+  const span = useMemo(() => (data ? lobSpan(data.activities, data.calendar) : undefined), [data]);
+  const baseline = useMemo(() => data?.baselines.find(b => b.id === baselineId), [data, baselineId]);
+  const baselineFinish = useMemo(() => (baseline ? baselineFinishDate(baseline, data?.calendar) : undefined), [baseline, data]);
+  // Desvio do término da obra em DIAS ÚTEIS do calendário da obra, como o desvio de cada bloco.
+  const finishDelta = useMemo(
+    () => (span && baselineFinish ? workdayDelta(baselineFinish, span.finish, data?.calendar) : undefined),
+    [span, baselineFinish, data],
+  );
   const range = useMemo(() => {
     if (period === '3m') return { start: today, end: addDays(today, 91) };
     if (period === '6m') return { start: today, end: addDays(today, 182) };
@@ -504,7 +561,7 @@ function LobViewInner({ workId }: { workId: string }) {
     );
   // Caminho crítico: só calcula com o destaque ligado (a obra chega a 600 blocos e 1.200 dependências).
   const critical = useMemo(
-    () => (data && showCritical ? lobCriticalPath(data.activities, data.dependencies) : undefined),
+    () => (data && showCritical ? lobCriticalPath(data.activities, data.dependencies, data.calendar) : undefined),
     [data, showCritical],
   );
 
@@ -531,9 +588,23 @@ function LobViewInner({ workId }: { workId: string }) {
     window.history.replaceState(null, '', url.toString());
   }, [launchParam]);
 
+  const pushUndo = (entry: UndoEntry) => setUndoStack(stack => [...stack.slice(-(UNDO_DEPTH - 1)), entry]);
   /** Executa um comando e guarda, para "Desfazer", as datas dos blocos que ele mudou. Só comandos
-   * que mantêm o mesmo conjunto de blocos entram na pilha: lançar, importar e excluir não se desfazem. */
+   * que mantêm o mesmo conjunto de blocos entram na pilha: lançar, importar e excluir não se desfazem.
+   * Comando de datas (mover, esticar) aparece na hora e grava em segundo plano: o "Desfazer" já fica
+   * disponível, e, se o servidor recusar, a tela volta e a entrada sai da pilha. */
   const run = async (command: LobCommand) => {
+    if (isLobScheduleCommand(command)) {
+      const { previous, done } = dispatch(command);
+      if (previous.length) pushUndo(previous);
+      try {
+        await done;
+      } catch (error) {
+        setUndoStack(stack => stack.filter(entry => entry !== previous));
+        throw error;
+      }
+      return;
+    }
     const before = new Map((data?.activities ?? []).map(a => [a.id, a]));
     const response = await execute(command);
     if (response.available && response.activities.length === before.size && response.activities.every(a => before.has(a.id))) {
@@ -546,7 +617,7 @@ function LobViewInner({ workId }: { workId: string }) {
           const b = before.get(a.id)!;
           return { id: a.id, start: b.start, durationDays: b.durationDays };
         });
-      if (entry.length) setUndoStack(stack => [...stack.slice(-(UNDO_DEPTH - 1)), entry]);
+      if (entry.length) pushUndo(entry);
     }
     return response;
   };
@@ -556,19 +627,21 @@ function LobViewInner({ workId }: { workId: string }) {
     const entry = undoStack[undoStack.length - 1];
     if (!entry) return;
     setUndoStack(stack => stack.slice(0, -1));
-    setBusy(true);
     try {
-      // Em ordem crescente de início: a predecessora volta antes, e só então a sucessora pode voltar.
-      for (const item of [...entry].sort((a, b) => a.start.localeCompare(b.start)))
-        await execute({ type: 'update_activity', activityId: item.id, start: item.start, durationDays: item.durationDays });
+      // Uma gravação só para todos os blocos da entrada (o bloco arrastado e as sucessoras): as datas
+      // voltam na tela na hora e o servidor confirma em segundo plano.
+      const { done } = dispatch({
+        type: 'set_activity_dates',
+        workId,
+        items: entry.map(item => ({ activityId: item.id, start: item.start, durationDays: item.durationDays })),
+      });
       toast({
         title: 'Alteração desfeita',
         description: `${plural(entry.length, 'bloco voltou', 'blocos voltaram')} às datas anteriores.`,
       });
+      await done;
     } catch (error) {
       fail(error);
-    } finally {
-      setBusy(false);
     }
   };
   useEffect(() => {
@@ -610,15 +683,11 @@ function LobViewInner({ workId }: { workId: string }) {
     if (!service || !starts.length) return;
     setPending({ origin: 'longo_prazo', sourceId: service.id, label: service.name, start: starts.reduce((a, b) => (b < a ? b : a)) });
   };
-  const span = lobSpan(data.activities);
-  const baseline = data.baselines.find(b => b.id === baselineId);
+  // Calendário de dias úteis da obra (ausente = segunda a sexta sem feriados): toda conta de data
+  // desta tela passa por ele, como no servidor.
+  const calendar = data.calendar;
   /** A linha de base que o IDP usa quando o seletor está vazio (regra 4), para o rótulo da opção vazia. */
   const defaultIdpBaseline = performanceBaseline(data.baselines);
-  const baselineFinish = baseline?.snapshot.reduce<LocalDate | undefined>((max, e) => {
-    const f = activityFinish(e);
-    return !max || f > max ? f : max;
-  }, undefined);
-  const finishDelta = span && baselineFinish ? daysBetween(baselineFinish, span.finish) : undefined;
   const physical = progress?.physical;
   const planned = progress?.planned;
   const weightLabel = weightingLabel(performance.weights.mode);
@@ -645,7 +714,21 @@ function LobViewInner({ workId }: { workId: string }) {
     });
   const move = (id: string, start: LocalDate) => {
     if (readOnly || busy || locked) return;
+    // `run` aplica na hora; a recusa imediata das regras e a falha da gravação caem no mesmo aviso.
     run({ type: 'update_activity', activityId: id, start }).catch(fail);
+  };
+  /** Grava o calendário da obra. Não entra no "Desfazer" (que só devolve datas): a pilha é zerada, e o
+   * caminho de volta é a linha de base automática que o servidor guarda antes da mudança. */
+  const applyCalendar = async (next: LobCalendar) => {
+    const response = await execute({ type: 'set_calendar', workId, calendar: next });
+    setUndoStack([]);
+    const moved = response.changedBlocks ?? 0;
+    toast({
+      title: 'Calendário da obra atualizado',
+      description: moved
+        ? `${plural(moved, 'bloco mudou', 'blocos mudaram')} de data. O cronograma anterior ficou na linha de base automática “Antes da mudança de calendário”.`
+        : 'Nenhum bloco mudou de data.',
+    });
   };
   const openLaunch = (flowId?: string) => {
     if (!data.locals.length) {
@@ -698,9 +781,9 @@ function LobViewInner({ workId }: { workId: string }) {
         localName(a.localId),
         serviceName(a.serviceId),
         formatDate(a.start),
-        formatDate(activityFinish(a)),
+        formatDate(activityFinish(a, calendar)),
         a.durationDays,
-        plannedPercent(a, today),
+        plannedPercent(a, today, calendar),
         percents[a.id] ?? 0,
       ]),
     ];
@@ -725,9 +808,9 @@ function LobViewInner({ workId }: { workId: string }) {
     .map(a => ({
       id: a.id,
       label: label(a),
-      planned: plannedPercent(a, today),
+      planned: plannedPercent(a, today, calendar),
       measured: percents[a.id] ?? 0,
-      delay: delayDays(a, percents[a.id], today),
+      delay: delayDays(a, percents[a.id], today, calendar),
     }))
     .sort((a, b) => b.delay - a.delay || a.label.localeCompare(b.label, 'pt-BR'));
 
@@ -778,7 +861,25 @@ function LobViewInner({ workId }: { workId: string }) {
           <TriangleAlert size={15} aria-hidden className={lateActivities.length ? 'text-danger' : undefined} /> Atrasos
           {lateActivities.length > 0 && <b className="tabular-nums text-danger">{lateActivities.length}</b>}
         </button>
+        {/* Calendário de dias úteis da obra (23/11/2026): dias da semana trabalhados e dias sem trabalho. */}
+        <button
+          data-tour="longo-lob-calendario"
+          type="button"
+          className="button-ghost"
+          title={`Dias úteis desta obra: ${lobCalendarLabel(calendar)}`}
+          onClick={() => setPanel('calendar')}
+        >
+          <CalendarDays size={15} aria-hidden /> Calendário
+          {!isDefaultLobCalendar(calendar) && (
+            <span className="badge-muted px-2 py-0 tabular-nums">
+              {calendar?.holidays.length
+                ? plural(calendar.holidays.length, 'dia sem trabalho', 'dias sem trabalho')
+                : `${calendar?.weekdays.length ?? 5} dias/semana`}
+            </span>
+          )}
+        </button>
         <span className="flex-1" />
+        {!readOnly && <SaveStatus sync={sync} />}
         {!readOnly && (
           <button
             data-tour="longo-lob-desfazer"
@@ -840,10 +941,17 @@ function LobViewInner({ workId }: { workId: string }) {
             contorno vermelho marca atraso (previsto até hoje acima do medido).
           </p>
           <p>
+            Os dias úteis são os do <strong>Calendário</strong> da obra: os dias da semana trabalhados (de início, segunda a sexta) e os
+            dias sem trabalho que você marcar, como feriados e recessos. No gráfico, os dias sem trabalho aparecem como faixas cinza atrás
+            dos blocos nos zooms Semana e Mês. Mudar o calendário mantém as durações e reprograma as datas; antes de gravar, a tela mostra
+            quantos blocos mudam e o novo término, e o sistema guarda uma linha de base automática.
+          </p>
+          <p>
             As datas abrem <strong>travadas</strong>, para ninguém reprogramar sem querer. Clique no cadeado para liberar e então{' '}
-            <strong>arraste</strong> um bloco: ele nunca entra antes do fim das predecessoras, e as sucessoras acompanham.{' '}
-            <strong>Desfazer</strong> (Ctrl+Z) devolve as datas na sessão. Duração, dependências, equipe e datas reais se editam no painel
-            do bloco selecionado.
+            <strong>arraste</strong> um bloco: ele nunca entra antes do fim das predecessoras, e as sucessoras se deslocam junto enquanto
+            você arrasta. Ao soltar, a mudança aparece na hora e é gravada em segundo plano (“Salvando…”, depois “Salvo”); se a gravação
+            falhar, a tela volta ao que estava e avisa. <strong>Desfazer</strong> (Ctrl+Z) devolve as datas na sessão. Duração,
+            dependências, equipe e datas reais se editam no painel do bloco selecionado.
           </p>
           <p>
             <strong>Zoom:</strong> Semana, Mês, Trimestre ou a obra inteira na largura da tela; os botões − e + (ou Ctrl + roda do mouse
@@ -853,7 +961,10 @@ function LobViewInner({ workId }: { workId: string }) {
           <p>
             <strong>Lançar fluxo</strong> cria os blocos a partir de um fluxo da empresa nos locais marcados; antes de cada lançamento numa
             obra que já tem blocos, uma linha de base automática guarda o cronograma. <strong>Salvar linha de base</strong> guarda uma
-            versão do cronograma com nome, para comparar no gráfico ou restaurar depois.
+            versão do cronograma com nome, para comparar no gráfico ou restaurar depois. Com uma linha de base escolhida no filtro, o
+            tracejado mostra onde cada bloco estava; passe o mouse no bloco ou no tracejado para ver as datas da linha de base e o{' '}
+            <strong>desvio em dias úteis</strong> (+ atrasado, − adiantado), que também aparece como selo no bloco nos zooms Mês e Semana,
+            no painel do bloco e na Tabela.
           </p>
           <p>
             O <strong>IDP</strong> (desempenho de prazo) é o avanço real ÷ o planejado na última medição fechada, contra a linha de base
@@ -895,8 +1006,8 @@ function LobViewInner({ workId }: { workId: string }) {
           hint={
             finishDelta !== undefined && baselineFinish ? (
               <span className={finishDelta > 0 ? 'font-semibold text-danger' : finishDelta < 0 ? 'font-semibold text-success' : undefined}>
-                {finishDelta > 0 ? `+${finishDelta} dias sobre` : finishDelta < 0 ? `−${Math.abs(finishDelta)} dias sobre` : 'igual à'} a
-                linha de base ({formatDate(baselineFinish)})
+                {finishDelta ? `${signedWorkdays(finishDelta, false)} sobre a` : 'igual à'} linha de base
+                {baseline ? ` “${baseline.name}”` : ''} ({formatDate(baselineFinish)})
               </span>
             ) : span ? (
               'escolha uma linha de base para comparar'
@@ -938,6 +1049,7 @@ function LobViewInner({ workId }: { workId: string }) {
             key={selected.id}
             activity={selected}
             data={data}
+            baseline={baseline}
             percents={percents}
             today={today}
             readOnly={readOnly}
@@ -954,7 +1066,7 @@ function LobViewInner({ workId }: { workId: string }) {
               <p className="mt-2 text-xs">
                 {locked
                   ? 'As datas estão travadas. Para reprogramar arrastando, libere a edição no cadeado acima do gráfico.'
-                  : 'Arraste um bloco para mudar a data; as sucessoras acompanham. H leva até hoje; Ctrl+Z desfaz.'}
+                  : 'Arraste um bloco para mudar a data; as sucessoras se deslocam junto. H leva até hoje; Ctrl+Z desfaz.'}
               </p>
             )}
           </div>
@@ -1076,6 +1188,7 @@ function LobViewInner({ workId }: { workId: string }) {
                       onClick={() => {
                         setZoom(z.id);
                         setZoomScale(1);
+                        setFitToken(t => t + 1);
                       }}
                       className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${zoom === z.id ? 'bg-white text-primary-ink shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                     >
@@ -1161,6 +1274,7 @@ function LobViewInner({ workId }: { workId: string }) {
         ) : showTable ? (
           <LobTable
             data={data}
+            baseline={baseline}
             percents={percents}
             today={today}
             hiddenServiceIds={hiddenServiceIds}
@@ -1180,6 +1294,7 @@ function LobViewInner({ workId }: { workId: string }) {
             range={range}
             zoom={zoom}
             zoomScale={zoomScale}
+            fitToken={fitToken}
             onZoomStep={stepZoom}
             criticalIds={critical?.criticalIds}
             floatDays={critical?.floatDays}
@@ -1193,7 +1308,7 @@ function LobViewInner({ workId }: { workId: string }) {
         {showCritical && critical && !showTable && data.activities.length > 0 && (
           <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
             {critical.criticalIds.size
-              ? `${plural(critical.criticalIds.size, 'bloco crítico', 'blocos críticos')} em destaque: não têm folga até o término da obra${critical.end ? ` (${formatDate(addDays(critical.end, -1))})` : ''}, pelas dependências cadastradas. Os demais ficam esmaecidos.`
+              ? `${plural(critical.criticalIds.size, 'bloco crítico', 'blocos críticos')} em destaque: não têm folga até o término da obra${span ? ` (${formatDate(span.finish)})` : ''}, pelas dependências cadastradas. Os demais ficam esmaecidos.`
               : 'Nenhum bloco crítico: sem dependências entre os blocos não há caminho para calcular.'}
           </p>
         )}
@@ -1231,6 +1346,9 @@ function LobViewInner({ workId }: { workId: string }) {
             setLaunchFlowId(undefined);
           }}
         />
+      )}
+      {panel === 'calendar' && (
+        <LobCalendarDialog data={data} today={today} canEdit={!readOnly} onApply={applyCalendar} onClose={() => setPanel(undefined)} />
       )}
       {pending && <CreatePendingDialog workId={workId} source={pending} open onClose={() => setPending(undefined)} />}
       {panel === 'late' && (

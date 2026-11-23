@@ -24,6 +24,10 @@ export const sections: ManualSection[] = [
       'cobertura',
       'histórico',
       'modo de exibição',
+      'gantt de controle',
+      'gantt de acompanhamento',
+      'tracking gantt',
+      'tracking',
       'quem pode',
       'não aparece',
     ],
@@ -54,7 +58,8 @@ A barra de seções fica no cabeçalho da aba. A seção vai no endereço da pá
 
 ## Dentro do Cronograma
 
-- **"Modo de exibição"** (lista na barra de ferramentas e ícones na barra de status): "Gráfico de Gantt", "Planejador de Equipe", "Uso dos Recursos" e "Planilha de Recursos". O nome da visão fica em pé na borda esquerda, e a escolha fica salva.
+- **"Modo de exibição"** (lista na barra de ferramentas e ícones na barra de status): "Gantt de controle", "Planejador de Equipe", "Uso dos Recursos" e "Planilha de Recursos". O nome da visão fica em pé na borda esquerda, e a escolha fica salva.
+- **"Gantt de controle"** é a visão em que a tela abre e é o Gantt de controle do Project em português (Gantt de acompanhamento, Tracking Gantt): tabela e Gantt com a barra cinza da linha de base, o % concluída e o início e o término reais. Até 23/11/2026 a tela a chamava de "Gráfico de Gantt". Sem linha de base definida a barra cinza não aparece: use "Definir linha de base". É dela que sai o botão "Levar para o curto prazo".
 - **"Linha do tempo"** (caixa): mostra ou esconde a faixa acima da visão. Vem ligada.
 - **Barra de status**: "Pronto", "Editando", "Alterações não salvas" ou "Salvando…"; "Novas tarefas: Agendadas automaticamente"; contagem de tarefas, vínculos e críticas; "Fim do projeto"; atalhos das visões, apresentação e zoom.
 - **"Configurar recursos"** (cabeçalho) leva às Configurações da obra, onde se cadastram empreiteiros, equipes e capacidades.
@@ -163,6 +168,10 @@ A grade abre com cadeado, contra alteração acidental em reunião. "Liberar edi
       'ícone',
       'linha 0',
       'gantt',
+      'mostrar até',
+      'nível',
+      'níveis',
+      'recolher',
       'barra',
       'cores',
       'zoom',
@@ -173,7 +182,7 @@ A grade abre com cadeado, contra alteração acidental em reunião. "Liberar edi
     screen: 'medio-prazo',
     body: `## Colunas
 
-Padrão, as do Gantt de acompanhamento do Project: "Id", "Indicadores", "% concluída", "Nome da tarefa", "Duração", "Início real", "Término real", "Início", "Término", "Início da linha de base", "Término da linha de base", "Predecessoras" e "Nomes dos recursos".
+Padrão, as do Gantt de controle do Project: "Id", "Indicadores", "% concluída", "Nome da tarefa", "Duração", "Início real", "Término real", "Início", "Término", "Início da linha de base", "Término da linha de base", "Predecessoras" e "Nomes dos recursos".
 
 Ocultas por padrão, ligam-se no menu "Colunas": "Início tardio", "Término tardio", "Folga total", "Folga livre", "Crítica", "Tipo de restrição", "Data da restrição", "Prazo final", "Anotações", "Decorrido / total", "% alvo", "Desvio (pp)" e "Variação (dias)".
 
@@ -209,6 +218,7 @@ A primeira linha resume o plano inteiro, como a tarefa de resumo do projeto no P
 ## Buscar, filtrar e detalhes
 
 - A busca procura no nome, no recurso e nas anotações. Filtros por situação: "Não iniciadas", "Em andamento", "Concluídas", "Atrasadas", "Críticas", "Com vínculo desrespeitado", "Prazo final perdido", "Fora do horizonte", "Alteradas no rascunho", "Com anotações"; e por recurso. Com filtro ativo, cada resultado aparece com os resumos acima dele, e inserir, recuar, vincular e excluir ficam desligados. "Expandir" e "Recolher" abrem ou fecham todos os resumos.
+- **"Mostrar até"** (ao lado de "Expandir" e "Recolher", como "Mostrar subtarefas" do Project): escolha "Nível 1", "Nível 2"… para deixar à vista as linhas até aquele nível da estrutura (o nível é a profundidade do número hierárquico: 1 é nível 1, 1.2 é nível 2), ou "Todos" para abrir tudo. Depois a seta de cada resumo continua valendo, e a lista passa a dizer "Personalizado". Fica desligada com busca ou filtro ativo e em cronograma sem resumos. A escolha fica guardada no navegador, por pessoa e cronograma, e vale na impressão.
 - Abaixo da grade, **Detalhes da tarefa** resume a linha selecionada (datas, duração, avanço, predecessoras, tardias, folgas, restrição, prazo final e "Predecessoras determinantes"), com "Detalhes em tela cheia", "Anotações e encaminhamentos" (editável com a edição liberada; "Transformar linhas em tópicos") e "Histórico da tarefa". O "Modo reunião" do cronograma acrescenta "Anterior", "Próxima" e "Revisado nesta reunião" (marca só desta tela; some ao recarregar).
 - **Linha do Tempo** (faixa acima da visão): as tarefas marcadas, com "Início" e "Término" do projeto nas pontas e os marcos embaixo. A moldura é o trecho que o Gantt mostra: arraste-a para rolar o Gantt. Clique numa tarefa para selecioná-la; duplo clique rola até ela; botão direito ou Delete a tira da faixa.
 
@@ -511,6 +521,54 @@ A seção "Linha de base" da aba compara o plano vivo com uma linha de base cong
 - Barras das até 15 tarefas mais atrasadas: a vermelha é a data atual e a fina cinza embaixo, a linha de base.
 - Tabela: "Início base", "Início atual", "Δ início", "Término base", "Término atual", "Δ término" e "Status" ("atrasada", "adiantada", "no prazo", "nova" quando não existia na base, "removida" quando saiu do plano). O status segue o término; tarefa que começou atrasada e termina no prazo fica "no prazo", mas o Δ início aparece. Resumos ficam de fora.
 - Sem linha de base, a seção pede para defini-la na seção "Cronograma" (o texto da tela fala em "Criar linha de base"; o botão se chama "Definir linha de base").`,
+  },
+  {
+    id: 'medio-prazo-levar-curto-prazo',
+    title: 'Levar tarefas do cronograma para o curto prazo',
+    summary: 'Botão do Gantt de controle que cria linhas na planilha da semana a partir das tarefas do mês.',
+    keywords: [
+      'levar para o curto prazo',
+      'curto prazo',
+      'planilha da semana',
+      'criar linhas',
+      'programação semanal',
+      'semana de destino',
+      'já está na planilha',
+      'gantt de controle',
+    ],
+    screen: 'medio-prazo',
+    body: `## Para que serve
+
+"Levar para o curto prazo" (23/11/2026) fica na barra de ferramentas do cronograma do mês, no modo de exibição "Gantt de controle", ao lado de "Criar pendência". Ele cria linhas na planilha da semana (aba 1.3) a partir das tarefas do cronograma, sem redigitar.
+
+## Quem vê o botão
+
+Quem edita a obra (planejador, gestor ou admin) **e** tem o módulo "Curto prazo" liberado. Consulta não vê. Não existe no Gantt de legalização da aba 1.1.
+
+## Como usar
+
+1. Selecione as tarefas na grade (Shift+clique ou Shift+setas). Só tarefas viram linha: um resumo selecionado vale pelas tarefas debaixo dele.
+2. Clique em "Levar para o curto prazo" e escolha a **semana de destino**: "Atual" (padrão) ou "Próxima".
+3. Em "Tarefas", escolha entre as selecionadas e "Todas as previstas na semana" (o padrão quando só uma linha está selecionada).
+4. Confira a lista e clique em "Criar N linhas".
+
+## O que a lista mostra
+
+- "Linha nova": vem marcada. A coluna "Na semana" mostra os dias que a linha vai ter: os dias da tarefa dentro da semana, do primeiro ao último dia útil do calendário do cronograma (fim de semana e feriado ficam de fora).
+- "Já está na planilha": a semana já tem linha com o mesmo nome (sem diferenciar acento nem maiúscula). Vem desmarcada; marque se quiser repetir.
+- "Concluída no cronograma": vem desmarcada.
+- "Sem dia nesta semana" ou "Só cai em dia sem trabalho nesta semana": não pode ser marcada.
+
+## O que é criado
+
+Uma linha por tarefa, com o nome da tarefa, a empresa e a equipe do primeiro recurso dela e os dias recortados; o responsável é quem clicou. A linha entra no fim da planilha, sem apontamento. **Não fica ligada à tarefa**: mudar o cronograma depois não muda a linha, e apontar a linha não lança % na tarefa. Para desfazer, exclua a linha na planilha.
+
+## Avisos
+
+- Semana encerrada (depois da terça-feira seguinte) só aceita linha de admin; a atual e a próxima estão sempre abertas.
+- Se o sistema recusar uma linha, o diálogo diz em qual parou e quantas já foram criadas; as criadas passam a aparecer como "Já está na planilha".
+- No fim aparece o link "Abrir a planilha da semana". A planilha abre na semana atual: para ver as linhas levadas para a próxima, troque a semana lá.
+- A assistente faz o mesmo por conversa: peça para criar na semana as linhas das tarefas do mês.`,
   },
   {
     id: 'medio-prazo-recursos-equipes',

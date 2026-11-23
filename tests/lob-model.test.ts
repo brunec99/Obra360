@@ -2,11 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assignLanes,
+  calendarPreviewText,
+  DAY_LABEL_MIN_PX,
+  dragShifts,
   GEOMETRY,
   HEADER_SCALE_PX,
   headerScaleFor,
   lobHeader,
   lobLayout,
+  nearestWorkday,
+  nonWorkingRuns,
+  OFF_DAY_MIN_PX,
   PX_PER_DAY_MAX,
   PX_PER_DAY_MIN,
   pxPerDayFor,
@@ -16,7 +22,7 @@ import {
   ZOOM_SCALE_MIN,
   ZOOM_SCALE_STEP,
 } from '../src/modules/longo-prazo/lob/lob-model';
-import type { LobActivity, LobLocal, LobService } from '../src/domain/lob';
+import type { LobActivity, LobBaseline, LobCalendar, LobLocal, LobService } from '../src/domain/lob';
 
 const NOW = '2026-11-11T12:00:00.000Z';
 const local = (id: string, orderIndex: number): LobLocal => ({ id, workId: 'w', name: id, orderIndex, createdAt: NOW, updatedAt: NOW });
@@ -334,4 +340,177 @@ test('layout: expõe o cabeçalho da escala efetiva e reserva as duas faixas no 
   // A semana aproximada o bastante continua com cabeçalho de semanas; afastada, passa a meses.
   assert.equal(lobLayout({ ...input, zoom: 'semana', zoomScale: 0.5 }).header.scale, 'month');
   assert.equal(lobLayout({ ...input, zoom: 'trimestre', zoomScale: 2 }).header.scale, 'month');
+});
+
+// ─── Dias sem trabalho (calendário da obra) ─────────────────────────────────────
+
+/** Segunda a sexta, com a quarta 04/11/2026 e a sexta 20/11/2026 sem trabalho. */
+const HOLIDAYS: LobCalendar = { weekdays: [1, 2, 3, 4, 5], holidays: ['2026-11-04', '2026-11-20'] };
+/** Um bloco de 5 dias a partir da segunda 02/11, na janela de 02/11 a 29/11 (quatro semanas inteiras). */
+const november = (calendar?: LobCalendar) => ({
+  data: {
+    locals: [local('L1', 0)],
+    services: [service('ALV', 0)],
+    activities: [act('a', 'ALV', 'L1', '2026-11-02', 5)],
+    ...(calendar ? { calendar } : {}),
+  },
+  availableWidth: 1200,
+  today: '2026-11-11',
+  range: { start: '2026-11-02', end: '2026-11-29' },
+});
+
+test('nonWorkingRuns: dias seguidos sem trabalho viram uma sequência só; o feriado na sexta emenda com o fim de semana', () => {
+  assert.deepEqual(nonWorkingRuns('2026-11-02', '2026-11-30'), [
+    { start: '2026-11-07', days: 2 },
+    { start: '2026-11-14', days: 2 },
+    { start: '2026-11-21', days: 2 },
+    { start: '2026-11-28', days: 2 },
+  ]);
+  assert.deepEqual(nonWorkingRuns('2026-11-02', '2026-11-30', HOLIDAYS), [
+    { start: '2026-11-04', days: 1 },
+    { start: '2026-11-07', days: 2 },
+    { start: '2026-11-14', days: 2 },
+    { start: '2026-11-20', days: 3 },
+    { start: '2026-11-28', days: 2 },
+  ]);
+  // Sábado trabalhado: só o domingo. A sequência é recortada nas bordas da janela.
+  assert.deepEqual(nonWorkingRuns('2026-11-08', '2026-11-15', { weekdays: [1, 2, 3, 4, 5, 6], holidays: [] }), [
+    { start: '2026-11-08', days: 1 },
+  ]);
+  assert.deepEqual(nonWorkingRuns('2026-11-08', '2026-11-15'), [
+    { start: '2026-11-08', days: 1 },
+    { start: '2026-11-14', days: 1 },
+  ]);
+  assert.deepEqual(nonWorkingRuns('2026-11-09', '2026-11-14'), []);
+});
+
+test('layout: faixas dos dias sem trabalho na Semana e no Mês, com a largura dos dias; nada quando o dia fica estreito', () => {
+  assert.equal(OFF_DAY_MIN_PX, 2.5);
+  const week = lobLayout({ ...november(), zoom: 'semana' });
+  // 16 px por dia: o sábado 07/11 fica 5 dias depois do início da janela e a faixa cobre sábado e domingo.
+  assert.deepEqual(
+    week.offRuns.map(r => [r.start, r.days, r.x, r.w]),
+    [
+      ['2026-11-07', 2, GEOMETRY.left + 5 * 16, 32],
+      ['2026-11-14', 2, GEOMETRY.left + 12 * 16, 32],
+      ['2026-11-21', 2, GEOMETRY.left + 19 * 16, 32],
+      ['2026-11-28', 2, GEOMETRY.left + 26 * 16, 32],
+    ],
+  );
+  // Com o calendário da obra: a quarta parada é uma faixa de um dia e a sexta emenda com o fim de semana.
+  const holidays = lobLayout({ ...november(HOLIDAYS), zoom: 'semana' });
+  assert.deepEqual(
+    holidays.offRuns.map(r => [r.start, r.days, r.x, r.w]),
+    [
+      ['2026-11-04', 1, GEOMETRY.left + 2 * 16, 16],
+      ['2026-11-07', 2, GEOMETRY.left + 5 * 16, 32],
+      ['2026-11-14', 2, GEOMETRY.left + 12 * 16, 32],
+      ['2026-11-20', 3, GEOMETRY.left + 18 * 16, 48],
+      ['2026-11-28', 2, GEOMETRY.left + 26 * 16, 32],
+    ],
+  );
+  // Mês (4,5 px por dia): a faixa do fim de semana tem 9 px.
+  const month = lobLayout({ ...november(), zoom: 'mes' });
+  assert.deepEqual([month.offRuns.length, month.offRuns[0].x, month.offRuns[0].w], [4, GEOMETRY.left + 5 * 4.5, 9]);
+  // Abaixo do limiar (fim de semana com menos de 5 px) não desenha: viraria ruído.
+  assert.deepEqual(lobLayout({ ...november(), zoom: 'trimestre' }).offRuns, []);
+  assert.deepEqual(lobLayout({ ...november(), zoom: 'mes', zoomScale: 0.5 }).offRuns, []);
+  assert.equal(lobLayout({ ...november(), zoom: 'mes', zoomScale: 0.6 }).offRuns.length, 4);
+  // Todas as faixas ficam dentro da área do gráfico.
+  for (const run of holidays.offRuns) assert.ok(run.x >= holidays.left && run.x + run.w <= holidays.left + holidays.innerW);
+});
+
+test('cabeçalho: com o dia largo (Semana) cada dia ganha o número, e o dia sem trabalho vem marcado', () => {
+  assert.ok(ZOOM_PX.semana >= DAY_LABEL_MIN_PX);
+  const days = lobLayout({ ...november(HOLIDAYS), zoom: 'semana' }).header.days;
+  assert.equal(days.length, 28);
+  assert.deepEqual(days[0], { x: GEOMETRY.left, w: 16, label: '02', off: false });
+  assert.deepEqual(
+    days.filter(d => d.off).map(d => d.label),
+    ['04', '07', '08', '14', '15', '20', '21', '22', '28', '29'],
+  );
+  // Sem calendário, só os fins de semana.
+  assert.deepEqual(
+    lobHeader('2026-11-02', '2026-11-16', 16, 0)
+      .days.filter(d => d.off)
+      .map(d => d.label),
+    ['07', '08', '14', '15'],
+  );
+  // Dia estreito demais para o número (semana afastada, mês, trimestre): a faixa segue com o dia da segunda-feira.
+  assert.deepEqual(lobLayout({ ...november(), zoom: 'semana', zoomScale: 0.75 }).header.days, []);
+  assert.equal(lobLayout({ ...november(), zoom: 'semana', zoomScale: 0.75 }).header.scale, 'week');
+  assert.deepEqual(lobLayout({ ...november(), zoom: 'mes' }).header.days, []);
+  assert.deepEqual(lobHeader('2026-11-02', '2026-11-16', DAY_LABEL_MIN_PX - 0.5, 0).days, []);
+});
+
+test('nearestWorkday e dateAtX: o arrasto nunca solta o bloco num dia sem trabalho do calendário da obra', () => {
+  // Sem calendário: sábado volta para sexta, domingo avança para segunda.
+  assert.deepEqual(
+    ['2026-11-06', '2026-11-07', '2026-11-08'].map(d => nearestWorkday(d)),
+    ['2026-11-06', '2026-11-06', '2026-11-09'],
+  );
+  // Feriado no meio da semana: empate entre a véspera e o dia seguinte, vale o seguinte.
+  assert.equal(nearestWorkday('2026-11-04', HOLIDAYS), '2026-11-05');
+  // Sexta parada emendada com o fim de semana: a sexta volta para quinta; o sábado fica a dois dias da
+  // quinta e da segunda (empate: vale a segunda); o domingo vai à segunda.
+  assert.deepEqual(
+    ['2026-11-20', '2026-11-21', '2026-11-22'].map(d => nearestWorkday(d, HOLIDAYS)),
+    ['2026-11-19', '2026-11-23', '2026-11-23'],
+  );
+  // Sábado trabalhado é destino válido.
+  assert.equal(nearestWorkday('2026-11-07', { weekdays: [1, 2, 3, 4, 5, 6], holidays: [] }), '2026-11-07');
+  const layout = lobLayout({ ...november(HOLIDAYS), zoom: 'semana' });
+  assert.equal(layout.dateAtX(layout.xOf('2026-11-04')), '2026-11-05');
+  assert.equal(layout.dateAtX(layout.xOf('2026-11-20')), '2026-11-19');
+  assert.equal(layout.dateAtX(layout.xOf('2026-11-10')), '2026-11-10');
+});
+
+test('layout: o bloco e o fantasma da linha de base seguem o calendário da obra', () => {
+  // Com a quarta 04/11 parada, os 5 dias úteis vão de 02/11 a 09/11 (fim exclusivo em 10/11).
+  const baseline = (finish?: string): LobBaseline => ({
+    id: 'b',
+    workId: 'w',
+    name: 'Antes',
+    automatic: true,
+    createdBy: 'u',
+    createdAt: NOW,
+    snapshot: [{ activityId: 'a', serviceId: 'ALV', localId: 'L1', start: '2026-11-02', durationDays: 5, ...(finish ? { finish } : {}) }],
+  });
+  const layout = lobLayout({ ...november(HOLIDAYS), zoom: 'semana', baseline: baseline('2026-11-06') });
+  const block = layout.blockById.get('a')!;
+  assert.deepEqual([block.finish, block.end, block.w], ['2026-11-09', '2026-11-10', 8 * 16 - GEOMETRY.blockGap]);
+  // A foto foi tirada antes do feriado: mesmo início e duração, mas terminava na sexta 06/11. O fantasma aparece,
+  // desenhado até o fim do último dia trabalhado (a sexta), sem cobrir o sábado e o domingo.
+  assert.deepEqual(
+    layout.ghosts.map(g => [g.activityId, g.start, g.finish, g.w]),
+    [['a', '2026-11-02', '2026-11-06', 5 * 16 - GEOMETRY.blockGap]],
+  );
+  // Foto igual ao bloco (ou antiga, sem término gravado) não desenha fantasma.
+  assert.deepEqual(lobLayout({ ...november(HOLIDAYS), zoom: 'semana', baseline: baseline('2026-11-09') }).ghosts, []);
+  assert.deepEqual(lobLayout({ ...november(HOLIDAYS), zoom: 'semana', baseline: baseline() }).ghosts, []);
+  assert.deepEqual(lobLayout({ ...november(), zoom: 'semana', baseline: baseline('2026-11-06') }).ghosts, []);
+});
+test('layout: o bloco é desenhado até o fim do último dia trabalhado e não cobre o fim de semana seguinte', () => {
+  // 5 dias úteis a partir da segunda 02/11: termina na sexta 06/11; o fim exclusivo é a segunda 09/11.
+  const layout = lobLayout({ ...november(), zoom: 'semana' });
+  const block = layout.blockById.get('a')!;
+  assert.deepEqual([block.finish, block.end, block.w], ['2026-11-06', '2026-11-09', 5 * 16 - GEOMETRY.blockGap]);
+  // A faixa do sábado e do domingo fica livre, logo depois do bloco.
+  const weekend = layout.offRuns.find(run => run.start === '2026-11-07')!;
+  assert.ok(block.x + block.w <= weekend.x);
+  // No arrasto, a prévia usa a mesma largura: levado para a quarta 04/11, o bloco atravessa um fim de
+  // semana (04/11 a 10/11) e ocupa 7 dias corridos.
+  const moved = dragShifts(layout, [{ ...block.activity, start: '2026-11-04' }]);
+  assert.deepEqual(moved.get(block.local.id)?.get('a'), { dx: 2 * 16, w: 7 * 16 - GEOMETRY.blockGap, start: '2026-11-04' });
+});
+
+test('calendarPreviewText: a frase da prévia da mudança de calendário', () => {
+  const preview = { changedBlocks: 12, movedStarts: 9, finishBefore: '2027-03-12', finishAfter: '2027-03-19' };
+  assert.equal(calendarPreviewText(preview, 40), '12 blocos mudam de data; o término da obra passa de 12/03/2027 para 19/03/2027.');
+  assert.equal(
+    calendarPreviewText({ ...preview, changedBlocks: 1, finishAfter: '2027-03-12' }, 40),
+    '1 bloco muda de data; o término da obra continua em 12/03/2027.',
+  );
+  assert.equal(calendarPreviewText({ ...preview, changedBlocks: 0 }, 40), 'Nenhum bloco muda de data com este calendário.');
+  assert.match(calendarPreviewText({ changedBlocks: 0, movedStarts: 0 }, 0), /ainda não tem blocos/);
 });

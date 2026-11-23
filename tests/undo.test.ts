@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fulfillmentLabel, recreateCommand, undoFulfillmentCommand, undoUpdateCommand } from '../src/modules/curto-prazo/undo';
+import {
+  deletionLabel,
+  fulfillmentLabel,
+  recreateCommand,
+  restorePlan,
+  undoFulfillmentCommand,
+  undoUpdateCommand,
+} from '../src/modules/curto-prazo/undo';
 import type { WeeklyCommitment } from '../src/domain/entities';
 
 /* "Desfazer" da planilha (26/10/2026): o comando inverso sai do estado anterior das linhas. */
@@ -63,4 +70,35 @@ test('desfazer edição devolve as células; desfazer exclusão recria a linha c
     startDate: '2026-10-20',
     endDate: '2026-10-21',
   });
+});
+
+/* "Excluir linhas marcadas" (23/11/2026): um Desfazer só devolve todas ao lugar. */
+
+test('exclusão em lote: o rótulo diz a linha (uma) ou quantas (várias)', () => {
+  assert.equal(deletionLabel([base]), 'exclusão de “Reboco”');
+  assert.equal(deletionLabel([base, { ...base, id: 'c2' }, { ...base, id: 'c3' }]), 'exclusão de 3 linhas');
+});
+
+test('exclusão em lote: cada linha volta acima da primeira que ficou depois dela, na ordem da planilha', () => {
+  const saved = ['a', 'b', 'c', 'd', 'e', 'f'];
+  // b e c são vizinhas: as duas voltam acima de d, b primeiro; f era a última e entra embaixo.
+  assert.deepEqual(restorePlan(saved, new Set(['c', 'f', 'b'])), [{ id: 'b', beforeId: 'd' }, { id: 'c', beforeId: 'd' }, { id: 'f' }]);
+});
+
+test('exclusão em lote: refazer o plano na ordem devolve a planilha original', () => {
+  const saved = ['a', 'b', 'c', 'd', 'e', 'f'];
+  for (const removed of [['a'], ['f'], ['a', 'b'], ['b', 'c', 'e'], ['e', 'f'], saved]) {
+    const gone = new Set(removed);
+    const sheet = saved.filter(id => !gone.has(id));
+    for (const step of restorePlan(saved, gone)) {
+      const at = step.beforeId ? sheet.indexOf(step.beforeId) : sheet.length;
+      sheet.splice(at, 0, step.id);
+    }
+    assert.deepEqual(sheet, saved, removed.join());
+  }
+});
+
+test('exclusão em lote: id fora da semana é ignorado, e sem excluídas não há o que devolver', () => {
+  assert.deepEqual(restorePlan(['a', 'b'], new Set(['x'])), []);
+  assert.deepEqual(restorePlan([], new Set(['a'])), []);
 });

@@ -169,6 +169,8 @@ async function seedWork(db: PGlite, required: Map<string, Columns>, p: string, c
   // 0044: itens de custo (um apropriado ao pacote, um solto) saem pela cascata de work_id.
   await insert('lob_cost_items', { id: `${p}-cost1`, work_id: w, service_id: `${p}-lsvc`, description: 'Concreto', amount: 1500.5 });
   await insert('lob_cost_items', { id: `${p}-cost2`, work_id: w, service_id: null, description: 'Administração', amount: 0 });
+  // 0056: o calendário de dias úteis da Linha de Balanço (uma linha por obra) sai pela cascata de work_id.
+  await insert('lob_calendars', { work_id: w, weekdays: '{1,2,3,4,5,6}', holidays: '{2026-12-25}', updated_by: 'u1' });
   // 0040: a segurança do trabalho cai com a obra pelo `on delete cascade` de work_id (delete_work não as cita).
   await insert('safety_items', { id: `${p}-sst`, work_id: w, type_id: 'sst-tipo-01', consequence: 'Morte', probability: 'Possível' });
   // 0045: o efetivo do histograma sai pela cascata de work_id.
@@ -319,6 +321,7 @@ test('delete_work apaga a obra e tudo o que é dela, sem tocar a outra obra', as
       assert.equal(count, 0, `${table} ainda tem linha da obra excluída`);
     }
     assert.deepEqual([before.lob_cost_items, after.lob_cost_items], [2, 0], 'os itens de custo (0044) saem com a obra');
+    assert.deepEqual([before.lob_calendars, after.lob_calendars], [1, 0], 'o calendário da Linha de Balanço (0056) sai com a obra');
     assert.equal(after.agent_usage, 1, 'o custo da IA continua contando no mês');
     assert.equal(after.history_events, 1, 'o histórico da obra fica');
     assert.equal(after.access_usage, 1, 'o uso do sistema na obra fica (0051)');
@@ -461,4 +464,35 @@ test('removeWorkFiles segue no outro bucket quando um falha e diz qual ficou', a
   const { client, removed } = fakeStorage({ ifc: ['obra-x/m/a.ifc'], terminalidade: ['obra-x/i/f.jpg'] }, 'ifc');
   assert.deepEqual(await removeWorkFiles(client, 'obra-x'), { removed: 1, failed: ['ifc'] });
   assert.deepEqual(removed, ['terminalidade:obra-x/i/f.jpg']);
+});
+
+test('0056: o calendário da Linha de Balanço é um por obra, com ao menos um dia da semana válido', async () => {
+  const { db, kept } = await setup();
+  try {
+    const row = (
+      await db.query<{ weekdays: number[]; holidays: string[] }>(
+        'select weekdays, holidays::text[] holidays from lob_calendars where work_id = $1',
+        [kept],
+      )
+    ).rows[0];
+    assert.deepEqual(row.weekdays, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(row.holidays, ['2026-12-25']);
+    const insert = (workId: string, weekdays: string) =>
+      db.query("insert into lob_calendars (work_id, weekdays, updated_by) values ($1, $2, 'u1')", [workId, weekdays]);
+    await assert.rejects(insert(kept, '{1,2,3,4,5}'), /duplicate|unique/i, 'uma linha por obra');
+    await db.query('delete from lob_calendars where work_id = $1', [kept]);
+    await assert.rejects(insert(kept, '{}'), /check/i, 'sem dia da semana não vale');
+    await assert.rejects(insert(kept, '{1,7}'), /check/i, 'dia da semana fora de 0 a 6 não vale');
+    // Sem informar nada, vale o padrão do sistema: segunda a sexta, sem feriados.
+    await db.query("insert into lob_calendars (work_id, updated_by) values ($1, 'u1')", [kept]);
+    const standard = (
+      await db.query<{ weekdays: number[]; holidays: string[] }>(
+        'select weekdays, holidays::text[] holidays from lob_calendars where work_id = $1',
+        [kept],
+      )
+    ).rows[0];
+    assert.deepEqual(standard, { weekdays: [1, 2, 3, 4, 5], holidays: [] });
+  } finally {
+    await db.close();
+  }
 });

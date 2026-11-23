@@ -16,7 +16,10 @@
  *     mesmo `LobWeights`.
  * 10. Faixas: 1,00 ou mais verde; 0,90 a 0,99 amarelo; abaixo de 0,90 vermelho, pelo número mostrado
  *     (duas casas).
- * 11. Sem medição fechada ou sem nada planejado até a data, não há IDP. */
+ * 11. Sem medição fechada ou sem nada planejado até a data, não há IDP.
+ *
+ * O previsto conta dias úteis pelo calendário da obra (`data.calendar`, 23/11/2026); sem ele, segunda
+ * a sexta. */
 import {
   closedMeasurements,
   measuredPercents,
@@ -25,6 +28,7 @@ import {
   type LobActivity,
   type LobBaseline,
   type LobBaselineEntry,
+  type LobCalendar,
   type LobCostItem,
   type LobData,
   type LobId,
@@ -158,10 +162,15 @@ export function performanceBaseline(baselines: readonly LobBaseline[], chosenId?
 
 /** Previsto (%) de cada bloco na data: pelas datas da linha de base quando o bloco está nela, pelas
  * atuais quando não está (bloco criado depois) ou sem linha de base. */
-export function plannedPercents(activities: readonly LobActivity[], date: LocalDate, baseline?: LobBaseline): Record<LobId, number> {
+export function plannedPercents(
+  activities: readonly LobActivity[],
+  date: LocalDate,
+  baseline?: LobBaseline,
+  calendar?: LobCalendar,
+): Record<LobId, number> {
   const frozen = new Map<LobId, LobBaselineEntry>((baseline?.snapshot ?? []).map(e => [e.activityId, e]));
   const result: Record<LobId, number> = {};
-  for (const a of activities) result[a.id] = plannedPercent(frozen.get(a.id) ?? a, date);
+  for (const a of activities) result[a.id] = plannedPercent(frozen.get(a.id) ?? a, date, calendar);
   return result;
 }
 
@@ -202,7 +211,7 @@ export interface LobPerformance {
   /** Uma por medição fechada, da mais antiga à mais nova (visão Medições). */
   series: LobPerformancePoint[];
 }
-type PerformanceData = Pick<LobData, 'services' | 'activities' | 'baselines' | 'measurements' | 'items' | 'costs'>;
+type PerformanceData = Pick<LobData, 'services' | 'activities' | 'baselines' | 'measurements' | 'items' | 'costs' | 'calendar'>;
 
 function pointOf(
   activities: readonly LobActivity[],
@@ -211,10 +220,11 @@ function pointOf(
   items: LobData['items'],
   measurement: LobMeasurement,
   baseline?: LobBaseline,
+  calendar?: LobCalendar,
 ): LobPerformancePoint {
   // Só as rodadas até esta (inclusive): duas medições no mesmo dia dão dois pontos diferentes.
   const percents = measuredPercents(rounds, items);
-  const planned = plannedPercents(activities, measurement.date, baseline);
+  const planned = plannedPercents(activities, measurement.date, baseline, calendar);
   const list = activities as LobActivity[];
   const real = physicalProgress(list, percents, weights) ?? 0;
   const plan = physicalProgress(list, planned, weights) ?? 0;
@@ -239,7 +249,9 @@ export function lobPerformance(data: PerformanceData, options: { baselineId?: Lo
   if (!data.activities.length) return { status: 'no-blocks', ...base, series: [] };
   const closed = closedMeasurements(data.measurements);
   if (!closed.length) return { status: 'no-measurement', ...base, series: [] };
-  const series = closed.map((m, index) => pointOf(data.activities, weights.weight, closed.slice(0, index + 1), data.items, m, chosen));
+  const series = closed.map((m, index) =>
+    pointOf(data.activities, weights.weight, closed.slice(0, index + 1), data.items, m, chosen, data.calendar),
+  );
   const point = series[series.length - 1];
   return { status: point.idp === undefined ? 'nothing-planned' : 'ok', ...base, point, series };
 }
@@ -252,7 +264,7 @@ export function weightedProgress(data: PerformanceData, date: LocalDate, weights
   return {
     weights,
     physical: physicalProgress(list, percents, weights.weight),
-    planned: physicalProgress(list, plannedPercents(data.activities, date), weights.weight),
+    planned: physicalProgress(list, plannedPercents(data.activities, date, undefined, data.calendar), weights.weight),
   };
 }
 
@@ -286,7 +298,7 @@ export function servicePerformance(data: PerformanceData, performance: LobPerfor
   const rounds = point ? closed.slice(0, closed.findIndex(m => m.id === point.measurementId) + 1) : [];
   const percents = point ? measuredPercents(rounds, data.items) : {};
   const chosen = performance.baseline ? data.baselines.find(b => b.id === performance.baseline!.id) : undefined;
-  const planned = point ? plannedPercents(data.activities, point.date, chosen) : {};
+  const planned = point ? plannedPercents(data.activities, point.date, chosen, data.calendar) : {};
   return [...data.services].sort(byOrder).map(service => {
     const blocks = data.activities.filter(a => a.serviceId === service.id);
     const days = blocks.reduce((sum, a) => sum + a.durationDays, 0);

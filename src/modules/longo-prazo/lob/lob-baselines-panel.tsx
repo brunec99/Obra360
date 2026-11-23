@@ -1,8 +1,7 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { Eye, EyeOff, RotateCcw, Trash2 } from 'lucide-react';
-import { LOB_LIMITS, activityFinish, lobSpan, type LobBaseline, type LobCommand, type LobData, type LocalDate } from '@/domain/lob';
-import { daysBetween } from '@/domain/long-term-plan';
+import { LOB_LIMITS, baselineFinishDate, lobSpan, workdayDelta, type LobCommand, type LobData } from '@/domain/lob';
 import { Drawer } from '@/modules/layout/drawer';
 import { useConfirm } from '@/modules/layout/confirm';
 import { useToast } from '@/modules/layout/toast';
@@ -16,13 +15,6 @@ import { formatDate, formatTimestamp } from '@/shared/format';
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const errorMessage = (error: unknown) => (error instanceof Error && error.message ? error.message : 'Falha na comunicação com o servidor.');
 const drawerFooter = 'sticky bottom-0 -mx-5 -mb-4 mt-6 border-t border-slate-100 bg-white px-5 py-4';
-
-/** Último dia trabalhado na foto: o término previsto que ela guardava. */
-const baselineFinish = (baseline: LobBaseline): LocalDate | undefined =>
-  baseline.snapshot.reduce<LocalDate | undefined>((max, entry) => {
-    const finish = activityFinish(entry);
-    return !max || finish > max ? finish : max;
-  }, undefined);
 
 export function LobBaselinesPanel({
   data,
@@ -48,7 +40,7 @@ export function LobBaselinesPanel({
   const users = context.state === 'ready' ? context.planning.data.users : [];
   const author = (id: string) => users.find(u => u.id === id)?.name ?? 'sistema';
   const ordered = useMemo(() => [...data.baselines].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [data.baselines]);
-  const currentFinish = lobSpan(data.activities)?.finish;
+  const currentFinish = useMemo(() => lobSpan(data.activities, data.calendar)?.finish, [data.activities, data.calendar]);
   const full = data.baselines.length >= LOB_LIMITS.baselines;
   const workId = data.activities[0]?.workId ?? data.locals[0]?.workId ?? data.services[0]?.workId ?? '';
 
@@ -81,9 +73,12 @@ export function LobBaselinesPanel({
         )}
         {ordered.map(b => {
           const active = b.id === activeId;
-          const finish = baselineFinish(b);
-          // Diferença em dias corridos: positiva quando o cronograma atual termina depois da foto.
-          const delta = finish && currentFinish ? daysBetween(finish, currentFinish) : undefined;
+          // Último dia trabalhado na foto: o término previsto que ela guardava (o gravado nela; nas
+          // linhas de base antigas, o calculado pelo calendário da obra).
+          const finish = baselineFinishDate(b, data.calendar);
+          // Diferença em DIAS ÚTEIS do calendário da obra (como o desvio de cada bloco e o cartão
+          // "Término previsto"): positiva quando o cronograma atual termina depois da foto.
+          const delta = finish && currentFinish ? workdayDelta(finish, currentFinish, data.calendar) : undefined;
           return (
             <li key={b.id} className={`rounded-xl border px-3 py-3 ${active ? 'border-primary-ring bg-primary-soft' : 'border-slate-200'}`}>
               <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
@@ -101,7 +96,9 @@ export function LobBaselinesPanel({
                       <>
                         {' · '}
                         <span className={delta > 0 ? 'font-semibold text-danger' : delta < 0 ? 'font-semibold text-success' : ''}>
-                          {delta > 0 ? `hoje +${delta} dias` : delta < 0 ? `hoje −${Math.abs(delta)} dias` : 'igual ao atual'}
+                          {delta
+                            ? `cronograma atual ${delta > 0 ? '+' : '−'}${plural(Math.abs(delta), 'dia útil', 'dias úteis')}`
+                            : 'igual ao atual'}
                         </span>
                       </>
                     )}

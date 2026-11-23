@@ -1,19 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  isLobScheduleCommand,
+  LOB_SCHEDULE_COMMANDS,
   lobCommandTarget,
+  mergeActivities,
   parseLobCommand,
   planLobCommand,
+  sameScheduleResult,
   type LobContext,
   type LobExtras,
   type LobMutation,
   type LobTable,
 } from '../src/application/use-cases/lob-commands';
 import {
+  addWorkdays,
   LOB_COLORS,
   LOB_LIMITS,
   lobPhotoPaths,
   type LobActivity,
+  type LobCalendar,
   type LobCommand,
   type LobCostItem,
   type LobData,
@@ -822,7 +828,8 @@ test('launch_flow numa obra com blocos: linha de base automática (regra 10), re
   assert.equal(baseline.snapshot.length, 6);
   assert.deepEqual(
     baseline.snapshot.find(e => e.activityId === 'a23'),
-    { activityId: 'a23', serviceId: 's2', localId: 'l3', start: '2026-11-23', durationDays: 10 },
+    // O término (último dia trabalhado) fica na foto: o calendário da obra pode mudar depois.
+    { activityId: 'a23', serviceId: 's2', localId: 'l3', start: '2026-11-23', durationDays: 10, finish: '2026-12-04' },
   );
   assert.deepEqual(touched(m), [
     '+activities',
@@ -1603,4 +1610,247 @@ test('save_costs respeita o limite de itens por obra, contando os removidos', ()
   // Com um removido, os dois novos cabem.
   const swap = run(d, saveCosts([costInput(LOB_LIMITS.costItems), costInput(LOB_LIMITS.costItems + 1)], [COST(1)]));
   assert.deepEqual(swap.summary, { saved: 2, removed: 1 });
+});
+
+// ----- Calendário de dias úteis da obra (23/11/2026) -----
+
+/** Segunda a sexta com a segunda 12/10/2026 (Nossa Senhora Aparecida) sem trabalho. */
+const OCTOBER_12: LobCalendar = { weekdays: [1, 2, 3, 4, 5], holidays: ['2026-10-12'] };
+const setCalendar = (calendar: LobCalendar): LobCommand => ({ type: 'set_calendar', workId: W, calendar });
+
+test('parse set_calendar: obra obrigatória, calendário limpo (em ordem, sem repetição) e recusado quando inválido', () => {
+  assert.deepEqual(
+    parseLobCommand({
+      type: 'set_calendar',
+      workId: W,
+      calendar: { weekdays: [6, 1, 1, 3], holidays: ['2026-12-25', '2026-10-12', '2026-12-25'] },
+    }),
+    { type: 'set_calendar', workId: W, calendar: { weekdays: [1, 3, 6], holidays: ['2026-10-12', '2026-12-25'] } },
+  );
+  assert.deepEqual(lobCommandTarget(setCalendar(OCTOBER_12)), { workId: W });
+  const bad = (input: unknown, message: string) => assert.throws(() => parseLobCommand(input), { message });
+  bad({ type: 'set_calendar', workId: W }, 'Dias da semana trabalhados inválidos.');
+  bad({ type: 'set_calendar', workId: W, calendar: { weekdays: [], holidays: [] } }, 'Marque ao menos um dia da semana trabalhado.');
+  bad({ type: 'set_calendar', workId: W, calendar: { weekdays: [1, 8], holidays: [] } }, 'Dias da semana trabalhados inválidos.');
+  bad({ type: 'set_calendar', workId: W, calendar: { weekdays: [1], holidays: ['12/10/2026'] } }, 'Lista de dias sem trabalho inválida.');
+  bad({ type: 'set_calendar', calendar: OCTOBER_12 }, 'Obra não informada.');
+});
+
+test('set_calendar: durações ficam, a rede é recalculada em cascata e a linha de base automática guarda o antes', () => {
+  // Com 12/10 parado, a Estrutura · Térreo (05/10, 10 d) termina em 19/10 e empurra a obra inteira um dia útil.
+  const m = run(fixture(), setCalendar(OCTOBER_12));
+  assert.deepEqual(m.calendar, { value: OCTOBER_12, updatedBy: 'u1', updatedAt: NOW });
+  assert.deepEqual(starts(m.update.activities), {
+    a12: '2026-10-20',
+    a13: '2026-11-03',
+    a21: '2026-10-27',
+    a22: '2026-11-10',
+    a23: '2026-11-24',
+  });
+  assert.ok(m.update.activities.every(a => a.durationDays === 10 && a.updatedAt === NOW));
+  // A Estrutura · Térreo não muda de início (só de término), mas entra na conta dos blocos que mudam de data.
+  assert.deepEqual(m.summary, { changedBlocks: 6, movedStarts: 5 });
+  const [before] = m.insert.baselines;
+  assert.deepEqual(
+    [before.name, before.automatic, before.createdBy, before.workId],
+    ['Antes da mudança de calendário 04/11/2026', true, 'u1', W],
+  );
+  // A foto guarda as datas e os términos de ANTES, pelo calendário que valia.
+  assert.deepEqual(
+    before.snapshot.map(e => [e.activityId, e.start, e.finish]),
+    [
+      ['a11', '2026-10-05', '2026-10-16'],
+      ['a12', '2026-10-19', '2026-10-30'],
+      ['a13', '2026-11-02', '2026-11-13'],
+      ['a21', '2026-10-26', '2026-11-06'],
+      ['a22', '2026-11-09', '2026-11-20'],
+      ['a23', '2026-11-23', '2026-12-04'],
+    ],
+  );
+  // A linha de base antiga (sem término na foto) ganha o término pelo calendário antigo.
+  const [old] = m.update.baselines;
+  assert.equal(old.id, 'b1');
+  assert.equal(old.snapshot.find(e => e.activityId === 'a11')!.finish, '2026-10-16');
+  assert.deepEqual(touched(m), ['+baselines', '~activities', '~activities', '~activities', '~activities', '~activities', '~baselines']);
+});
+
+test('set_calendar: nome único da linha de base automática, limite de linhas de base e calendário igual recusado', () => {
+  rejects(fixture(), setCalendar({ weekdays: [1, 2, 3, 4, 5], holidays: [] }), 'O calendário já está assim: nada a salvar.');
+  rejects({ ...fixture(), calendar: OCTOBER_12 }, setCalendar(OCTOBER_12), 'O calendário já está assim: nada a salvar.');
+  const named = fixture();
+  named.baselines.push({ ...named.baselines[0], id: 'b2', name: 'Antes da mudança de calendário 04/11/2026', automatic: true });
+  assert.equal(run(named, setCalendar(OCTOBER_12)).insert.baselines[0].name, 'Antes da mudança de calendário 04/11/2026 (2)');
+  const full = fixture();
+  full.baselines = Array.from({ length: LOB_LIMITS.baselines }, (_, i) => ({ ...full.baselines[0], id: `b${i}`, name: `Base ${i}` }));
+  rejects(
+    full,
+    setCalendar(OCTOBER_12),
+    `A obra já tem ${LOB_LIMITS.baselines} linhas de base. Exclua alguma antes de mudar o calendário.`,
+  );
+});
+
+test('set_calendar que não muda nenhuma data grava só o calendário (sem linha de base automática); obra vazia também', () => {
+  // Um feriado depois do fim da obra (04/12) não toca em bloco nenhum.
+  const m = run(fixture(), setCalendar({ weekdays: [1, 2, 3, 4, 5], holidays: ['2027-01-01'] }));
+  assert.deepEqual(m.summary, { changedBlocks: 0, movedStarts: 0 });
+  assert.deepEqual(m.insert.baselines, []);
+  assert.deepEqual(m.update.activities, []);
+  assert.equal(m.calendar?.value.holidays[0], '2027-01-01');
+  // Só o término das linhas de base antigas é completado.
+  assert.deepEqual(touched(m), ['~baselines']);
+  const again = fixture();
+  again.baselines[0].snapshot = again.baselines[0].snapshot.map(e => ({ ...e, finish: '2026-12-04' }));
+  assert.deepEqual(touched(run(again, setCalendar({ weekdays: [1, 2, 3, 4, 5], holidays: ['2027-01-01'] }))), []);
+  const blank = run(empty(), setCalendar(OCTOBER_12));
+  assert.deepEqual([blank.workId, blank.calendar?.value, blank.summary], [W, OCTOBER_12, { changedBlocks: 0, movedStarts: 0 }]);
+  assert.deepEqual(touched(blank), []);
+});
+
+test('set_calendar com sábado trabalhado: nenhum início cai em dia sem trabalho, mas os términos mudam e a foto é guardada', () => {
+  const m = run(fixture(), setCalendar({ weekdays: [1, 2, 3, 4, 5, 6], holidays: [] }));
+  assert.deepEqual(m.update.activities, []);
+  assert.deepEqual(m.summary, { changedBlocks: 6, movedStarts: 0 });
+  assert.equal(m.insert.baselines.length, 1);
+});
+
+test('os comandos de data usam o calendário da obra (data.calendar)', () => {
+  // Quarta 11/11/2026 sem trabalho.
+  const calendar: LobCalendar = { weekdays: [1, 2, 3, 4, 5], holidays: ['2026-11-11'] };
+  const d = { ...fixture(), calendar };
+  d.locals.push({ id: 'l4', workId: W, name: 'Cobertura', orderIndex: 3, ...stamp });
+  const created = run(d, { type: 'create_activity', workId: W, serviceId: 's1', localId: 'l4', start: '2026-11-11', durationDays: 5 });
+  assert.equal(created.insert.activities[0].start, '2026-11-12');
+  // Estrutura · 2º em 09/11: 9, 10, 12, 13, 16, 17, 18, 19, 20 e 23/11; a Alvenaria · 2º entra 5 dias úteis depois do fim, em 01/12.
+  const moved = run(d, { type: 'update_activity', activityId: 'a13', start: '2026-11-09' });
+  assert.deepEqual(starts(moved.update.activities), { a13: '2026-11-09', a23: '2026-12-01' });
+  // Sem o calendário, a mesma mudança daria 30/11 (o teste de update_activity acima).
+  const dropped = run(d, { type: 'update_activity', activityId: 'a13', start: '2026-11-11' });
+  assert.equal(dropped.update.activities.find(a => a.id === 'a13')!.start, '2026-11-12');
+  // A linha de base guarda o término pelo calendário da obra: a Estrutura · 2º (02/11, 10 d) termina em 16/11.
+  const baseline = run(d, { type: 'create_baseline', workId: W, name: 'Marco 1' }).insert.baselines[0];
+  assert.equal(baseline.snapshot.find(e => e.activityId === 'a13')!.finish, '2026-11-16');
+});
+
+test('restore_baseline: data guardada que virou dia sem trabalho vai ao próximo dia útil', () => {
+  // A segunda 02/11 (início da Estrutura · 2º na linha de base) virou dia sem trabalho depois da foto.
+  const d = { ...fixture(), calendar: { weekdays: [1, 2, 3, 4, 5], holidays: ['2026-11-02'] } };
+  d.activities.find(a => a.id === 'a13')!.start = '2026-11-09';
+  const m = run(d, { type: 'restore_baseline', baselineId: 'b1' });
+  assert.deepEqual(starts(m.update.activities), { a13: '2026-11-03', a22: '2026-11-10', a23: '2026-11-24' });
+});
+
+// ----- Datas de vários blocos de uma vez (o "Desfazer") e a resposta enxuta -----
+
+test('parse set_activity_dates: obra, lista não vazia, sem bloco repetido, datas e durações válidas', () => {
+  const item = { activityId: 'a13', start: '2026-11-02', durationDays: 10 };
+  assert.deepEqual(parseLobCommand({ type: 'set_activity_dates', workId: W, items: [item] }), {
+    type: 'set_activity_dates',
+    workId: W,
+    items: [item],
+  });
+  assert.throws(() => parseLobCommand({ type: 'set_activity_dates', items: [item] }), /Obra não informada/);
+  assert.throws(() => parseLobCommand({ type: 'set_activity_dates', workId: W }), /Lista de datas inválida/);
+  assert.throws(() => parseLobCommand({ type: 'set_activity_dates', workId: W, items: [] }), /Nenhuma data/);
+  assert.throws(() => parseLobCommand({ type: 'set_activity_dates', workId: W, items: [item, item] }), /duas vezes/);
+  assert.throws(() => parseLobCommand({ type: 'set_activity_dates', workId: W, items: [{ ...item, start: '02/11/2026' }] }), /inválida/);
+  assert.throws(
+    () => parseLobCommand({ type: 'set_activity_dates', workId: W, items: [{ ...item, durationDays: 0 }] }),
+    /Duração inválida/,
+  );
+  assert.deepEqual(lobCommandTarget({ type: 'set_activity_dates', workId: W, items: [item] }), { workId: W });
+});
+
+test('set_activity_dates desfaz um arrasto numa gravação: devolve o bloco e as sucessoras às datas de antes', () => {
+  const before = fixture();
+  // O arrasto: Estrutura · Térreo uma semana para a frente leva a obra inteira.
+  const moved = run(before, { type: 'update_activity', activityId: 'a11', start: '2026-10-12' });
+  assert.equal(moved.update.activities.length, 6);
+  const after = { ...before, activities: mergeActivities(before.activities, moved.update.activities) };
+  // O "Desfazer": as datas de antes dos seis blocos, em qualquer ordem.
+  const items = [...before.activities].reverse().map(a => ({ activityId: a.id, start: a.start, durationDays: a.durationDays }));
+  const undone = run(after, { type: 'set_activity_dates', workId: W, items });
+  assert.deepEqual(touched(undone), Array(6).fill('~activities'));
+  assert.deepEqual(starts(undone.update.activities), starts(before.activities));
+  assert.ok(undone.update.activities.every(a => a.updatedAt === NOW));
+  // Nada a devolver, ou bloco que não existe mais: recusado.
+  rejects(before, { type: 'set_activity_dates', workId: W, items }, 'Os blocos já estão nessas datas.');
+  rejects(
+    after,
+    { type: 'set_activity_dates', workId: W, items: [{ activityId: 'sumiu', start: '2026-10-05', durationDays: 10 }] },
+    'Um dos blocos não existe mais. Recarregue a página.',
+  );
+});
+
+test('set_activity_dates: a data pedida cai em dia útil e a rede segura quem ficaria antes da predecessora', () => {
+  // A Alvenaria · 2º pedida para sábado 31/10, com 8 dias: a Estrutura · 2º termina em 13/11 e a espera é de
+  // 5 dias úteis, então o mínimo é 23/11, onde ela já está. Só a duração muda.
+  const m = run(fixture(), { type: 'set_activity_dates', workId: W, items: [{ activityId: 'a23', start: '2026-10-31', durationDays: 8 }] });
+  assert.deepEqual(starts(m.update.activities), { a23: '2026-11-23' });
+  assert.equal(m.update.activities[0].durationDays, 8);
+  // A Estrutura · Térreo pedida para sábado 10/10 vai para segunda 12/10 e empurra a obra.
+  const pushed = run(fixture(), {
+    type: 'set_activity_dates',
+    workId: W,
+    items: [{ activityId: 'a11', start: '2026-10-10', durationDays: 10 }],
+  });
+  assert.equal(pushed.update.activities.find(a => a.id === 'a11')!.start, '2026-10-12');
+  assert.equal(pushed.update.activities.length, 6);
+  // Pedido que a rede devolve inteiro para onde já estava: nada a gravar.
+  rejects(
+    fixture(),
+    { type: 'set_activity_dates', workId: W, items: [{ activityId: 'a23', start: '2026-11-02', durationDays: 10 }] },
+    'Os blocos já estão nessas datas.',
+  );
+});
+
+test('comandos de datas: só mover/esticar e devolver datas seguem o caminho curto', () => {
+  assert.deepEqual([...LOB_SCHEDULE_COMMANDS], ['update_activity', 'set_activity_dates']);
+  assert.ok(isLobScheduleCommand({ type: 'update_activity', activityId: 'a11', start: '2026-10-12' }));
+  assert.ok(isLobScheduleCommand({ type: 'set_activity_dates', workId: W, items: [] }));
+  assert.ok(!isLobScheduleCommand({ type: 'restore_baseline', baselineId: 'b1' }));
+  assert.ok(!isLobScheduleCommand({ type: 'add_dependency', workId: W, predecessorId: 'a11', successorId: 'a13', lagDays: 0 }));
+});
+
+test('sameScheduleResult: o que o servidor gravou bate com o previsto, sem olhar o carimbo de hora', () => {
+  const predicted = run(fixture(), { type: 'update_activity', activityId: 'a13', start: '2026-11-09' }).update.activities;
+  const saved = predicted.map(a => ({ ...a, updatedAt: '2026-11-04T12:00:07.000Z' })).reverse();
+  assert.ok(sameScheduleResult(predicted, saved));
+  // Data diferente, bloco a mais, bloco a menos ou observação diferente: não bate.
+  assert.ok(!sameScheduleResult(predicted, [{ ...saved[0], start: '2026-12-01' }, saved[1]]));
+  assert.ok(!sameScheduleResult(predicted, [...saved, { ...saved[0], id: 'outro' }]));
+  assert.ok(!sameScheduleResult(predicted, saved.slice(1)));
+  assert.ok(!sameScheduleResult(predicted, [{ ...saved[0], notes: 'mudou' }, saved[1]]));
+  assert.ok(!sameScheduleResult(predicted, [{ ...saved[0], id: 'trocado' }, saved[1]]));
+  assert.ok(sameScheduleResult([], []));
+});
+
+test('mergeActivities: os blocos alterados entram por cima e os demais continuam o mesmo objeto', () => {
+  const data = fixture();
+  const changed = run(data, { type: 'update_activity', activityId: 'a13', start: '2026-11-09' }).update.activities;
+  const merged = mergeActivities(data.activities, changed);
+  assert.deepEqual(starts(merged), { ...starts(data.activities), a13: '2026-11-09', a23: '2026-11-30' });
+  assert.equal(merged[0], data.activities[0]);
+  assert.equal(merged.length, data.activities.length);
+  assert.equal(mergeActivities(data.activities, []), data.activities);
+});
+
+test('cascata grande: centenas de blocos empurrados entram uma vez só na gravação, cada um com a data final', () => {
+  // Uma fila de 400 blocos de 1 dia, cada um depois do anterior, já encostados: mover o primeiro empurra todos.
+  const activities = Array.from({ length: 400 }, (_, i) => act(`q${i}`, 's1', `q${i}`, addWorkdays('2026-01-05', i), { durationDays: 1 }));
+  const dependencies = activities.slice(1).map((a, i) => dep(`dq${i}`, activities[i].id, a.id, 'fs'));
+  const data = { ...fixture(), activities, dependencies };
+  const moved = run(data, { type: 'update_activity', activityId: 'q0', start: '2026-01-12' }).update.activities;
+  assert.equal(moved.length, 400);
+  assert.equal(new Set(moved.map(a => a.id)).size, 400);
+  assert.equal(moved.find(a => a.id === 'q399')!.start, addWorkdays('2026-01-12', 399));
+  // O "Desfazer" passa duas vezes pelos mesmos blocos (devolve e recalcula a rede): um registro por bloco.
+  const after = { ...data, activities: mergeActivities(activities, moved) };
+  const undone = run(after, {
+    type: 'set_activity_dates',
+    workId: W,
+    items: activities.map(a => ({ activityId: a.id, start: a.start, durationDays: a.durationDays })),
+  }).update.activities;
+  assert.equal(undone.length, 400);
+  assert.equal(new Set(undone.map(a => a.id)).size, 400);
+  assert.deepEqual(starts(undone), starts(activities));
 });

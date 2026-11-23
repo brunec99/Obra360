@@ -1,4 +1,13 @@
-import { activityEnd, addWorkdays, workdaysBetween, type LobActivity, type LobDependency, type LobId, type LocalDate } from './lob';
+import {
+  activityEnd,
+  addWorkdays,
+  workdaysBetween,
+  type LobActivity,
+  type LobCalendar,
+  type LobDependency,
+  type LobId,
+  type LocalDate,
+} from './lob';
 
 /** Caminho crítico da Linha de Balanço (16/11/2026, retorno do Atmos): folga total de cada bloco em
  * dias úteis, pela passagem de volta do CPM sobre as dependências entre blocos (as duas espécies,
@@ -7,7 +16,10 @@ import { activityEnd, addWorkdays, workdaysBetween, type LobActivity, type LobDe
  * A Linha de Balanço não reagenda para o mais cedo: cada bloco fica onde foi posto, e a cascata só
  * empurra quem ficaria antes do mínimo. Por isso a folga sai da data ATUAL do bloco: é quantos dias
  * úteis ele pode atrasar sem empurrar o término da obra. Folga zero (ou negativa, quando alguma
- * dependência está violada) = crítico. Bloco sem sucessora só é crítico se termina no fim da obra. */
+ * dependência está violada) = crítico. Bloco sem sucessora só é crítico se termina no fim da obra.
+ *
+ * Os dias úteis são os do calendário da obra (`calendar`, de `LobData.calendar`); sem ele, segunda a
+ * sexta. */
 
 export interface LobCriticalPath {
   /** Primeiro dia útil livre depois do último bloco (fim exclusivo da obra). */
@@ -18,7 +30,7 @@ export interface LobCriticalPath {
   criticalIds: Set<LobId>;
 }
 
-export function lobCriticalPath(activities: LobActivity[], dependencies: LobDependency[]): LobCriticalPath {
+export function lobCriticalPath(activities: LobActivity[], dependencies: LobDependency[], calendar?: LobCalendar): LobCriticalPath {
   const floatDays = new Map<LobId, number>();
   const criticalIds = new Set<LobId>();
   if (!activities.length) return { floatDays, criticalIds };
@@ -34,9 +46,9 @@ export function lobCriticalPath(activities: LobActivity[], dependencies: LobDepe
     waiting.set(d.predecessorId, (waiting.get(d.predecessorId) ?? 0) + 1);
   }
 
-  let end = activityEnd(activities[0]);
+  let end = activityEnd(activities[0], calendar);
   for (const a of activities) {
-    const e = activityEnd(a);
+    const e = activityEnd(a, calendar);
     if (e > end) end = e;
   }
 
@@ -50,12 +62,12 @@ export function lobCriticalPath(activities: LobActivity[], dependencies: LobDepe
       let lateEnd = end;
       for (const d of successors.get(id) ?? []) {
         // A sucessora começa, no mínimo, `lagDays` dias úteis depois do fim deste bloco.
-        const limit = addWorkdays(lateStart.get(d.successorId)!, -d.lagDays);
+        const limit = addWorkdays(lateStart.get(d.successorId)!, -d.lagDays, calendar);
         if (limit < lateEnd) lateEnd = limit;
       }
-      const late = addWorkdays(lateEnd, -a.durationDays);
+      const late = addWorkdays(lateEnd, -a.durationDays, calendar);
       lateStart.set(id, late);
-      const slack = late >= a.start ? workdaysBetween(a.start, late) : -workdaysBetween(late, a.start);
+      const slack = late >= a.start ? workdaysBetween(a.start, late, calendar) : -workdaysBetween(late, a.start, calendar);
       floatDays.set(id, slack);
       if (slack <= 0) criticalIds.add(id);
       for (const d of predecessors.get(id) ?? []) {

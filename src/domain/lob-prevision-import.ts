@@ -7,11 +7,15 @@
  * por serviço × local com as MESMAS datas do Prevision, as dependências (a equipe que segue de um
  * local ao outro e a sequência dos serviços dentro de cada local), a medição com o avanço do
  * arquivo, uma linha de base com as datas importadas e os fluxos de serviços dos pavimentos tipo e
- * dos demais pavimentos, deduzidos da ordem em que os serviços acontecem em cada local. */
+ * dos demais pavimentos, deduzidos da ordem em que os serviços acontecem em cada local.
+ *
+ * Os dias úteis são os do calendário da obra (`calendar`, 23/11/2026), que quem chama lê de
+ * `LobData.calendar` e passa às duas funções; sem ele, segunda a sexta sem feriados. */
 import { parseXsdDuration, type MspdiProject, type MspdiTask } from './mspdi-import';
 import { addDays, isLocalDate, type LocalDate } from './long-term-plan';
 import {
   activityEnd,
+  activityFinish,
   flowLevels,
   LOB_COLORS,
   LOB_LIMITS,
@@ -26,6 +30,7 @@ import {
   type FlowService,
   type LobActivity,
   type LobBaseline,
+  type LobCalendar,
   type LobDependency,
   type LobLocal,
   type LobMeasurement,
@@ -86,7 +91,7 @@ const clean = (name: string) => name.replace(/\s+/g, ' ').trim();
 
 /** Lê o XML já interpretado por `parseMspdi`. Nível 1 = serviço; cada folha abaixo dele é um bloco,
  * com o local formado pelos nomes dos níveis 2 em diante ("Torre A › 5º pavimento"). */
-export function readPrevisionSchedule(project: MspdiProject): PrevisionSchedule {
+export function readPrevisionSchedule(project: MspdiProject, calendar?: LobCalendar): PrevisionSchedule {
   const warnings: string[] = [];
   const hoursPerDay = (project.minutesPerDay ?? 480) / 60 || 8;
   const tasks = project.tasks.filter(t => (t.outlineLevel ?? 0) >= 1 && !t.isNull);
@@ -112,11 +117,11 @@ export function readPrevisionSchedule(project: MspdiProject): PrevisionSchedule 
     }
     // Término à meia-noite é o fim do dia anterior (o Project grava assim às vezes).
     if (task.finish?.slice(11, 19) === '00:00:00' && finish > start) finish = addDays(finish, -1);
-    start = nextWorkday(start);
-    finish = previousWorkday(finish);
+    start = nextWorkday(start, calendar);
+    finish = previousWorkday(finish, calendar);
     if (finish < start) finish = start;
     const hours = parseXsdDuration(task.duration);
-    const workDays = Math.max(1, Math.round((hours ?? 0) / hoursPerDay) || workdaysBetween(start, addDays(finish, 1)));
+    const workDays = Math.max(1, Math.round((hours ?? 0) / hoursPerDay) || workdaysBetween(start, addDays(finish, 1), calendar));
     return { serviceName, localName, start, finish, workDays, percent: Math.min(100, Math.max(0, task.percentComplete || 0)) };
   };
 
@@ -224,6 +229,8 @@ export interface PrevisionImportOptions {
   sourceName: string;
   /** Locais já cadastrados na obra (Configurações): reaproveitados pelo nome. */
   existingLocals?: LobLocal[];
+  /** Calendário de dias úteis da obra (`LobData.calendar`); ausente = segunda a sexta sem feriados. */
+  calendar?: LobCalendar;
 }
 export interface PrevisionFlowEdge {
   predecessorId: string;
@@ -268,15 +275,15 @@ export interface PrevisionImport {
 }
 
 /** Folga entre o fim de `a` e o início de `b`, em dias úteis; negativa quando se sobrepõem. */
-const signedGap = (a: Pick<LobActivity, 'start' | 'durationDays'>, b: Pick<LobActivity, 'start'>) => {
-  const end = activityEnd(a);
-  return b.start >= end ? workdaysBetween(end, b.start) : -workdaysBetween(b.start, end);
+const signedGap = (a: Pick<LobActivity, 'start' | 'durationDays'>, b: Pick<LobActivity, 'start'>, calendar?: LobCalendar) => {
+  const end = activityEnd(a, calendar);
+  return b.start >= end ? workdaysBetween(end, b.start, calendar) : -workdaysBetween(b.start, end, calendar);
 };
 const clampLag = (lag: number) => Math.max(-LOB_LIMITS.lagDays, Math.min(LOB_LIMITS.lagDays, lag));
 const formatBr = (date: LocalDate) => `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
 
 export function buildPrevisionImport(schedule: PrevisionSchedule, options: PrevisionImportOptions): PrevisionImport {
-  const { workId, actorId, now, newId } = options;
+  const { workId, actorId, now, newId, calendar } = options;
   if (!isLocalDate(options.measurementDate)) throw new LobError('Data da medição inválida.');
   if (!schedule.blocks.length) throw new LobError('O arquivo não tem nenhum serviço com local e datas.');
   if (schedule.locals.length > LOB_LIMITS.locals) throw new LobError(`O arquivo tem mais de ${LOB_LIMITS.locals} locais.`);
@@ -323,13 +330,14 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
   }));
   const serviceByName = new Map(serviceNames.map((name, index) => [name, services[index]]));
 
-  // Blocos: as datas do Prevision, com a duração contada em dias úteis sem feriados (o calendário
-  // desta etapa). Quando o Prevision desconta feriados, a duração aqui fica maior e o término igual.
+  // Blocos: as datas do Prevision, com a duração contada em dias úteis do calendário da obra (sem
+  // calendário configurado, segunda a sexta sem feriados). Quando o Prevision desconta feriados que o
+  // calendário da obra não tem, a duração aqui fica maior e o término igual.
   let withHolidays = 0;
   const workDaysOf = new Map<string, number>();
   const percentOf = new Map<string, number>();
   const activities: LobActivity[] = schedule.blocks.map(b => {
-    const durationDays = Math.min(LOB_LIMITS.durationDays, Math.max(1, workdaysBetween(b.start, addDays(b.finish, 1))));
+    const durationDays = Math.min(LOB_LIMITS.durationDays, Math.max(1, workdaysBetween(b.start, addDays(b.finish, 1), calendar)));
     if (durationDays > b.workDays) withHolidays++;
     const activity: LobActivity = {
       id: newId(),
@@ -353,7 +361,7 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
   });
 
   const localIndex = new Map(localOrder.map(({ local }, index) => [local.id, index]));
-  const flows = deriveFlows(activities, localOrder, workDaysOf, services, options.workName, warnings);
+  const flows = deriveFlows(activities, localOrder, workDaysOf, services, options.workName, warnings, calendar);
   const flowLag = new Map<string, number>();
   for (const flow of flows) for (const e of flow.edges) flowLag.set(`${flow.group}|${e.predecessorId}|${e.successorId}`, e.lagDays);
 
@@ -367,16 +375,16 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
   const byService = groupBy(activities, a => a.serviceId);
   for (const list of byService.values()) {
     list.sort((a, b) => a.start.localeCompare(b.start) || localIndex.get(a.localId)! - localIndex.get(b.localId)!);
-    for (let i = 1; i < list.length; i++) link(list[i - 1], list[i], signedGap(list[i - 1], list[i]), 'crew');
+    for (let i = 1; i < list.length; i++) link(list[i - 1], list[i], signedGap(list[i - 1], list[i], calendar), 'crew');
   }
   const crew = dependencies.length;
   for (const [localId, list] of groupBy(activities, a => a.localId)) {
     const group = groupOf.get(localId)!;
     if (group === 'equipamentos') continue;
-    for (const [s, preds] of immediatePredecessors(list))
+    for (const [s, preds] of immediatePredecessors(list, calendar))
       for (const p of preds) {
         const lag = flowLag.get(`${group}|${p.serviceId}|${s.serviceId}`) ?? 0;
-        link(p, s, Math.min(lag, signedGap(p, s)), 'fs');
+        link(p, s, Math.min(lag, signedGap(p, s, calendar)), 'fs');
       }
   }
   if (topologicalActivities(activities, dependencies).length !== activities.length)
@@ -425,6 +433,7 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
       localId: a.localId,
       start: a.start,
       durationDays: a.durationDays,
+      finish: activityFinish(a, calendar),
     })),
   };
 
@@ -456,14 +465,14 @@ function groupBy<T>(list: T[], key: (item: T) => string) {
 /** Antecessores imediatos de cada bloco de um local: os que começam no dia de início anterior ao
  * dele (blocos que começam juntos correm em paralelo) e os que terminam na véspera do início dele
  * (término → início sem folga, como o Prevision encadeia). Quem começa no primeiro dia não tem. */
-function immediatePredecessors(list: LobActivity[]): [LobActivity, LobActivity[]][] {
+function immediatePredecessors(list: LobActivity[], calendar?: LobCalendar): [LobActivity, LobActivity[]][] {
   const byStart = [...groupBy(list, a => a.start).entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, g]) => g);
   const result: [LobActivity, LobActivity[]][] = [];
   byStart.forEach((current, i) => {
     if (!i) return;
     for (const s of current) {
       const preds = new Set(byStart[i - 1]);
-      for (const p of list) if (p.start < s.start && activityEnd(p) === s.start) preds.add(p);
+      for (const p of list) if (p.start < s.start && activityEnd(p, calendar) === s.start) preds.add(p);
       result.push([s, [...preds]]);
     }
   });
@@ -484,6 +493,7 @@ function deriveFlows(
   services: LobService[],
   workName: string,
   warnings: string[],
+  calendar?: LobCalendar,
 ): PrevisionFlow[] {
   const flows: PrevisionFlow[] = [];
   const serviceById = new Map(services.map(s => [s.id, s]));
@@ -517,12 +527,12 @@ function deriveFlows(
         const first = firstStart.get(a.serviceId);
         if (!first || a.start < first) firstStart.set(a.serviceId, a.start);
       }
-      for (const [s, preds] of immediatePredecessors(list)) {
+      for (const [s, preds] of immediatePredecessors(list, calendar)) {
         denominators.set(s.serviceId, (denominators.get(s.serviceId) ?? 0) + 1);
         for (const p of preds) {
           const key = `${p.serviceId}|${s.serviceId}`;
           votes.set(key, (votes.get(key) ?? 0) + 1);
-          gaps.set(key, Math.min(gaps.get(key) ?? Infinity, signedGap(p, s)));
+          gaps.set(key, Math.min(gaps.get(key) ?? Infinity, signedGap(p, s, calendar)));
         }
       }
     }

@@ -13,6 +13,7 @@ import {
   plannedPercent,
   plannedProgress,
   type LobActivity,
+  type LobCalendar,
   type LobData,
   type LobMeasurementItem,
 } from '../../domain/lob';
@@ -627,18 +628,20 @@ export function lobReport(lob: LobData, work: AgentWorkRef, today: string): stri
   // A carga do servidor pode vir sem `costs` (antes da migração 0044): sem custo, o peso é a duração.
   const data: LobData = { ...lob, costs: lob.costs ?? [] };
   const { activities } = data;
+  // Dias úteis pelo calendário da obra (ausente = segunda a sexta), como na tela.
+  const calendar = data.calendar;
   if (!activities.length) return `${workPrefix(work)} A Linha de Balanço não tem blocos lançados.`;
   const performance = lobPerformance(data);
   const weight = performance.weights.weight;
   const measured = measuredPercents(lob.measurements, lob.items, today);
   const physical = physicalProgress(activities, measured, weight) ?? 0;
-  const planned = plannedProgress(activities, today, weight) ?? 0;
+  const planned = plannedProgress(activities, today, weight, calendar) ?? 0;
   const idpOf = new Map(servicePerformance(data, performance).map(row => [row.serviceId, row.idp]));
-  const span = lobSpan(activities)!;
+  const span = lobSpan(activities, calendar)!;
   const closed = closedMeasurements(lob.measurements).filter(m => m.date <= today);
   const last = closed.at(-1);
   const open = openMeasurement(lob.measurements);
-  const lateBlocks = activities.filter(a => isLate(a, measured[a.id], today));
+  const lateBlocks = activities.filter(a => isLate(a, measured[a.id], today, calendar));
   const services = [...lob.services].sort((a, b) => a.orderIndex - b.orderIndex);
   const localName = new Map(lob.locals.map(l => [l.id, l.name]));
   const serviceName = new Map(services.map(s => [s.id, s.name]));
@@ -663,11 +666,11 @@ export function lobReport(lob: LobData, work: AgentWorkRef, today: string): stri
       continue;
     }
     const serviceIdp = idpOf.get(service.id);
-    const serviceSpan = lobSpan(blocks)!;
-    const p = plannedProgress(blocks, today) ?? 0;
+    const serviceSpan = lobSpan(blocks, calendar)!;
+    const p = plannedProgress(blocks, today, undefined, calendar) ?? 0;
     const m = physicalProgress(blocks, measured) ?? 0;
-    const late = blocks.filter(a => isLate(a, measured[a.id], today));
-    const worst = Math.max(0, ...late.map(a => delayDays(a, measured[a.id], today)));
+    const late = blocks.filter(a => isLate(a, measured[a.id], today, calendar));
+    const worst = Math.max(0, ...late.map(a => delayDays(a, measured[a.id], today, calendar)));
     const situation =
       m >= 99.95
         ? 'concluído'
@@ -684,11 +687,11 @@ export function lobReport(lob: LobData, work: AgentWorkRef, today: string): stri
   if (lateBlocks.length) {
     const causes = delayCauses(lob, today);
     const ranked = lateBlocks
-      .map(a => ({ a, days: delayDays(a, measured[a.id], today) }))
+      .map(a => ({ a, days: delayDays(a, measured[a.id], today, calendar) }))
       .sort((x, y) => y.days - x.days || x.a.start.localeCompare(y.a.start));
     lines.push('', `Blocos mais atrasados (${Math.min(ranked.length, MAX_LATE_BLOCKS)} de ${ranked.length}):`);
     for (const { a, days } of ranked.slice(0, MAX_LATE_BLOCKS))
-      lines.push(lateLine(a, days, measured, causes, serviceName, localName, today));
+      lines.push(lateLine(a, days, measured, causes, serviceName, localName, today, calendar));
   }
   return lines.join('\n');
 }
@@ -700,8 +703,9 @@ const lateLine = (
   serviceName: Map<string, string>,
   localName: Map<string, string>,
   today: string,
+  calendar?: LobCalendar,
 ) =>
-  `- ${serviceName.get(a.serviceId) ?? '?'} · ${localName.get(a.localId) ?? '?'} | previsto ${pct(plannedPercent(a, today))} | medido ${pct(measured[a.id] ?? 0)} | atraso de ${plural(days, 'dia útil', 'dias úteis')}${causes.get(a.id) ? ` | motivo: ${causes.get(a.id)}` : ''}`;
+  `- ${serviceName.get(a.serviceId) ?? '?'} · ${localName.get(a.localId) ?? '?'} | previsto ${pct(plannedPercent(a, today, calendar))} | medido ${pct(measured[a.id] ?? 0)} | atraso de ${plural(days, 'dia útil', 'dias úteis')}${causes.get(a.id) ? ` | motivo: ${causes.get(a.id)}` : ''}`;
 
 async function lobTool(args: Record<string, unknown>, ctx: GlobalToolContext): Promise<GlobalToolOutcome> {
   const resolved = resolveWork(args.obra, ctx);

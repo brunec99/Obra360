@@ -240,3 +240,22 @@ test('locais já cadastrados na obra são reaproveitados pelo nome', () => {
   assert.ok(result.locals.every(l => l.orderIndex >= 1));
   assert.equal(result.activities.filter(a => a.localId === 'L-terreo').length, 5);
 });
+
+test('calendário da obra: a duração importada conta os dias úteis dele e nada se move com as dependências', () => {
+  // A obra já tem a quarta 09/12/2026 marcada como dia sem trabalho: é o feriado que o Prevision descontava no Reboco.
+  const calendar = { weekdays: [1, 2, 3, 4, 5], holidays: ['2026-12-09'] };
+  const schedule = readPrevisionSchedule(project(), calendar);
+  const result = buildPrevisionImport(schedule, options({ calendar }));
+  const serviceName = new Map(result.services.map(s => [s.id, s.name]));
+  const localName = new Map(result.localOrder.map(l => [l.local.id, l.local.name]));
+  const reboco = result.activities.find(a => serviceName.get(a.serviceId) === 'REB - Reboco' && localName.get(a.localId) === '2ºpavto')!;
+  // 07 a 11/12 com a quarta parada: 4 dias úteis, como no Prevision (sem o calendário, seriam 5).
+  assert.deepEqual([reboco.start, reboco.durationDays, activityFinish(reboco, calendar)], ['2026-12-07', 4, '2026-12-11']);
+  for (const a of result.activities) {
+    const original = schedule.blocks.find(b => b.serviceName === serviceName.get(a.serviceId) && b.localName === localName.get(a.localId))!;
+    assert.deepEqual([a.start, activityFinish(a, calendar)], [original.start, original.finish]);
+  }
+  assert.deepEqual(cascade(result.activities, result.dependencies, calendar), []);
+  // A linha de base da importação guarda o término de cada bloco.
+  assert.equal(result.baseline.snapshot.find(e => e.activityId === reboco.id)!.finish, '2026-12-11');
+});

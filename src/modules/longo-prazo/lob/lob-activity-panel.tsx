@@ -4,6 +4,7 @@ import { Camera, ClipboardList, Plus, Trash2, X } from 'lucide-react';
 import {
   LOB_LIMITS,
   activityFinish,
+  baselineDeviation,
   byRound,
   delayDays,
   descendants,
@@ -11,6 +12,7 @@ import {
   plannedPercent,
   wouldCycle,
   type LobActivity,
+  type LobBaseline,
   type LobCommand,
   type LobData,
   type LobPhoto,
@@ -20,6 +22,7 @@ import { isLocalDate } from '@/domain/long-term-plan';
 import { useConfirm } from '@/modules/layout/confirm';
 import { useToast } from '@/modules/layout/toast';
 import { formatDate, formatTimestamp } from '@/shared/format';
+import { DEVIATION_COLORS, deviationText } from './lob-model';
 
 /** Painel "Atividade selecionada" (acima do gráfico desde 11/11/2026, a pedido do usuário; antes era lateral) da Linha de Balanço (modelo de 04/11/2026, tela 1): tudo o
  * que um bloco tem se edita aqui, campo a campo, e cada campo grava sozinho ao sair ou no Enter.
@@ -125,6 +128,7 @@ const column = 'min-w-0 @2xl:[&>:first-child]:mt-3';
 export function LobActivityPanel({
   activity,
   data,
+  baseline,
   percents,
   today,
   readOnly,
@@ -135,6 +139,8 @@ export function LobActivityPanel({
 }: {
   activity: LobActivity;
   data: LobData;
+  /** Linha de base em comparação no gráfico: o painel mostra as datas dela e o desvio do bloco. */
+  baseline?: LobBaseline;
   percents: Record<string, number>;
   today: LocalDate;
   readOnly: boolean;
@@ -176,11 +182,21 @@ export function LobActivityPanel({
   };
 
   // ─── Datas, duração e situação ────────────────────────────────────────────
-  const finish = activityFinish(activity);
+  // Dias úteis pelo calendário da obra (ausente = segunda a sexta).
+  const calendar = data.calendar;
+  const finish = activityFinish(activity, calendar);
   const measured = percents[activity.id] ?? 0;
-  const planned = plannedPercent(activity, today);
-  const late = isLate(activity, percents[activity.id], today);
-  const delay = delayDays(activity, percents[activity.id], today);
+  const planned = plannedPercent(activity, today, calendar);
+  const late = isLate(activity, percents[activity.id], today, calendar);
+  const delay = delayDays(activity, percents[activity.id], today, calendar);
+  // Contra a linha de base escolhida: datas da foto e desvio em dias úteis (ou "não estava nela").
+  const deviation = baseline
+    ? baselineDeviation(
+        activity,
+        baseline.snapshot.find(e => e.activityId === activity.id),
+        calendar,
+      )
+    : undefined;
   // Último lançamento de medição deste bloco: traz o motivo do atraso informado em campo.
   const rounds = [...data.measurements].sort(byRound);
   const lastItem = rounds
@@ -295,6 +311,34 @@ export function LobActivityPanel({
             </dd>
             <dt className="text-slate-500">Término</dt>
             <dd className="m-0 font-medium tabular-nums text-slate-900">{dateLabel(finish)}</dd>
+            {baseline && deviation && (
+              <>
+                <dt className="text-slate-500">Linha de base</dt>
+                <dd className="m-0 text-xs" data-tour="longo-lob-desvio-bloco">
+                  {deviation.status === 'compared' ? (
+                    <>
+                      <span className="block tabular-nums text-slate-700">
+                        {dateLabel(deviation.baselineStart)} → {dateLabel(deviation.baselineFinish)} ·{' '}
+                        {plural(deviation.baselineDurationDays, 'dia útil', 'dias úteis')}
+                      </span>
+                      <span
+                        className="block font-semibold"
+                        style={
+                          deviation.finishDays
+                            ? { color: deviation.finishDays > 0 ? DEVIATION_COLORS.late : DEVIATION_COLORS.ahead }
+                            : undefined
+                        }
+                      >
+                        Desvio: {deviationText(deviation)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-slate-500">Este bloco {deviationText(deviation)}.</span>
+                  )}
+                  <span className="block truncate text-slate-400">“{baseline.name}”</span>
+                </dd>
+              </>
+            )}
             <dt className="text-slate-500">Equipe</dt>
             <dd className="m-0">
               <CommitField

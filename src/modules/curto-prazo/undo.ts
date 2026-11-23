@@ -62,3 +62,24 @@ export function recreateCommand(before: WeeklyCommitment, responsibleId: string,
 export function fulfillmentLabel(before: readonly WeeklyCommitment[]): string {
   return before.length === 1 ? `apontamento de ${quote(before[0].name)}` : `apontamento de ${before.length} linhas`;
 }
+
+/** O que o Desfazer de uma exclusão vai dizer: "exclusão de “Reboco”" ou "exclusão de 3 linhas". */
+export function deletionLabel(removed: readonly WeeklyCommitment[]): string {
+  return removed.length === 1 ? `exclusão de ${quote(removed[0].name)}` : `exclusão de ${removed.length} linhas`;
+}
+
+/** Como devolver várias linhas excluídas de uma semana ao lugar em que estavam ("Excluir linhas marcadas",
+ * 23/11/2026). `saved` é a ordem salva da semana antes da exclusão; o resultado sai nessa ordem, e cada linha
+ * volta logo acima da primeira que ficou depois dela (`beforeId`). Recriadas uma a uma nessa sequência, as
+ * vizinhas excluídas juntas voltam na ordem original; as que estavam no fim entram embaixo (sem `beforeId`).
+ * Id que não está em `saved` é ignorado. */
+export function restorePlan(saved: readonly string[], removed: ReadonlySet<string>): { id: string; beforeId?: string }[] {
+  const plan: { id: string; beforeId?: string }[] = [];
+  let next: string | undefined;
+  for (let i = saved.length - 1; i >= 0; i--) {
+    const id = saved[i];
+    if (removed.has(id)) plan.unshift(next ? { id, beforeId: next } : { id });
+    else next = id;
+  }
+  return plan;
+}

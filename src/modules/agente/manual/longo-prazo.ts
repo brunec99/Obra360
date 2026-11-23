@@ -379,39 +379,83 @@ No fim da visão. Uma linha de base é uma fotografia imutável do cronograma do
     body: `## O que a tela mostra
 A visão "Linha de Balanço" é o cronograma de longo prazo da obra no estilo do Prevision. No eixo vertical estão os locais da obra, de baixo para cima (Térreo embaixo); no horizontal, o tempo em semanas, com os meses no alto. Cada bloco é um serviço num local, na cor do serviço: a parte cheia é o que já foi medido e a parte clara é o que falta. Um bloco fica com contorno vermelho quando o previsto até hoje passa do medido em 10 pontos ou mais ("atrasado"). A linha tracejada âmbar é hoje; as linhas azuis com "M1", "M2"… são as datas das medições salvas. Serviços que acontecem ao mesmo tempo no mesmo local (por exemplo, as instalações elétrica e hidráulica do mesmo pavimento) aparecem um acima do outro, em faixas mais finas dentro da linha do local, que fica mais alta só nesse caso; clique na faixa para escolher o serviço.
 
-Passe o mouse sobre um bloco para ver serviço, local, início e término, duração em dias úteis, equipe, previsto até hoje e medido. Clique para selecionar: o painel "Atividade selecionada", acima do gráfico, abre com os detalhes.
+Passe o mouse sobre um bloco para ver serviço, local, início e término, duração em dias úteis, equipe, previsto até hoje e medido (e, com uma linha de base escolhida, as datas dela e o desvio). Clique para selecionar: o painel "Atividade selecionada", acima do gráfico, abre com os detalhes.
 
 ## Indicadores
-No alto: Serviços (com quantos lançamentos e blocos), Locais, Término previsto (e a diferença em dias para a linha de base escolhida no filtro), Avanço físico (média dos blocos no peso que vale na aba, por duração ou por custo, com o previsto até hoje e quantos blocos estão atrasados) e "IDP · desempenho de prazo" (real ÷ planejado na última medição fechada; veja a seção "IDP e custos").
+No alto: Serviços (com quantos lançamentos e blocos), Locais, Término previsto (e a diferença em dias úteis para a linha de base escolhida no filtro), Avanço físico (média dos blocos no peso que vale na aba, por duração ou por custo, com o previsto até hoje e quantos blocos estão atrasados) e "IDP · desempenho de prazo" (real ÷ planejado na última medição fechada; veja a seção "IDP e custos").
 
 ## Arrastar, desfazer e teclado
 - A tela abre com as **datas travadas** (botão do cadeado, "Datas travadas", no cabeçalho do gráfico), para ninguém reprogramar sem querer: travada, arrastar e as setas não mudam nada. Clique no cadeado para liberar ("Datas liberadas") e de novo para travar; a escolha fica guardada no navegador. O painel do bloco selecionado continua editando início e duração mesmo com a trava.
-- Com as datas liberadas, arraste um bloco para a direita ou para a esquerda para mudar a data de início. As sucessoras (os blocos que dependem dele, inclusive o mesmo serviço no local seguinte) acompanham. Um bloco nunca entra antes do fim das predecessoras mais a espera: puxar para trás só vai até essa folga.
-- "Desfazer" (ou Ctrl+Z fora de um campo) volta a última mudança de datas.
+- Com as datas liberadas, arraste um bloco para a direita ou para a esquerda para mudar a data de início. As sucessoras (os blocos que dependem dele, inclusive o mesmo serviço no local seguinte) se deslocam junto enquanto você arrasta, já na posição em que vão ficar, e a dica diz o novo início e quantos blocos acompanham. Um bloco nunca entra antes do fim das predecessoras mais a espera: puxar para trás só vai até essa folga ("limite das predecessoras").
+- Ao soltar, a mudança aparece na hora e é gravada em segundo plano: ao lado de "Desfazer" aparece "Salvando…" e depois "Salvo". Dá para continuar arrastando outros blocos; as gravações seguem em fila. Se a gravação falhar ou for recusada, a tela volta ao que estava, mostra o motivo e indica "Não salvou".
+- "Desfazer" (ou Ctrl+Z fora de um campo) volta a última mudança de datas, do bloco e das sucessoras, de uma vez.
 - Com um bloco selecionado, as setas esquerda e direita do teclado movem um dia útil. A tecla H (ou o botão "Hoje") leva o gráfico para hoje.
 - Perfil de consulta vê o gráfico e não arrasta.
 
 ## Filtros, zoom e tabela
 - Os controles de visualização ficam no cabeçalho do quadro do gráfico. "Serviços" (lista com a cor de cada serviço, busca pelo nome, "Todos" e "Nenhum"), "Locais" e "Período" filtram o que aparece. Não há mais legenda embaixo do gráfico: esconder ou mostrar um serviço é pelo filtro "Serviços".
-- "Linha de base" sobrepõe em cinza as datas de uma linha de base salva (as automáticas, gravadas antes de cada lançamento, aparecem marcadas).
-- Zoom: "Semana" (uma coluna por semana, com o dia da segunda-feira), "Mês", "Trimestre" (trimestres T1 a T4 de cada ano) e "Obra inteira" (encaixa a obra toda na largura da tela). Os botões "−" e "+" fazem o ajuste fino, e Ctrl + roda do mouse sobre o gráfico também.
+- "Linha de base" compara com uma linha de base salva (as automáticas aparecem marcadas): cada bloco que saiu do lugar ganha um tracejado cinza onde estava, e a legenda abaixo do gráfico diz qual linha de base é. Passe o mouse no bloco ou no tracejado: a dica mostra as datas da linha de base e o desvio em dias úteis do calendário da obra, pelo término ("+5 dias úteis (atrasado)", "−3 dias úteis (adiantado)" ou "no prazo"; cita o início quando ele difere), e uma linha liga o tracejado ao bloco dele. Bloco criado depois da foto aparece como "não estava na linha de base". Nos zooms "Semana" e "Mês" o bloco leva um selo com o desvio ("+12d" em vermelho, "−3d" em verde); no "Trimestre" e na "Obra inteira" de obra longa o selo some para não poluir. Clicar no tracejado seleciona o bloco.
+- Zoom: "Semana" (uma coluna por semana, com o número de cada dia), "Mês", "Trimestre" (trimestres T1 a T4 de cada ano) e "Obra inteira" (encaixa a obra toda na largura da tela). Os botões "−" e "+" fazem o ajuste fino, e Ctrl + roda do mouse sobre o gráfico também.
+- Os dias sem trabalho (sábados, domingos e os feriados e recessos do calendário da obra) aparecem como faixas cinza-claras atrás dos blocos, na "Semana", no "Mês" e nos ajustes em que cabem; no "Trimestre" e com o gráfico muito afastado elas somem, para não virar um listrado.
 - "Caminho crítico" destaca os blocos sem folga, isto é, os que, se atrasarem, empurram o término da obra; os outros ficam esmaecidos e o selo do botão diz quantos são críticos. A folga sai das dependências entre os blocos ("depois de" e "equipe segue", com a espera) e da data atual de cada bloco; a dica do bloco mostra a folga em dias úteis. Sem dependências cadastradas, só os blocos que terminam no último dia aparecem como críticos.
-- "Tabela" troca o gráfico por uma lista com local, serviço, início, término, duração, previsto, medido, situação e datas reais, ordenável pelos cabeçalhos.
+- "Tabela" troca o gráfico por uma lista com local, serviço, início, término, duração, previsto, medido, situação e datas reais, ordenável pelos cabeçalhos. Com uma linha de base escolhida, ganha o início e o término dela e a coluna "Desvio (dias úteis)".
 - "Atrasos" abre a lista dos blocos atrasados (previsto, medido e atraso em dias úteis); clicar num deles seleciona o bloco no gráfico.
 
 ## Painel do bloco selecionado
-Início e duração (em dias úteis) editáveis, término calculado, equipe e unidade do serviço, observação, as predecessoras ("Depois de", com a espera em dias e a ligação "equipe segue" para o mesmo serviço no local anterior), quantos blocos acompanham ao arrastar, o aviso de atraso com o motivo informado na medição, as datas reais (início real e término real, que a medição preenche e aqui podem ser corrigidas), as fotos da última medição e "Excluir bloco". Um bloco já medido não pode ser excluído.
+Início e duração (em dias úteis) editáveis, término calculado, as datas da linha de base escolhida com o desvio do bloco, equipe e unidade do serviço, observação, as predecessoras ("Depois de", com a espera em dias e a ligação "equipe segue" para o mesmo serviço no local anterior), quantos blocos acompanham ao arrastar, o aviso de atraso com o motivo informado na medição, as datas reais (início real e término real, que a medição preenche e aqui podem ser corrigidas), as fotos da última medição e "Excluir bloco". Um bloco já medido não pode ser excluído.
 
 **"Criar pendência do serviço"**, logo abaixo de equipe e unidade, cria um card no "Quadro de Restrições" (aba 1.4) ligado ao serviço do bloco (ao serviço inteiro, não ao local). Você informa só o título, o tempo de execução em dias úteis e o responsável: a entrega é o dia útil anterior ao primeiro início do serviço na obra (o bloco que começa mais cedo) e acompanha a reprogramação. O botão só aparece para quem tem o Quadro de Restrições (aba 1.4) liberado; o perfil não muda isso.
 
 ## Locais, linhas de base e outras ações
 - "Lançar fluxo" abre o lançamento de um fluxo de serviços (veja "Lançar um fluxo"). Sem locais cadastrados, a tela pede para cadastrá-los primeiro.
 - No menu "⋯": "Locais da obra" (cadastrar em lote, um nome por linha, renomear, reordenar com as setas e excluir; "Usar os locais dos vagões" traz os locais já importados do Prevision em ordem de altura; um local com blocos não pode ser excluído; é a mesma lista da seção "Locais da obra" das Configurações da obra e da coluna Local do curto prazo), "Importar do Planejador" (converte o plano do Planejador em blocos: cada pavimento vira um local e cada serviço × pavimento um bloco; só funciona com a Linha de Balanço ainda sem blocos) e "Exportar CSV".
-- Versões do cronograma: são as linhas de base. Não existe ainda um modo de simular cenários sem alterar o planejamento vigente; o caminho hoje é salvar uma linha de base antes de mexer e restaurá-la depois se a mudança não servir. O calendário da Linha de Balanço conta de segunda a sexta e ainda não considera feriados nem recessos.
-- "Salvar linha de base" abre a gaveta de linhas de base: criar com nome, "Comparar" (sobrepõe no gráfico), "Restaurar" (volta as datas dos blocos para as da foto) e "Excluir". Antes de cada lançamento de fluxo o sistema grava sozinho a linha de base "Antes do lançamento <data>".
+- Versões do cronograma: são as linhas de base. Não existe ainda um modo de simular cenários sem alterar o planejamento vigente; o caminho hoje é salvar uma linha de base antes de mexer e restaurá-la depois se a mudança não servir. Os dias úteis são os do calendário da obra, no botão "Calendário" (veja "Calendário da Linha de Balanço").
+- "Salvar linha de base" abre a gaveta de linhas de base: criar com nome, "Comparar" (sobrepõe no gráfico), "Restaurar" (volta as datas dos blocos para as da foto) e "Excluir"; cada uma mostra o término que guardava e quantos dias úteis o cronograma atual está à frente ou atrás dele. Antes de cada lançamento de fluxo o sistema grava sozinho a linha de base "Antes do lançamento <data>".
 - "Nova medição" leva à visão "Medições".
 - "Custos" leva à visão Custos, com o selo de quantos pacotes com blocos já têm custo (por exemplo, "38/50").
 - A tela avisa quando o banco ainda não tem a migração da Linha de Balanço ("indisponível"): avise o administrador.`,
+  },
+  {
+    id: 'longo-prazo-calendario-linha-de-balanco',
+    title: 'Calendário da Linha de Balanço (dias úteis da obra)',
+    summary: 'Dias trabalhados, feriados e recessos de cada obra, e o efeito nas datas ao mudar.',
+    keywords: [
+      'calendário',
+      'calendario',
+      'dias úteis',
+      'dias uteis',
+      'feriado',
+      'feriados',
+      'recesso',
+      'sábado',
+      'fim de semana',
+      'dias sem trabalho',
+      'feriados nacionais',
+      'antes da mudança de calendário',
+    ],
+    screen: 'longo-prazo',
+    body: `# Calendário da Linha de Balanço
+Cada obra tem o seu calendário de dias úteis na Linha de Balanço. Ele vale para tudo o que a visão conta em dias úteis: início e término dos blocos, duração, espera das dependências, lançamento de fluxo, previsto até hoje, atraso, caminho crítico, IDP e Curva S. Enquanto ninguém configurar, vale segunda a sexta, sem feriados.
+
+## Onde fica
+Botão "Calendário", na barra de ações da Linha de Balanço (ao lado de "Atrasos"). Quando a obra já saiu do padrão, o botão mostra um selo com os dias sem trabalho marcados. Quem tem perfil de consulta abre e vê, mas não altera.
+
+## O que se configura
+- **Dias da semana trabalhados**: botões de "Seg" a "Dom". Marque "Sáb" para a obra que trabalha aos sábados. Ao menos um dia fica marcado.
+- **Dias sem trabalho**: um calendário de três meses. Clique num dia para marcar ou desmarcar; arraste ou use Shift+clique para marcar um período, como o recesso de fim de ano. O ponto amarelo indica feriado nacional e o cinza, ponto facultativo (Carnaval, Corpus Christi). O botão "Incluir N feriados nacionais que faltam" marca de uma vez os feriados nacionais do mês atual até o fim do ano em que a obra termina; feriado estadual ou municipal se marca à mão. A lista à direita mostra todos os dias marcados.
+
+## O que acontece ao mudar
+- As durações em dias úteis ficam como estão. Não há conversão.
+- O início que cair num dia sem trabalho vai para o próximo dia útil, e as sucessoras acompanham pelas dependências, como quando se arrasta um bloco. Nenhum bloco é puxado para trás: tirar um feriado não adianta datas sozinho.
+- Um bloco com um feriado no meio termina mais tarde, mesmo sem mudar de início.
+- Antes de gravar, "Revisar e aplicar" mostra a prévia: "N blocos mudam de data; o término da obra passa de dd/mm/aaaa para dd/mm/aaaa". Só "Confirmar e aplicar" grava.
+- Quando algum bloco muda de data, o sistema guarda sozinho a linha de base "Antes da mudança de calendário <data>", para comparar no gráfico ou restaurar. As linhas de base guardam o término de cada bloco na hora da foto, então a comparação mostra o efeito da mudança.
+- "Desfazer" não desfaz a mudança de calendário. Para voltar, ajuste o calendário de novo e, se quiser as datas de antes, restaure a linha de base automática.
+
+## Limites
+- O calendário é da obra inteira: não há calendário por serviço nem por equipe.
+- Vale só para a Linha de Balanço e o que sai dela (Medições, Custos, Curva S, "Trazer da Linha de Balanço"). O Planejador conta dias corridos, e os cronogramas de médio prazo e de legalização têm o calendário próprio deles.
+- Se a tela disser que o calendário ainda não foi ativado no banco, avise o administrador.`,
   },
   {
     id: 'longo-prazo-fluxos-de-servicos',
@@ -451,7 +495,7 @@ Um fluxo de serviços é o molde da empresa: a sequência padrão de serviços d
 ## O editor
 - O nome do fluxo é editado direto no título. A pill ao lado alterna o sentido padrão do lançamento ("Base → topo" ou "Topo → base").
 - A rede acima da tabela é desenhada sozinha a partir da coluna "Depois de": cada cartão é um serviço (cor, duração por local e equipe), as setas são as dependências com a espera escrita no meio, e o serviço inicial tem contorno azul. Não há o que arrastar nela.
-- Na tabela, cada linha é um serviço: setas para reordenar, nome, cor (clique no quadrado para escolher uma das oito cores), duração por local em dias úteis (segunda a sexta), equipe (com sugestões das equipes cadastradas na obra), unidade e "Depois de": as predecessoras, cada uma com a espera em dias úteis ("+5 d"; pode ser negativa, para antecipar). O "+" na coluna adiciona uma predecessora; só aparecem os serviços que não fechariam um ciclo. Toda dependência é término → início no mesmo local.
+- Na tabela, cada linha é um serviço: setas para reordenar, nome, cor (clique no quadrado para escolher uma das oito cores), duração por local em dias úteis (os do calendário da obra em que o fluxo for lançado), equipe (com sugestões das equipes cadastradas na obra), unidade e "Depois de": as predecessoras, cada uma com a espera em dias úteis ("+5 d"; pode ser negativa, para antecipar). O "+" na coluna adiciona uma predecessora; só aparecem os serviços que não fechariam um ciclo. Toda dependência é término → início no mesmo local.
 - "Adicionar serviço" cria uma linha nova; as ações da linha duplicam ou excluem o serviço.
 - "Duplicar" copia o fluxo inteiro ("(cópia)" no nome); "Excluir" apaga o fluxo (as obras onde ele foi lançado não mudam).
 
@@ -636,6 +680,40 @@ Os Dashboards (aba 0 e o geral) ainda não mostram o IDP.
 ## Sugerir com a Claudia
 Na visão Custos, o botão "Sugerir com a Claudia" aparece para quem pode editar, sempre que há itens do orçamento sem pacote. Ao clicar, a Claudia lê o código e a descrição de cada item não apropriado e propõe o pacote de serviço da Linha de Balanço a que ele pertence; o valor em reais não é enviado à IA. Custos indiretos, como administração, canteiro e taxas, ela deixa sem pacote. Orçamentos grandes vão em lotes de 300 itens, com o andamento na tela ("lote 2 de 5") e a opção de cancelar os lotes seguintes; cada clique lê até 3.000 itens. As sugestões entram só na tela, sem gravar nada: cada item sugerido ganha o selo "Sugestão da Claudia", com "confira" quando ela ficou em dúvida, e todos aparecem juntos no quadro "Sugestões da Claudia", com os duvidosos primeiro. O engenheiro da obra confere, troca o pacote onde estiver errado (ou devolve o item a "Não apropriado") e clica em "Salvar"; "Desfazer sugestões" devolve de uma vez os itens sugeridos a não apropriados. O selo some quando a pessoa mexe no item ou salva. A planilha do orçamento continua entrando por "Colar do orçamento" e pode ser a exportação do Sienge com as colunas código, descrição e valor; não existe ligação direta com o Sienge. O uso da Claudia aqui conta no mesmo limite mensal de IA da obra e da pessoa.
 - Se o avanço físico ou o IDP não batem com o Prevision: o Prevision pesa pelo financeiro; aqui o peso só vira custo quando todos os pacotes com blocos têm custo apropriado. Até lá vale a duração, e os números ficam diferentes.`,
+  },
+  {
+    id: 'longo-prazo-curva-s',
+    title: 'Curva S e progresso mensal',
+    summary: 'Avanço acumulado mês a mês: linha de base, previsto e realizado.',
+    keywords: [
+      'curva s',
+      'curva de avanço',
+      'progresso mensal',
+      'avanço mensal',
+      'previsto e realizado',
+      'linha de base previsto realizado',
+      'desvio em pontos percentuais',
+    ],
+    screen: 'longo-prazo',
+    body: `# Curva S da Linha de Balanço
+Fica na aba 1.1, na visão "Curva S", ao lado de "Medições". Todos os perfis podem ver; nada se edita ali.
+
+## O que mostra
+- **Curva S — avanço acumulado**: o avanço físico da obra, mês a mês, em três séries. A linha de base (tracejada, cinza) são as datas guardadas; o previsto é o cronograma atual da Linha de Balanço; o realizado vem das medições salvas, com um ponto em cada mês que teve medição. Uma linha vertical marca hoje.
+- **Progresso mensal**: barras com o ganho de cada série no mês.
+- **Mês a mês**: tabela com os mesmos números e o desvio entre realizado e previsto em pontos percentuais.
+- **Cartões**: realizado, previsto e linha de base na data da última medição.
+
+## Regras
+- O valor de cada mês é o do último dia do mês.
+- A medição em aberto não entra. Mês sem medição nova repete a última, sem ponto na curva e com ganho zero. Meses futuros e meses anteriores à primeira medição ficam sem realizado; por isso o primeiro mês medido concentra todo o realizado até ali.
+- A linha de base é escolhida no seletor da própria visão. Sem escolha, vale a manual mais recente, como no IDP. Obra sem linha de base mostra só previsto e realizado.
+- O peso é o mesmo do avanço físico e do IDP: pelo custo quando todos os pacotes com blocos têm custo apropriado, senão pela duração. A tela diz qual está valendo.
+- As datas seguem o calendário de dias úteis da obra.
+
+## Limites
+- Não há curva financeira (custo realizado) nem exportação da curva.
+- A curva da visão "Vagões" é outra: sai dos lançamentos dos vagões, não da Linha de Balanço.`,
   },
   {
     id: 'longo-prazo-gantt-legalizacao',

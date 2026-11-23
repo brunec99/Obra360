@@ -16,6 +16,7 @@ import {
   type LocalDate,
   type ServiceFlow,
 } from '@/domain/lob';
+import { lobCalendarLabel } from '@/domain/lob-calendar';
 import { addDays, daysBetween } from '@/domain/long-term-plan';
 import { useToast } from '@/modules/layout/toast';
 import { formatDate, workPath } from '@/shared/format';
@@ -122,6 +123,7 @@ export function LobLaunchDialog({
         flowId: flow.id,
         locals: data.locals,
         params,
+        // `data` leva o calendário de dias úteis da obra: a prévia sai igual ao que o servidor grava.
         existing: data,
         launchId: 'preview',
         now: `${today}T00:00:00.000Z`,
@@ -139,7 +141,7 @@ export function LobLaunchDialog({
   const blockLabel = (a: LobActivity) => `${serviceNames.get(a.serviceId) ?? 'Serviço'} · ${localNames.get(a.localId) ?? 'local'}`;
   const first = plan?.activities.reduce<LobActivity | undefined>((best, a) => (!best || a.start < best.start ? a : best), undefined);
   const last = plan?.activities.reduce<LobActivity | undefined>(
-    (best, a) => (!best || activityEnd(a) > activityEnd(best) ? a : best),
+    (best, a) => (!best || activityEnd(a, data.calendar) > activityEnd(best, data.calendar) ? a : best),
     undefined,
   );
   const weeks = plan?.start && plan.end ? Math.max(1, Math.round(daysBetween(plan.start, plan.end) / 7)) : 0;
@@ -375,13 +377,15 @@ export function LobLaunchDialog({
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Último bloco</p>
-                    <p className="text-lg font-bold tabular-nums text-slate-900">{last ? formatDate(activityFinish(last)) : '—'}</p>
+                    <p className="text-lg font-bold tabular-nums text-slate-900">
+                      {last ? formatDate(activityFinish(last, data.calendar)) : '—'}
+                    </p>
                     <p className="truncate text-xs text-slate-500">{last ? blockLabel(last) : 'nada a lançar'}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Duração</p>
                     <p className="text-lg font-bold tabular-nums text-slate-900">{weeks ? plural(weeks, 'semana', 'semanas') : '—'}</p>
-                    <p className="text-xs text-slate-500">dias úteis, sem feriados</p>
+                    <p className="text-xs text-slate-500">dias úteis: {lobCalendarLabel(data.calendar)}</p>
                   </div>
                 </div>
               )}

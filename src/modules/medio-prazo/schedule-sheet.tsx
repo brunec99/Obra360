@@ -9,6 +9,7 @@ import {
   BookUser,
   CalendarClock,
   CalendarDays,
+  CalendarPlus,
   ChartGantt,
   ClipboardList,
   Check,
@@ -83,6 +84,7 @@ import { buildMspdi } from '@/domain/mspdi';
 import { isMonthlyPlan, latestPlan, newestPlanFirst } from '@/domain/legalization';
 import { decideRecovery, draftKey, formatSavedAt, hashText, serializeDraft } from './draft-storage';
 import { parseLinks, formatLink, rollUpPlan } from '@/domain/rules';
+import { leavesOfSelection } from '@/domain/plan-to-week';
 import { validateDate } from '@/domain/validation';
 import { useDeveloper, useModules, usePlanning } from '@/modules/planejamento/planning-provider';
 import { hasSectionAccess } from '@/application/module-access';
@@ -113,13 +115,15 @@ import { NewPlanDrawer } from './new-plan-drawer';
 import { DatePopover } from './date-picker';
 import { NonWorkingDaysDialog } from './non-working-days-dialog';
 import { offDaysSummary } from './non-working-days';
+import { CarryToWeekDialog } from './carry-to-week-dialog';
+import { foldedForLevel, maxOutlineDepth, shownLevel, type OutlineRow } from './plan-view';
 import { TaskInfoDialog, type TaskInfoChange, type TaskInfoTab, type TaskInfoValues } from './task-info-dialog';
 
-/* Cronograma do mês no layout do MS Project: tabela à esquerda, Gantt de acompanhamento à direita,
+/* Cronograma do mês no layout do MS Project: tabela à esquerda, Gantt de controle à direita,
  * as duas com a mesma linha e a mesma rolagem vertical. As datas são agendadas automaticamente pela
  * rede (scheduleTasks) a cada edição do rascunho, e o servidor refaz o cálculo ao gravar.
  *
- * Como no Project, o "Modo de exibição" troca a visão principal (Gráfico de Gantt, Planejador de
+ * Como no Project, o "Modo de exibição" troca a visão principal (Gantt de controle, Planejador de
  * Equipe, Uso dos Recursos e Planilha de Recursos), com o nome dela em pé na borda esquerda; a
  * Linha do Tempo fica por cima de qualquer visão, e a barra de status embaixo tem os atalhos das
  * visões e o controle de zoom. Toda alteração feita nas visões, no Gantt (arrastar, esticar, ligar
@@ -168,10 +172,13 @@ export interface SheetVariant {
   /** Na barra de ferramentas, depois do grupo de edição. */
   tools?: (api: SheetApi) => ReactNode;
 }
-/** As visões do "Modo de exibição" do Project que o cronograma oferece. */
+/** As visões do "Modo de exibição" do Project que o cronograma oferece. A primeira é o "Gantt de controle"
+ * do Project em português (Tracking Gantt: barra da linha de base, % concluída, início e término reais);
+ * até 23/11/2026 a tela a chamava de "Gráfico de Gantt" e quem vinha do Project não a encontrava. O Gantt
+ * de legalização usa o mesmo nome: lá a visão também é a de controle, dentro da tela "Gantt de legalização". */
 type View = 'gantt' | 'team' | 'usage' | 'resources';
 const VIEWS: { id: View; label: string; Icon: typeof Check }[] = [
-  { id: 'gantt', label: 'Gráfico de Gantt', Icon: SquareChartGantt },
+  { id: 'gantt', label: 'Gantt de controle', Icon: SquareChartGantt },
   { id: 'team', label: 'Planejador de Equipe', Icon: UsersRound },
   { id: 'usage', label: 'Uso dos Recursos', Icon: TableProperties },
   { id: 'resources', label: 'Planilha de Recursos', Icon: BookUser },
@@ -266,7 +273,7 @@ const columns: { key: Col; label: string; width: number; editable?: boolean; rig
   { key: 'variance', label: 'Variação (dias)', width: 90, right: true },
 ];
 // As colunas do motor (tardias, folgas, crítica) e as de restrição ficam ocultas por padrão: a tabela
-// padrão é a do Gantt de acompanhamento do Project; o seletor "Colunas" mostra as demais.
+// padrão é a do Gantt de controle (Tracking Gantt) do Project; o seletor "Colunas" mostra as demais.
 const DEFAULT_HIDDEN: Col[] = [
   'lateStart',
   'lateFinish',
@@ -700,6 +707,10 @@ export function Sheet({
   const developer = useDeveloper(),
     modules = useModules();
   const canPend = hasSectionAccess('restricoes', { developer, modules });
+  // "Levar para o curto prazo" (23/11/2026): só no cronograma do mês (o Gantt de legalização não vai à
+  // planilha), para quem edita a obra e tem o curto prazo liberado. A semana encerrada é conferida no diálogo.
+  const canCarry = !variant && !readOnly && !plan.baselineOf && hasSectionAccess('curto-prazo', { developer, modules });
+  const [carrying, setCarrying] = useState(false);
   const [pending, setPending] = useState<PendingSource | null>(null);
   // Selecionar uma tarefa escondida (resumo recolhido ou filtro) abre o caminho até ela; a rolagem
   // até a barra espera a pintura em que a linha aparece.
@@ -717,7 +728,7 @@ export function Sheet({
   useEffect(() => {
     staged.current = null;
   });
-  // "Exibir" do Gantt: o caminho crítico vem ligado, como no Gantt de acompanhamento do Project.
+  // "Exibir" do Gantt: o caminho crítico vem ligado, como no Gantt de controle do Project.
   const [showCritical, setShowCritical] = useState(true),
     [showSlack, setShowSlack] = useState(false),
     [showPath, setShowPath] = useState(false);
@@ -801,6 +812,13 @@ export function Sheet({
     }
   }, [draft]);
   const info = (id: string) => analysis.info.get(id);
+  // "Mostrar até o nível" (23/11/2026): a profundidade vem do número EAP calculado, não do `level` gravado.
+  const outline = useMemo<OutlineRow[]>(
+    () => draft.tasks.map(t => ({ id: t.id, number: roll.get(t.id)?.number ?? '1', summary: !!roll.get(t.id)?.summary })),
+    [draft.tasks, roll],
+  );
+  const depth = maxOutlineDepth(outline);
+  const levelShown = shownLevel(outline, folded);
   const criticalCount = draft.tasks.filter(t => !roll.get(t.id)?.summary && info(t.id)?.critical).length;
   const anyCritical = criticalCount > 0;
   const changed = draft.tasks.filter(
@@ -1114,7 +1132,7 @@ export function Sheet({
     const observer = new ResizeObserver(measure);
     observer.observe(table);
     return () => observer.disconnect();
-    // A tabela só existe no Gráfico de Gantt: voltar de outra visão monta uma tabela nova a medir.
+    // A tabela só existe no Gantt de controle: voltar de outra visão monta uma tabela nova a medir.
   }, [presentation, view, rows.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function sync(from: HTMLDivElement, to: HTMLDivElement | null) {
@@ -2546,7 +2564,7 @@ export function Sheet({
             ? `${count(draft.tasks.length, 'tarefa', 'tarefas')} · avanço do plano ${Math.round(planRow.progress)}% · ${count(criticalCount, 'crítica', 'críticas')} · início ${formatDate(planRow.start)} · término ${formatDate(planRow.end)}`
             : 'Cronograma sem tarefas'
         }
-        filter={`Filtro: ${filters.join(' · ') || 'nenhum'}${filtering ? '' : ` · ${foldedCount ? count(foldedCount, 'grupo recolhido', 'grupos recolhidos') : 'todos os grupos abertos'}`}`}
+        filter={`Filtro: ${filters.join(' · ') || 'nenhum'}${filtering ? '' : ` · ${foldedCount ? `${typeof levelShown === 'number' ? `mostrando até o nível ${levelShown} · ` : ''}${count(foldedCount, 'grupo recolhido', 'grupos recolhidos')}` : 'todos os grupos abertos'}`}`}
         draftCount={dirty ? changed.length + removed.length : 0}
         footer={`Obra 360 · ${variant ? variant.title : 'Médio prazo'}`}
         rows={printRows}
@@ -2691,7 +2709,8 @@ export function Sheet({
           >
             <p className="mr-auto min-w-0 max-w-4xl leading-5">
               <strong>Este cronograma ainda não tem linha de base.</strong> As alterações são salvas sozinhas e não guardam versões: é a
-              linha de base que mantém o planejamento de referência e mostra os atrasos. Defina uma agora e outra a cada replanejamento.
+              linha de base que mantém o planejamento de referência e mostra os atrasos. A barra cinza do Gantt de controle e a variação em
+              dias só aparecem depois de “Definir linha de base”. Defina uma agora e outra a cada replanejamento.
             </p>
             {!readOnly && !dirty && !editor && baselineForm('Definir linha de base agora')}
           </div>
@@ -2846,6 +2865,18 @@ export function Sheet({
                   Criar pendência
                 </button>
               )}
+              {canCarry && view === 'gantt' && (
+                <button
+                  data-tour="medio-levar-curto"
+                  className={tool}
+                  disabled={!!editor}
+                  onClick={() => setCarrying(true)}
+                  title="Cria linhas na planilha da semana (aba 1.3) a partir das tarefas selecionadas ou de todas as previstas na semana, com o nome, a empresa, a equipe e os dias da tarefa"
+                >
+                  <CalendarPlus size={14} aria-hidden />
+                  Levar para o curto prazo
+                </button>
+              )}
               <button
                 data-tour="medio-linha-tempo-adicionar"
                 className={tool}
@@ -2905,6 +2936,33 @@ export function Sheet({
                   Recolher
                 </button>
               </span>
+              <label
+                data-tour="medio-nivel"
+                className="flex items-center gap-1 text-xs text-slate-600"
+                title="Como “Mostrar subtarefas” do Project: deixa à vista as linhas até o nível escolhido. Depois, a seta de cada resumo continua valendo"
+              >
+                Mostrar até
+                <select
+                  className="field w-auto py-1 text-xs"
+                  aria-label="Mostrar até o nível"
+                  disabled={filtering || depth < 2}
+                  value={levelShown === undefined ? '' : String(levelShown)}
+                  onChange={e => {
+                    if (!e.target.value) return;
+                    setFolded(e.target.value === 'all' ? [] : foldedForLevel(outline, Number(e.target.value)));
+                    setSelected({ row: 0, col: selected.col });
+                    setAnchor({ row: 0, col: selected.col });
+                  }}
+                >
+                  {levelShown === undefined && <option value="">Personalizado</option>}
+                  {Array.from({ length: Math.max(0, depth - 1) }, (_, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      Nível {i + 1}
+                    </option>
+                  ))}
+                  <option value="all">{depth > 1 ? `Todos (nível ${depth})` : 'Todos'}</option>
+                </select>
+              </label>
               <details className="relative" data-tour="medio-colunas">
                 <summary className={`${tool} cursor-pointer list-none`}>Colunas</summary>
                 <div className="absolute left-0 z-40 mt-1 grid w-56 gap-1.5 rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl">
@@ -3974,12 +4032,27 @@ export function Sheet({
         />
       )}
       {pending && <CreatePendingDialog workId={plan.workId} source={pending} open onClose={() => setPending(null)} />}
+      {carrying && canCarry && (
+        <CarryToWeekDialog
+          workId={plan.workId}
+          leaves={draft.tasks.filter(t => !roll.get(t.id)?.summary)}
+          selected={leavesOfSelection(draft.tasks, new Set(selectedTasks.map(t => t.id)), filtering ? included : undefined)}
+          preferSelection={bounds.r1 > bounds.r0 || !!(active && roll.get(active.id)?.summary)}
+          teams={teams}
+          calendar={draft.calendar}
+          commitments={data.commitments.filter(c => c.workId === plan.workId)}
+          today={today}
+          actor={{ id: actorId, role: data.users.find(u => u.id === actorId)?.role ?? 'viewer' }}
+          execute={execute}
+          onClose={() => setCarrying(false)}
+        />
+      )}
       {printSheets}
     </div>
   );
 }
 
-/** Nome da visão em pé na borda esquerda, como o "GRÁFICO DE GANTT" e o "LINHA DO TEMPO" do Project. */
+/** Nome da visão em pé na borda esquerda, como o "GANTT DE CONTROLE" e o "LINHA DO TEMPO" do Project. */
 /* O texto fica em posição absoluta: a altura da linha é a da faixa ou da visão ao lado, nunca a do
  * rótulo. Quando não cabe em pé numa linha só (a Linha do Tempo é baixa), quebra em duas colunas. */
 function SideLabel({ children, className = '' }: { children: ReactNode; className?: string }) {

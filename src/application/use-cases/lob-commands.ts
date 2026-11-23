@@ -1,5 +1,8 @@
 import {
   activityEnd,
+  activityFinish,
+  applyCalendar,
+  calendarChangePreview,
   cascade,
   closedMeasurements,
   DELAY_CAUSES,
@@ -19,6 +22,7 @@ import {
   wouldCycle,
   type LobActivity,
   type LobBaseline,
+  type LobCalendar,
   type LobCommand,
   type LobCostItem,
   type LobData,
@@ -34,6 +38,7 @@ import {
   type LocalDate,
   type ServiceFlow,
 } from '../../domain/lob';
+import { normalizeLobCalendar, sameLobCalendar } from '../../domain/lob-calendar';
 import { isLocalDate, type LongTermPlanDocument } from '../../domain/long-term-plan';
 import { formatDate } from '../../shared/format';
 
@@ -42,7 +47,9 @@ import { formatDate } from '../../shared/format';
  * obra, chama o planejador e só então escreve; o que o planejador recusa sai como erro com
  * mensagem pronta para a tela. */
 
-export type LobTable = keyof LobData;
+/** As tabelas de linhas da obra. O calendário (`LobData.calendar`) não é uma delas: é um registro só
+ * por obra, gravado por `LobMutation.calendar`. */
+export type LobTable = Exclude<keyof LobData, 'calendar'>;
 export const LOB_TABLES: readonly LobTable[] = [
   'locals',
   'services',
@@ -76,6 +83,8 @@ export interface LobMutation {
   update: LobRowSet;
   delete: Record<LobTable, string[]>;
   removeFiles: string[];
+  /** Calendário de dias úteis a gravar (`set_calendar`); gravado antes das datas dos blocos. */
+  calendar?: { value: LobCalendar; updatedBy: string; updatedAt: string };
   /** Números do comando para a tela avisar (lançamento: blocos lançados e mantidos). */
   summary?: Record<string, number>;
 }
@@ -120,6 +129,8 @@ export const LOB_COMMAND_TYPES = [
   'add_photo',
   'delete_photo',
   'save_costs',
+  'set_calendar',
+  'set_activity_dates',
 ] as const satisfies readonly LobCommand['type'][];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -417,6 +428,39 @@ export function parseLobCommand(input: unknown): LobCommand {
       return { type, photoId: requiredId(c.photoId, 'Foto não informada.') };
     case 'save_costs':
       return { type, workId: workId(), ...parseCosts(c) };
+    case 'set_calendar': {
+      let calendar: LobCalendar;
+      try {
+        calendar = normalizeLobCalendar(c.calendar);
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : 'Calendário inválido.');
+      }
+      return { type, workId: workId(), calendar };
+    }
+    case 'set_activity_dates': {
+      if (!Array.isArray(c.items)) fail('Lista de datas inválida.');
+      const rawItems = c.items as unknown[];
+      if (!rawItems.length) fail('Nenhuma data para devolver.');
+      if (rawItems.length > LOB_LIMITS.activities) fail(`Devolva no máximo ${LOB_LIMITS.activities} blocos por vez.`);
+      const seen = new Set<string>();
+      const items = rawItems.map(raw => {
+        const i = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+        const activityId = requiredId(i.activityId, 'Bloco não informado.');
+        if (seen.has(activityId)) fail('Um bloco aparece duas vezes na lista de datas.');
+        seen.add(activityId);
+        return {
+          activityId,
+          start: date(i.start, 'Data de início'),
+          durationDays: integer(
+            i.durationDays,
+            1,
+            LOB_LIMITS.durationDays,
+            `Duração inválida: informe de 1 a ${LOB_LIMITS.durationDays} dias úteis.`,
+          ),
+        };
+      });
+      return { type, workId: workId(), items };
+    }
   }
   return fail('Comando desconhecido.');
 }
@@ -449,7 +493,7 @@ export function lobCommandTarget(command: LobCommand): LobTarget {
       return { table: 'items', id: command.itemId };
     case 'delete_photo':
       return { table: 'photos', id: command.photoId };
-    // Os demais, inclusive `save_costs`, levam a obra no próprio comando.
+    // Os demais, inclusive `save_costs`, `set_calendar` e `set_activity_dates`, levam a obra no próprio comando.
     default:
       return { workId: command.workId };
   }
@@ -491,12 +535,19 @@ const byId = <T extends { id: string }>(list: T[]) => new Map(list.map(item => [
 const label = (data: LobData, a: LobActivity) =>
   `${data.services.find(s => s.id === a.serviceId)?.name ?? 'Serviço'} · ${data.locals.find(l => l.id === a.localId)?.name ?? 'local'}`;
 
-/** Aplica as mudanças de datas da cascata ao conjunto de atualização, com carimbo. */
+/** Aplica as mudanças de datas da cascata ao conjunto de atualização, com carimbo. Índice por bloco:
+ * uma cascata de centenas de blocos não pode procurar cada um na lista (23/11/2026). */
 function pushChanged(mutation: LobMutation, changed: LobActivity[], now: string) {
+  if (!changed.length) return;
+  const pending = byId(mutation.update.activities);
   for (const a of changed) {
-    const existing = mutation.update.activities.find(x => x.id === a.id);
+    const existing = pending.get(a.id);
     if (existing) Object.assign(existing, { start: a.start, durationDays: a.durationDays, updatedAt: now });
-    else mutation.update.activities.push({ ...a, updatedAt: now });
+    else {
+      const next = { ...a, updatedAt: now };
+      mutation.update.activities.push(next);
+      pending.set(next.id, next);
+    }
   }
 }
 /** Blocos com a atualização pendente aplicada por cima dos atuais. */
@@ -519,8 +570,17 @@ function snapshotBaseline(data: LobData, name: string, automatic: boolean, conte
       localId: a.localId,
       start: a.start,
       durationDays: a.durationDays,
+      // O término fica na foto: o calendário da obra pode mudar depois.
+      finish: activityFinish(a, data.calendar),
     })),
   };
+}
+/** Nome livre para uma linha de base automática: "Antes do lançamento 23/11/2026", "… (2)", "… (3)". */
+function automaticBaselineName(data: LobData, base: string) {
+  const taken = new Set(data.baselines.map(b => normalizeName(b.name)));
+  let name = base;
+  for (let n = 2; taken.has(normalizeName(name)); n++) name = `${base} (${n})`;
+  return name;
 }
 
 /** Medição que o comando pode alterar (regra 24); a rota já conferiu que ela é da obra. */
@@ -567,6 +627,8 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
     return row?.workId ?? fail('Registro não encontrado. Recarregue a página.');
   };
   const workId = workIdOf();
+  // Dias úteis da obra: todo cálculo de data abaixo passa por ele (ausente = segunda a sexta).
+  const calendar = data.calendar;
   const mutation = emptyMutation(workId);
   const stamp = { createdAt: now, updatedAt: now };
 
@@ -662,7 +724,7 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
         workId,
         serviceId: command.serviceId,
         localId: command.localId,
-        start: nextWorkday(command.start),
+        start: nextWorkday(command.start, calendar),
         durationDays: command.durationDays,
         ...stamp,
       });
@@ -677,6 +739,7 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
           activity.id,
           command.start ?? activity.start,
           command.durationDays,
+          calendar,
         );
         pushChanged(mutation, changed, now);
       }
@@ -715,7 +778,7 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
         createdAt: now,
       };
       mutation.insert.dependencies.push(dependency);
-      pushChanged(mutation, cascade(data.activities, [...data.dependencies, dependency]), now);
+      pushChanged(mutation, cascade(data.activities, [...data.dependencies, dependency], calendar), now);
       return mutation;
     }
     case 'update_dependency': {
@@ -728,6 +791,7 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
         cascade(
           data.activities,
           data.dependencies.map(d => (d.id === next.id ? next : d)),
+          calendar,
         ),
         now,
       );
@@ -760,10 +824,7 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
       if (data.activities.length) {
         if (data.baselines.length >= LOB_LIMITS.baselines)
           fail(`A obra já tem ${LOB_LIMITS.baselines} linhas de base. Exclua alguma antes de lançar.`);
-        const base = `Antes do lançamento ${formatDate(today)}`;
-        const taken = new Set(data.baselines.map(b => normalizeName(b.name)));
-        let name = base;
-        for (let n = 2; taken.has(normalizeName(name)); n++) name = `${base} (${n})`;
+        const name = automaticBaselineName(data, `Antes do lançamento ${formatDate(today)}`);
         mutation.insert.baselines.push(snapshotBaseline(data, name, true, context));
       }
       mutation.insert.services.push(...plan.services);
@@ -788,7 +849,7 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
       if (!document.activities.length) fail('O Planejador desta obra está vazio: não há serviços para importar.');
       if (data.activities.length)
         fail('A importação só funciona numa Linha de Balanço sem blocos. Exclua os blocos atuais ou lance o fluxo direto.');
-      const imported = fromLongTermPlan(document, workId, now, context.newId);
+      const imported = fromLongTermPlan(document, workId, now, context.newId, calendar);
       // Locais e serviços já cadastrados com o mesmo nome são reaproveitados.
       const localByName = new Map(data.locals.map(l => [normalizeName(l.name), l]));
       const serviceByName = new Map(data.services.map(s => [normalizeName(s.name), s]));
@@ -830,14 +891,15 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
     case 'restore_baseline': {
       const baseline = data.baselines.find(b => b.id === command.baselineId) ?? fail('Linha de base não encontrada. Recarregue a página.');
       const entries = byId(baseline.snapshot.map(e => ({ id: e.activityId, ...e })));
+      // A data guardada pode ter virado dia sem trabalho, se o calendário mudou depois da foto.
       const restored = data.activities.map(a => {
         const e = entries.get(a.id);
-        return e ? { ...a, start: e.start, durationDays: e.durationDays } : a;
+        return e ? { ...a, start: nextWorkday(e.start, calendar), durationDays: e.durationDays } : a;
       });
       const changed = restored.filter((a, i) => a.start !== data.activities[i].start || a.durationDays !== data.activities[i].durationDays);
       if (!changed.length) fail('Os blocos já estão como nesta linha de base.');
       pushChanged(mutation, changed, now);
-      pushChanged(mutation, cascade(restored, data.dependencies), now);
+      pushChanged(mutation, cascade(restored, data.dependencies, calendar), now);
       return mutation;
     }
     case 'delete_baseline': {
@@ -1075,8 +1137,94 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
       mutation.summary = { saved: mutation.insert.costs.length + mutation.update.costs.length, removed: mutation.delete.costs.length };
       return mutation;
     }
+    // ─── Calendário de dias úteis ─────────────────────────────────────────────
+    case 'set_calendar': {
+      const next = command.calendar;
+      if (sameLobCalendar(calendar, next)) fail('O calendário já está assim: nada a salvar.');
+      // As durações em dias úteis ficam; início em dia sem trabalho vai ao próximo dia útil e a rede
+      // é recalculada em cascata, tudo na mesma gravação.
+      const preview = calendarChangePreview(data.activities, data.dependencies, calendar, next);
+      if (preview.changedBlocks) {
+        // Como no lançamento: antes de mexer nas datas, uma foto automática do cronograma.
+        if (data.baselines.length >= LOB_LIMITS.baselines)
+          fail(`A obra já tem ${LOB_LIMITS.baselines} linhas de base. Exclua alguma antes de mudar o calendário.`);
+        const name = automaticBaselineName(data, `Antes da mudança de calendário ${formatDate(today)}`);
+        mutation.insert.baselines.push(snapshotBaseline(data, name, true, context));
+      }
+      // Linhas de base antigas (sem o término na foto) ganham o término pelo calendário que valia até
+      // aqui: depois da troca ele não poderia mais ser recalculado.
+      for (const baseline of data.baselines) {
+        if (baseline.snapshot.every(e => e.finish)) continue;
+        mutation.update.baselines.push({
+          ...baseline,
+          snapshot: baseline.snapshot.map(e => (e.finish ? e : { ...e, finish: activityFinish(e, calendar) })),
+        });
+      }
+      pushChanged(mutation, applyCalendar(data.activities, data.dependencies, next), now);
+      mutation.calendar = { value: next, updatedBy: context.actorId, updatedAt: now };
+      mutation.summary = { changedBlocks: preview.changedBlocks, movedStarts: preview.movedStarts };
+      return mutation;
+    }
+    // ─── Datas de vários blocos de uma vez (o "Desfazer") ─────────────────────
+    case 'set_activity_dates': {
+      const wanted = byId(command.items.map(i => ({ id: i.activityId, ...i })));
+      const known = byId(data.activities);
+      for (const id of wanted.keys()) if (!known.has(id)) fail('Um dos blocos não existe mais. Recarregue a página.');
+      // Como ao restaurar uma linha de base: cada bloco volta à data pedida (no dia útil) e a rede é
+      // recalculada, para ninguém ficar antes do fim das predecessoras.
+      const restored = data.activities.map(a => {
+        const w = wanted.get(a.id);
+        return w ? { ...a, start: nextWorkday(w.start, calendar), durationDays: w.durationDays } : a;
+      });
+      pushChanged(
+        mutation,
+        restored.filter((a, i) => a.start !== data.activities[i].start || a.durationDays !== data.activities[i].durationDays),
+        now,
+      );
+      pushChanged(mutation, cascade(restored, data.dependencies, calendar), now);
+      // Bloco que a rede devolveu exatamente para onde já estava não é gravação.
+      mutation.update.activities = mutation.update.activities.filter(a => {
+        const current = known.get(a.id)!;
+        return current.start !== a.start || current.durationDays !== a.durationDays;
+      });
+      if (!mutation.update.activities.length) fail('Os blocos já estão nessas datas.');
+      return mutation;
+    }
   }
   return fail('Comando desconhecido.');
+}
+
+// ─── A mesma gravação, na memória ───────────────────────────────────────────────
+
+/** Comandos de datas (mover, esticar, devolver): a tela aplica na hora, com as mesmas regras
+ * (`planLobCommand`), e o servidor responde só com os blocos que gravou, sem reler a obra. */
+export const LOB_SCHEDULE_COMMANDS = ['update_activity', 'set_activity_dates'] as const satisfies readonly LobCommand['type'][];
+export type LobScheduleCommand = Extract<LobCommand, { type: (typeof LOB_SCHEDULE_COMMANDS)[number] }>;
+export const isLobScheduleCommand = (command: LobCommand): command is LobScheduleCommand =>
+  (LOB_SCHEDULE_COMMANDS as readonly string[]).includes(command.type);
+/** Resposta enxuta de um comando de datas: só os blocos gravados, já com o carimbo do servidor. */
+export interface LobScheduleResponse {
+  available: true;
+  partial: true;
+  activities: LobActivity[];
+}
+const SCHEDULE_FIELDS = ['start', 'durationDays', 'notes', 'actualStart', 'actualFinish'] as const;
+/** Verdadeiro quando o que o servidor gravou é o que a tela já tinha aplicado: os mesmos blocos, com
+ * as mesmas datas, duração, observação e datas reais. O carimbo de hora não entra na conta. */
+export function sameScheduleResult(predicted: LobActivity[], saved: LobActivity[]): boolean {
+  if (predicted.length !== saved.length) return false;
+  const expected = byId(predicted);
+  return saved.every(a => {
+    const p = expected.get(a.id);
+    return !!p && SCHEDULE_FIELDS.every(field => (p[field] ?? undefined) === (a[field] ?? undefined));
+  });
+}
+/** Os blocos da obra com os alterados por cima. Quem não mudou continua o MESMO objeto: o gráfico
+ * usa isso para redesenhar só as linhas afetadas. */
+export function mergeActivities(activities: LobActivity[], changed: LobActivity[]): LobActivity[] {
+  if (!changed.length) return activities;
+  const updates = byId(changed);
+  return activities.map(a => updates.get(a.id) ?? a);
 }
 
 /** Fim exclusivo, exportado para a tela não recalcular com outra regra. */

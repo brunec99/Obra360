@@ -47,7 +47,7 @@ Um seletor no topo troca entre as seções, que ficam no endereço da página (o
 
 ## As colunas
 
-Na ordem da tela: a alça ⠿ de arrastar a linha e a caixa de marcar (para apontar várias linhas), "Empresa", "Semana", "Início", "Término", "Atividade", "Local" (opcional), "Equipe", os dias "SEG" a "SÁB", "Status", "Causas", "Justificativas", a coluna "Apontamento" (botões "Levar ›" e "Limpar"; só aparece quando a semana já tem algum apontamento ou com "Semanas vizinhas" ligado) e, no fim, "Inserir linha acima" e o ✕ de excluir. Os dias não se clicam: ficam marcados com "x" sozinhos, a partir de "Início" e "Término".
+Na ordem da tela: a alça ⠿ de arrastar a linha e a caixa de marcar (para apontar várias linhas), "Empresa", "Semana", "Início", "Término", "Atividade", "Local" (opcional), "Equipe", os dias "SEG" a "SÁB", "Status", "Causas", "Justificativas", a coluna "Apontamento" (botões "Levar ›" e "Limpar"; só aparece quando a semana já tem algum apontamento ou com "Semanas vizinhas" ligado) e, no fim, a coluna "Ações", com "Inserir linha acima" e o ✕ de excluir. A coluna "Ações" fica presa à borda direita da planilha: continua à vista mesmo quando a planilha é rolada de lado. Os dias não se clicam: ficam marcados com "x" sozinhos, a partir de "Início" e "Término".
 
 ## O que fica acima da planilha
 
@@ -60,7 +60,7 @@ Na ordem da tela: a alça ⠿ de arrastar a linha e a caixa de marcar (para apon
 - **"Como preencher"**: lembrete das células.
 - **"Gerenciar empreiteiros e equipes"** ("Consultar recursos" para quem só consulta): abre as Configurações da obra, com o cadastro de empreiteiros e equipes, a capacidade de cada equipe e a semana 1.
 - **"PDF do planejamento"** e **"PDF do fechamento"**.
-- **"Ajustar à tela"**: só em telas largas; encolhe as colunas para a planilha caber.
+- **"Ajustar à tela"**: só em telas largas; esquece as larguras que a pessoa escolheu e volta ao ajuste automático, em que as colunas acompanham a largura da tela.
 
 Abaixo aparecem, quando houver: o aviso de semana encerrada, o erro da última gravação, o aviso de linhas com "Não" aguardando causa, a barra de "linhas marcadas", "Mostrando X de Y linhas" e a frase sobre a ordem das linhas.
 
@@ -103,6 +103,10 @@ Abaixo de 1024 px de largura, cada linha vira um cartão com os mesmos campos: a
       'término',
       'mover de semana',
       'excluir linha',
+      'excluir várias',
+      'tela maior',
+      'monitor ou tv',
+      'limpar linha em branco',
       'filtro',
       'funil',
       'classificar',
@@ -116,6 +120,7 @@ A última linha da planilha é a linha em branco (fundo azulado). Escreva o que 
 - **Obrigatório**: só a atividade. Linha sem atividade não existe.
 - **Opcionais**: "Empresa", "Local", "Equipe", "Início" e "Término". Sem período, a linha nasce na segunda-feira da semana, com término igual ao início.
 - A linha nova entra embaixo e fica embaixo; após o Enter, o foco volta à atividade para a próxima.
+- Começou a preencher e desistiu: com algo escrito ou escolhido na linha em branco aparecem "Limpar" e um ✕ no fim dela; os dois, ou a tecla Esc, esvaziam a linha sem criar nada. No celular, o cartão "Nova linha" ganha o botão "Limpar".
 - Equipe só depois da empresa.
 
 ## Inserir uma linha no meio
@@ -153,7 +158,11 @@ Tudo é editável na própria célula: lista grava na hora; texto e data, ao sai
 
 ## Excluir uma linha
 
-O ✕ no fim da linha pergunta "Excluir a linha “…”?" e avisa que o apontamento sai junto e que a série do PPC e o Pareto deixam de contar a linha. O aviso seguinte traz "Desfazer", que devolve a linha ao mesmo lugar. Para corrigir um Sim ou Não errado, não exclua: troque a célula ou use "Limpar".
+O ✕ da coluna "Ações", no fim da linha (sempre à vista, presa à borda direita; no celular, no topo do cartão; o perfil de consulta não vê essa coluna), pergunta "Excluir a linha “…”?" e avisa que o apontamento sai junto e que a série do PPC e o Pareto deixam de contar a linha. O aviso seguinte traz "Desfazer", que devolve a linha ao mesmo lugar. Linha já preenchida, com ou sem Status, pode ser excluída do mesmo jeito.
+
+Para excluir várias de uma vez, marque as caixas das linhas e use **"Excluir N"** na barra de linhas marcadas: uma pergunta só ("Excluir N linhas?"), e um "Desfazer" só devolve todas ao lugar, com o Status que tinham.
+
+Se o ✕ não aparece: a pessoa só consulta, ou a semana está encerrada e ela não é administradora. Para corrigir um Sim ou Não errado, não exclua: troque a célula ou use "Limpar".
 
 ## Filtrar e classificar (o funil)
 
@@ -161,7 +170,7 @@ Cada cabeçalho tem o funil do Sheets (o de "Local" filtra pelo nome do local), 
 
 ## Ordem e larguras
 
-A ordem da planilha é salva e vale para todos: sem ninguém ter mexido, é a de inclusão. Para mudar, segure a alça ⠿ do começo da linha e arraste para cima ou para baixo (o filete azul mostra onde ela cai); com a alça selecionada, as setas ↑ e ↓ movem uma posição. No celular, use as setas de subir e descer do cartão. Arrastar e inserir só existem na semana analisada; o "Desfazer" volta a ordem anterior. Linha que muda de semana entra embaixo na semana nova. "Organizar por empresa" junta as linhas de cada empresa (pela data de início) e o funil classifica, mas os dois só valem na sua tela: a faixa avisa "só nesta tela" e oferece "Salvar esta ordem" (grava para todos) e "Voltar à ordem salva" (desfaz); arrastar ou inserir uma linha também salva a ordem que está na tela. Arraste a borda do cabeçalho para mudar a largura da coluna (duplo clique volta ao padrão); "Ajustar à tela" encolhe as colunas até a planilha caber. As larguras ficam guardadas no navegador.`,
+A ordem da planilha é salva e vale para todos: sem ninguém ter mexido, é a de inclusão. Para mudar, segure a alça ⠿ do começo da linha e arraste para cima ou para baixo (o filete azul mostra onde ela cai); com a alça selecionada, as setas ↑ e ↓ movem uma posição. No celular, use as setas de subir e descer do cartão. Arrastar e inserir só existem na semana analisada; o "Desfazer" volta a ordem anterior. Linha que muda de semana entra embaixo na semana nova. "Organizar por empresa" junta as linhas de cada empresa (pela data de início) e o funil classifica, mas os dois só valem na sua tela: a faixa avisa "só nesta tela" e oferece "Salvar esta ordem" (grava para todos) e "Voltar à ordem salva" (desfaz); arrastar ou inserir uma linha também salva a ordem que está na tela. Nesta aba a tela ocupa a largura inteira da janela, e as colunas acompanham essa largura sozinhas: redimensionar a janela ou levá-la para um monitor maior ou para a TV amplia a planilha, e ela se reajusta quando a coluna "Apontamento" aparece ou some. Arraste a borda do cabeçalho para mudar a largura de uma coluna (duplo clique volta ao padrão): a partir daí as larguras são as escolhidas, ficam guardadas no navegador e só crescem ou encolhem na proporção da tela. "Ajustar à tela" esquece as larguras escolhidas e volta ao ajuste automático.`,
   },
   {
     id: 'curto-prazo-apontamento',
@@ -257,6 +266,7 @@ Cada linha tem uma caixa de marcar na primeira coluna; a do cabeçalho marca tod
 - **"Justificativa"**: "Manter" ou "Trocar por…", que abre o campo do texto novo ("Em branco apaga a justificativa das marcadas").
 - Embaixo de cada campo, **"Hoje: …"** mostra o valor atual nas marcadas ("vários" quando diferem, "vazio" quando não há).
 - **"Aplicar a N"** grava tudo numa ida só ao servidor; **"Desmarcar"** limpa a seleção.
+- **"Excluir N"** (em vermelho) apaga as linhas marcadas: pergunta uma vez ("Excluir N linhas?"), e o "Desfazer" devolve todas ao lugar. Só aparece para quem pode excluir; marcadas de semana que só aceita apontamento (a anterior das "Semanas vizinhas" ou uma encerrada) ficam de fora, e a pergunta diz quantas.
 
 Regras, linha a linha: "Não" exige causa (a da barra ou a que a linha já tinha); "Sim" não tem causa; "Manter como está" numa linha sem Status não grava nada. As linhas que não dão para gravar ficam de fora, e a barra avisa antes: "N linhas ficam de fora: sem Status" ou "Não sem causa". Se nada muda: "Nada a gravar: as marcadas já estão assim." Depois de aplicar, a barra volta a "Manter como está".
 

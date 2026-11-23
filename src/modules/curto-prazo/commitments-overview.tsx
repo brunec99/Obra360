@@ -32,7 +32,15 @@ import { ColumnFilter, PillCombo, PillSelect } from '@/modules/curto-prazo/sheet
 import { FillHandle, type FillColumn } from '@/modules/curto-prazo/fill-handle';
 import { BulkBar, bulkFulfillmentItems, type BulkChoice } from '@/modules/curto-prazo/bulk-bar';
 import { handleRowKey } from '@/modules/curto-prazo/row-navigation';
-import { fulfillmentLabel, quote, recreateCommand, undoFulfillmentCommand, undoUpdateCommand } from '@/modules/curto-prazo/undo';
+import {
+  deletionLabel,
+  fulfillmentLabel,
+  quote,
+  recreateCommand,
+  restorePlan,
+  undoFulfillmentCommand,
+  undoUpdateCommand,
+} from '@/modules/curto-prazo/undo';
 import { BetweenHorizontalStart, ChevronDown, ChevronUp, GripVertical, Info, Undo2 } from 'lucide-react';
 import { useWorkLocals } from '@/modules/curto-prazo/use-work-locals';
 import {
@@ -71,6 +79,9 @@ const dayMonth = (date: string) => formatDate(date).slice(0, 5);
 /** Campos que a linha em branco acumula antes de existir: só a atividade é obrigatória. `localId` '' = sem local. */
 type Draft = { supplier: string; startDate: string; endDate: string; name: string; teamName: string; localId: string };
 const EMPTY_DRAFT: Draft = { supplier: '', startDate: '', endDate: '', name: '', teamName: '', localId: '' };
+/** Nada escrito nem escolhido na linha em branco (espaços na atividade não contam). */
+const draftIsEmpty = (draft: Draft) =>
+  !draft.name.trim() && !draft.supplier && !draft.teamName && !draft.startDate && !draft.endDate && !draft.localId;
 /** Capacidade de uma equipe criada na própria planilha. É um ponto de partida, não uma medição:
  * o planejador ajusta nas configurações da obra, e a análise de carga do médio prazo usa o valor. */
 const NEW_TEAM_CAPACITY = 3;
@@ -126,11 +137,21 @@ const COLUMN_MIN: Record<string, number> = {
   d5: 40,
   d6: 40,
   status: 76,
-  causas: 130,
-  justificativa: 130,
-  seguimento: 112,
+  // Em "Apontamento" cabem "Levar ›" e "Limpar" lado a lado (o terceiro botão, "Restrição", desce para a
+  // linha de baixo). Os 18 px a mais saíram de Causas e Justificativas (eram 130 cada, e Apontamento 112):
+  // a soma dos mínimos continua 1.582 px, o que cabe sem rolar de lado num monitor de 1920 px.
+  causas: 122,
+  justificativa: 120,
+  seguimento: 130,
   excluir: 56,
 };
+/** A coluna de ações (inserir acima, excluir) fica presa à direita do painel (23/11/2026): com "Apontamento"
+ * à vista a planilha passava da tela e o ✕ sumia, e a obra concluiu que não dava para excluir a linha. O
+ * fundo é opaco (as células que rolam passam por baixo) e a sombra interna refaz o filete da linha e a
+ * divisa da coluna, que a borda da tabela não acompanha. Fica acima da alça de arrastar das células (z-10)
+ * e abaixo do cabeçalho fixo (z-20). */
+const ACTIONS_STICKY =
+  'sticky right-0 z-[11] shadow-[inset_1px_0_0_rgb(226_232_240),inset_0_1px_0_rgb(241_245_249),-6px_0_6px_-6px_rgb(15_23_42/0.18)]';
 /** Tipo do arrasto de linha: só o que sai da alça da planilha vira mover; texto arrastado não. */
 const ROW_DRAG = 'application/x-obra360-linha';
 
@@ -245,10 +266,9 @@ function Sheet({
   const [printing, setPrinting] = useState<PrintKind>();
   const [neighbors, setNeighbors] = useStoredFlag(NEIGHBORS_KEY);
   const { weekOneStart } = useWorkSettings(workId);
-  const columnWidths = useColumnWidths('obra360.curto-prazo.colunas', COLUMN_DEFAULTS, COLUMN_MIN);
   const wide = useWideScreen();
-  const sheetPanel = useRef<HTMLDivElement | null>(null);
-  const autoFitted = useRef(false);
+  /** "Excluir linhas marcadas" em curso: a barra de seleção espera as N exclusões terminarem. */
+  const [removingMany, setRemovingMany] = useState(false);
   /** Fila das gravações: cada uma espera a anterior terminar. Antes, sair de uma célula enquanto
    * outra linha gravava descartava a edição em silêncio. */
   const queue = useRef<Promise<unknown>>(Promise.resolve());
@@ -486,6 +506,92 @@ function Sheet({
       });
     }
   };
+  /** "Excluir linhas marcadas" (23/11/2026): uma confirmação para todas, uma exclusão por linha pelo mesmo
+   * caminho do ✕ (a trava da semana é a de cada linha) e um Desfazer só, que devolve cada uma ao lugar em que
+   * estava, com o apontamento. As marcadas que não se editam aqui (semana anterior das vizinhas, semana
+   * encerrada) ficam de fora, e a pergunta diz quantas. */
+  const removeMany = async (chosenRows: readonly WeeklyCommitment[]) => {
+    const targets = chosenRows.filter(editableRow);
+    if (!targets.length || removingMany) return;
+    if (targets.length === 1 && chosenRows.length === 1) {
+      await removeRow(targets[0]);
+      return;
+    }
+    const out = chosenRows.length - targets.length;
+    const withStatus = targets.filter(row => row.fulfilled !== undefined).length;
+    const ok = await confirm({
+      title: `Excluir ${targets.length} ${targets.length === 1 ? 'linha' : 'linhas'}?`,
+      description: [
+        withStatus
+          ? `Isto apaga também o apontamento de ${withStatus === 1 ? '1 delas' : `${withStatus} delas`} (Status e causa).`
+          : 'As linhas saem da planilha.',
+        'A série do PPC e o Pareto deixam de contá-las.',
+        out ? `${out} ${out === 1 ? 'marcada fica' : 'marcadas ficam'} de fora: semana só para apontamento.` : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      confirmLabel: `Excluir ${targets.length}`,
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setRemovingMany(true);
+    try {
+      const results = await Promise.all(targets.map(row => run({ type: 'delete_commitment', commitmentId: row.id }, row.id)));
+      const gone = new Set(targets.filter((_, i) => results[i]).map(row => row.id));
+      if (!gone.size) return;
+      const done = targets.filter(row => gone.has(row.id));
+      // De cada semana, onde cada linha estava na ordem salva: é para lá que o Desfazer a devolve.
+      const byId = new Map(targets.map(row => [row.id, row]));
+      const plan = [...new Set(targets.map(row => row.weekStart))].sort().flatMap(start =>
+        restorePlan(
+          commitments
+            .filter(c => c.weekStart === start)
+            .sort(sheetOrder(companyOf))
+            .map(c => c.id),
+          gone,
+        ),
+      );
+      settledAll([...gone]);
+      setSelected(current => new Set([...current].filter(id => !gone.has(id))));
+      // Desfazer recria as linhas uma a uma, na ordem da planilha (ids novos), e regrava o Sim/Não de quem tinha.
+      const entry = pushUndo(deletionLabel(done), async () => {
+        let all = true;
+        for (const step of plan) {
+          const row = byId.get(step.id);
+          if (!row || !gone.has(step.id)) continue;
+          const id = await run(recreateCommand(row, actor.id, step.beforeId), 'desfazer');
+          if (!id) {
+            all = false;
+            continue;
+          }
+          if (
+            row.fulfilled !== undefined &&
+            !(await run(
+              {
+                type: 'record_fulfillment',
+                commitmentId: id,
+                fulfilled: row.fulfilled,
+                cause: row.cause,
+                justification: row.justification,
+              },
+              id,
+            ))
+          )
+            all = false;
+        }
+        return all;
+      });
+      toast({
+        title: done.length === 1 ? 'Linha excluída.' : `${done.length} linhas excluídas.`,
+        description:
+          done.length < targets.length ? `${targets.length - done.length} não foram excluídas: veja o aviso de erro.` : undefined,
+        tone: done.length < targets.length ? 'info' : 'success',
+        action: undoAction(entry),
+      });
+    } finally {
+      setRemovingMany(false);
+    }
+  };
 
   const weekEnd = addDays(week, 6);
   const columns = WEEKDAYS.map(day => ({ day, date: addDays(week, day - 1) }));
@@ -575,7 +681,19 @@ function Sheet({
   // Sim/Não a limpar): na semana de planejamento ela era 208 px de vazio. Nas semanas vizinhas ela
   // fica sempre, porque qualquer linha pode ser levada para a semana seguinte.
   const showFollowUp = !!around || weekRows.some(r => r.fulfilled !== undefined) || waiting > 0;
-  const visibleColumns = COLUMN_ORDER.filter(column => (column !== 'seguimento' || showFollowUp) && (column !== 'marcar' || !viewer));
+  // Quem só consulta não insere nem exclui: a coluna "Ações" ficava vazia, presa à direita por cima da planilha.
+  const showActions = !viewer;
+  const visibleColumns = COLUMN_ORDER.filter(
+    column => (column !== 'seguimento' || showFollowUp) && (column !== 'marcar' || !viewer) && (column !== 'excluir' || showActions),
+  );
+  // As larguras acompanham o painel e só contam as colunas à vista (23/11/2026): a planilha se reajusta quando
+  // a janela muda de tamanho ou de monitor e quando "Apontamento" aparece ou some.
+  const { observe: observePanel, ...columnWidths } = useColumnWidths(
+    'obra360.curto-prazo.colunas',
+    COLUMN_DEFAULTS,
+    COLUMN_MIN,
+    visibleColumns,
+  );
   const tableWidth = visibleColumns.reduce((sum, column) => sum + columnWidths.widths[column], 0);
 
   const resizeHandle = (column: string, label: string) => (
@@ -1079,6 +1197,10 @@ function Sheet({
               local no PDF. &quot;Levar&quot; leva o local junto, e o Desfazer devolve o local anterior.
             </p>
             <p>
+              Para excluir uma linha, use o ✕ da coluna &quot;Ações&quot;, que fica sempre à vista no fim da linha; para excluir várias,
+              marque as caixas e use &quot;Excluir&quot; na barra de linhas marcadas. O Desfazer devolve as linhas ao lugar.
+            </p>
+            <p>
               Para pôr uma linha no meio, use &quot;Inserir linha acima&quot; no fim da linha de baixo. Para mudar a ordem, arraste a linha
               pela alça ⠿ do começo (no celular, pelas setas do cartão). A ordem fica salva para todos que abrem a planilha.
             </p>
@@ -1217,8 +1339,12 @@ function Sheet({
               data-tour="curto-ajustar"
               type="button"
               className="text-link"
-              title="Reduz as colunas para a planilha caber na largura da tela"
-              onClick={() => columnWidths.fit(sheetPanel.current?.clientWidth ?? 0, true)}
+              title={
+                columnWidths.manual
+                  ? 'Esquece as larguras que você escolheu: as colunas voltam a caber na tela e a acompanhar o tamanho dela'
+                  : 'As colunas já acompanham a largura da tela'
+              }
+              onClick={columnWidths.fit}
             >
               Ajustar à tela
             </button>
@@ -1257,8 +1383,10 @@ function Sheet({
             total={shownRows.length}
             rows={selectedRows}
             causes={NON_FULFILLMENT_CAUSES}
-            busy={busy === 'lote'}
+            busy={busy === 'lote' || removingMany}
             onApply={applyBulk}
+            deletable={selectedRows.filter(editableRow).length}
+            onDelete={() => void removeMany(selectedRows)}
             onSelectAll={() => setSelected(new Set(shownRows.map(r => r.id)))}
             onClear={() => setSelected(new Set())}
           />
@@ -1321,14 +1449,8 @@ function Sheet({
       <div data-tour="curto-commitments" className="mt-4">
         {wide ? (
           <div
-            ref={element => {
-              sheetPanel.current = element;
-              // Na primeira vez, sem larguras escolhidas, a planilha já abre cabendo na tela.
-              if (element && !autoFitted.current && !columnWidths.saved) {
-                autoFitted.current = true;
-                columnWidths.fit(element.clientWidth, false);
-              }
-            }}
+            // Mede o painel na montagem e a cada mudança de largura: as colunas acompanham a tela.
+            ref={observePanel}
             // `relative`: os ícones absolutos das células passam a ser cortados por este quadro em vez de
             // alargar a página inteira (ela chegava a 2.473 px numa tela de 1.366, 09/10/2026). A altura
             // limitada traz a barra de rolagem lateral para a vista, com o cabeçalho fixo no topo.
@@ -1337,7 +1459,12 @@ function Sheet({
             aria-label={sheetLabel}
             tabIndex={0}
           >
-            <table className="table-fixed border-collapse text-left text-xs" style={{ width: tableWidth }}>
+            {/* No ajuste automático a tabela vai até a borda do painel: o arredondamento das colunas (e os
+              mínimos, quando somam menos que o painel) deixava uma fresta à direita da coluna de ações. */}
+            <table
+              className="table-fixed border-collapse text-left text-xs"
+              style={{ width: tableWidth, minWidth: columnWidths.manual ? undefined : '100%' }}
+            >
               <colgroup>
                 {visibleColumns.map(column => (
                   <col key={column} style={{ width: columnWidths.widths[column] }} />
@@ -1352,7 +1479,8 @@ function Sheet({
                       {around ? '' : dayMonth(date)}
                     </th>
                   ))}
-                  <th colSpan={showFollowUp ? 5 : 4} />
+                  <th colSpan={showFollowUp ? 4 : 3} />
+                  {showActions && <th className={`${ACTIONS_STICKY} bg-slate-50`} />}
                 </tr>
                 <tr data-tour="curto-colunas" className="border-b border-slate-200">
                   {!viewer && (
@@ -1384,9 +1512,11 @@ function Sheet({
                       Apontamento
                     </th>
                   )}
-                  <th scope="col">
-                    <span className="sr-only">Inserir ou excluir linha</span>
-                  </th>
+                  {showActions && (
+                    <th scope="col" className={`${ACTIONS_STICKY} bg-slate-50 px-1 py-1.5 text-center text-[10px]`}>
+                      Ações<span className="sr-only">: inserir ou excluir linha</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1402,7 +1532,7 @@ function Sheet({
                       span={visibleColumns.length}
                     />
                     {neighborSections.previous.rows.map((row, index) => (
-                      <SheetRow key={row.id} {...rowProps(row, index, 'anterior')} showFollowUp={showFollowUp} />
+                      <SheetRow key={row.id} {...rowProps(row, index, 'anterior')} showFollowUp={showFollowUp} showActions={showActions} />
                     ))}
                   </>
                 )}
@@ -1427,10 +1557,10 @@ function Sheet({
                         localHint={localHint}
                         onCreate={draft => createRow(draft, row.id)}
                         insert={insertFor(row)}
-                        trailingSpan={showFollowUp ? 11 : 10}
+                        trailingSpan={showFollowUp ? 10 : 9}
                       />
                     )}
-                    <SheetRow key="linha" {...rowProps(row, index)} showFollowUp={showFollowUp} />
+                    <SheetRow key="linha" {...rowProps(row, index)} showFollowUp={showFollowUp} showActions={showActions} />
                   </Fragment>
                 ))}
                 {!readOnly && (
@@ -1444,7 +1574,7 @@ function Sheet({
                     localHint={localHint}
                     onCreate={createRow}
                     tourId="curto-linha-nova"
-                    trailingSpan={showFollowUp ? 11 : 10}
+                    trailingSpan={showFollowUp ? 10 : 9}
                   />
                 )}
                 {neighborSections && (
@@ -1454,7 +1584,7 @@ function Sheet({
                       span={visibleColumns.length}
                     />
                     {neighborSections.next.rows.map((row, index) => (
-                      <SheetRow key={row.id} {...rowProps(row, index, 'proxima')} showFollowUp={showFollowUp} />
+                      <SheetRow key={row.id} {...rowProps(row, index, 'proxima')} showFollowUp={showFollowUp} showActions={showActions} />
                     ))}
                   </>
                 )}
@@ -1964,7 +2094,7 @@ function rowControls({
         onClick={() => actions.insertAbove(row)}
         aria-label={`Inserir uma linha acima da linha ${line}`}
         title="Inserir linha acima"
-        className="rounded px-1 py-0.5 text-slate-300 transition-colors hover:bg-primary-soft hover:text-primary"
+        className="rounded px-1 py-0.5 text-slate-500 transition-colors hover:bg-primary-soft hover:text-primary"
       >
         <BetweenHorizontalStart size={14} aria-hidden />
       </RowButton>
@@ -1976,7 +2106,7 @@ function rowControls({
         onClick={() => actions.remove(row)}
         aria-label={`Excluir a linha ${row.name}`}
         title="Excluir linha"
-        className="rounded px-1.5 text-slate-300 transition-colors hover:bg-danger-soft hover:text-danger"
+        className="rounded px-1.5 font-semibold text-slate-500 transition-colors hover:bg-danger-soft hover:text-danger"
       >
         ✕
       </RowButton>
@@ -1986,8 +2116,8 @@ function rowControls({
 
 /** Uma linha da tabela. Memorizada por valor (`sameProps`): o Status de uma linha não redesenha as
  * outras 119 com seus combos, e a recarga que troca os objetos também não. */
-const SheetRow = memo(function SheetRow(props: RowProps & { showFollowUp: boolean }) {
-  const { row, showFollowUp, muted, tour, arrange, dropEdge, actions } = props;
+const SheetRow = memo(function SheetRow(props: RowProps & { showFollowUp: boolean; showActions: boolean }) {
+  const { row, showFollowUp, showActions, muted, tour, arrange, dropEdge, actions } = props;
   const c = rowControls(props);
   // O filete azul diz onde a linha arrastada vai cair: em cima ou embaixo desta.
   const drop =
@@ -2002,7 +2132,7 @@ const SheetRow = memo(function SheetRow(props: RowProps & { showFollowUp: boolea
       aria-busy={c.saving || undefined}
       onDragOver={arrange ? event => actions.dragOver(row, event) : undefined}
       onDrop={arrange ? event => actions.drop(row, event) : undefined}
-      className={`border-t border-slate-100 ${c.saving ? 'bg-amber-50/40 shadow-[inset_3px_0_0_#f59e0b]' : c.missingCause ? 'bg-rose-50/40' : muted ? 'bg-slate-50 hover:bg-slate-100/60' : 'hover:bg-slate-50/60'}${drop}`}
+      className={`group/linha border-t border-slate-100 ${c.saving ? 'bg-amber-50/40 shadow-[inset_3px_0_0_#f59e0b]' : c.missingCause ? 'bg-rose-50/40' : muted ? 'bg-slate-50 hover:bg-slate-100/60' : 'hover:bg-slate-50/60'}${drop}`}
     >
       {c.select && (
         <td className="px-0.5 py-1">
@@ -2056,13 +2186,20 @@ const SheetRow = memo(function SheetRow(props: RowProps & { showFollowUp: boolea
         {c.justification()}
         {c.fillHandle('justificativa')}
       </Cell>
-      {showFollowUp && <td className="px-1 py-1">{c.followUp && <div className="flex flex-nowrap gap-1">{c.followUp}</div>}</td>}
-      <td className="px-1 py-1">
-        <div className="flex items-center gap-0.5">
-          {c.insertButton}
-          {c.deleteButton}
-        </div>
-      </td>
+      {/* Os botões quebram de linha quando não cabem (23/11/2026): com a coluna de ações presa à direita, o que
+        passava da célula ficava escondido atrás dela ("Restrição" cortado) e vazava do outro lado ("Limpar"). */}
+      {showFollowUp && <td className="px-1 py-1">{c.followUp && <div className="flex flex-wrap gap-1">{c.followUp}</div>}</td>}
+      {/* Presa à direita: o fundo opaco repete o tom da linha (gravando, sem causa, semana anterior, mouse em cima). */}
+      {showActions && (
+        <td
+          className={`${ACTIONS_STICKY} px-1 py-1 ${c.saving ? 'bg-amber-50' : c.missingCause ? 'bg-rose-50' : muted ? 'bg-slate-50 group-hover/linha:bg-slate-100' : 'bg-white group-hover/linha:bg-slate-50'}`}
+        >
+          <div className="flex items-center justify-end gap-0.5">
+            {c.insertButton}
+            {c.deleteButton}
+          </div>
+        </td>
+      )}
     </tr>
   );
 }, sameProps);
@@ -2504,7 +2641,15 @@ function useDraft(
       setCreating(false);
     }
   };
-  return { draft, creating, nameInput, change, setCompany, create };
+  /** Há algo escrito ou escolhido na linha em branco: é quando "Limpar" aparece. */
+  const dirty = !draftIsEmpty(draft);
+  /** Descarta o que foi preenchido e devolve o foco à atividade; durante a criação não faz nada. */
+  const clear = () => {
+    if (pending.current) return;
+    setDraft(EMPTY_DRAFT);
+    nameInput.current?.focus();
+  };
+  return { draft, creating, nameInput, change, setCompany, create, dirty, clear };
 }
 
 /** Linha em branco no fim: escreveu a atividade, a linha existe. Empresa, equipe e datas podem
@@ -2524,7 +2669,7 @@ function BlankRow({
 }: BlankProps & { trailingSpan: number }) {
   // A inserida segue aberta enquanto se escreve com Enter (a próxima entra logo abaixo da criada, ainda
   // acima da mesma linha); sair dela depois de criar a fecha.
-  const { draft, creating, nameInput, change, setCompany, create } = useDraft(onCreate, teamNames, refocus => {
+  const { draft, creating, nameInput, change, setCompany, create, dirty, clear } = useDraft(onCreate, teamNames, refocus => {
     if (!refocus) insert?.onClose();
   });
   const of = insert ? 'da linha inserida' : 'da nova linha';
@@ -2535,16 +2680,20 @@ function BlankRow({
     const next = event.relatedTarget as HTMLElement | null;
     if (event.currentTarget.closest('tr')?.contains(next) || next?.closest('[data-sheet-popover]')) return;
     if (draft.name.trim()) create(draft);
-    else if (insert && !draft.supplier && !draft.teamName && !draft.startDate && !draft.endDate && !draft.localId) insert.onClose();
+    else if (insert && !dirty) insert.onClose();
   };
+  /** Desistir da linha: a inserida fecha; a do fim descarta o que foi preenchido (23/11/2026: antes só a
+   * inserida tinha saída, e quem começava a linha do fim não achava como voltar atrás). */
+  const discard = insert ? insert.onClose : clear;
+  const canDiscard = !!insert || (dirty && !creating);
   return (
     <tr
       data-tour={tourId}
       className={`border-t border-slate-100 bg-primary-soft/40 ${insert ? 'shadow-[inset_3px_0_0_var(--color-primary)]' : ''}`}
       onBlur={leave}
       onKeyDown={event => {
-        // Esc fecha a inserida; o das listas suspensas só fecha a lista (elas marcam o evento).
-        if (insert && event.key === 'Escape' && !event.defaultPrevented) insert.onClose();
+        // Esc fecha a inserida e limpa a do fim; o das listas suspensas só fecha a lista (elas marcam o evento).
+        if (event.key === 'Escape' && !event.defaultPrevented && canDiscard) discard();
       }}
     >
       {/* A coluna da caixa de marcar: a linha em branco só existe para quem edita, que sempre a tem. */}
@@ -2640,8 +2789,33 @@ function BlankRow({
             </button>{' '}
             (Esc)
           </>
+        ) : dirty ? (
+          <>
+            {draft.name.trim() ? 'Enter na atividade cria a linha' : 'falta escrever a atividade'} ·{' '}
+            <button type="button" className="text-link" disabled={creating} onMouseDown={event => event.preventDefault()} onClick={clear}>
+              Limpar
+            </button>{' '}
+            (Esc)
+          </>
         ) : (
           'os dias se marcam a partir do período depois de criar a linha'
+        )}
+      </td>
+      {/* A coluna de ações, presa à direita como nas linhas: o ✕ desiste da linha (fecha a inserida, limpa a do fim). */}
+      <td className={`${ACTIONS_STICKY} bg-primary-soft px-1 py-1`}>
+        {canDiscard && (
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              aria-label={insert ? 'Cancelar a linha inserida' : 'Limpar a linha em branco'}
+              title={insert ? 'Cancelar (Esc)' : 'Limpar o que foi preenchido (Esc)'}
+              className="rounded px-1.5 font-semibold text-slate-500 transition-colors hover:bg-danger-soft hover:text-danger"
+              onMouseDown={event => event.preventDefault()}
+              onClick={discard}
+            >
+              ✕
+            </button>
+          </div>
         )}
       </td>
     </tr>
@@ -2652,7 +2826,7 @@ function BlankRow({
  * do campo não é gesto claro o bastante para criar a linha. */
 function BlankCard({ week, weekEnd, weekNumber, companies, teamNames, locals, onCreate, insert, tourId }: BlankProps) {
   // No celular a inserida fecha depois de criar: para outra, toca-se de novo em "Inserir linha acima".
-  const { draft, creating, nameInput, change, setCompany, create } = useDraft(onCreate, teamNames, () => insert?.onClose());
+  const { draft, creating, nameInput, change, setCompany, create, dirty, clear } = useDraft(onCreate, teamNames, () => insert?.onClose());
   const of = insert ? 'da linha inserida' : 'da nova linha';
   return (
     <form
@@ -2662,6 +2836,10 @@ function BlankCard({ week, weekEnd, weekNumber, companies, teamNames, locals, on
       onSubmit={event => {
         event.preventDefault();
         create(draft, true);
+      }}
+      onKeyDown={event => {
+        // Esc limpa o cartão do fim; o das listas suspensas só fecha a lista (elas marcam o evento).
+        if (!insert && event.key === 'Escape' && !event.defaultPrevented && dirty && !creating) clear();
       }}
     >
       <p className="text-xs font-semibold text-slate-600">
@@ -2744,6 +2922,12 @@ function BlankCard({ week, weekEnd, weekNumber, companies, teamNames, locals, on
         {insert && (
           <button type="button" className="button-secondary flex-1" onClick={insert.onClose}>
             Cancelar
+          </button>
+        )}
+        {/* O cartão do fim: com algo preenchido, "Limpar" descarta o rascunho. */}
+        {!insert && dirty && (
+          <button type="button" className="button-secondary flex-1" disabled={creating} onClick={clear}>
+            Limpar
           </button>
         )}
         <button type="submit" className="button flex-1" disabled={creating || !draft.name.trim()}>

@@ -3,12 +3,12 @@ import type { TourStep } from '../tours';
 /** Tour da aba 1. A tela tem várias visões (`?visao=`): os passos das visões fechadas são pulados
  * sozinhos, porque os alvos delas não estão na tela. Os passos seguem a ordem visual: primeiro o comum
  * a todas, depois Linha de Balanço, Custos (11/11/2026, o peso do IDP), Fluxos de serviços e Medições
- * (04/11/2026), o Gantt de legalização (04/11/2026), o Planejador e, por fim, "Vagões" (o quadro de
+ * (04/11/2026), a Curva S (23/11/2026), o Gantt de legalização (04/11/2026), o Planejador e, por fim, "Vagões" (o quadro de
  * restrições saiu daqui em 10/11/2026: virou a "Lista de pendência" da aba 2). */
 export const steps: TourStep[] = [
   {
     title: 'Aba 1.1 · Cronograma de longo prazo',
-    body: 'O macro da obra: a Linha de Balanço no estilo do Prevision (um bloco por serviço e local), os Fluxos de serviços que alimentam o lançamento, as Medições com fotos, o Gantt de legalização dos 12 meses até a entrega, "Vagões" e o Planejador anterior. As pendências da obra ficam na aba 1.4, o Quadro de Restrições; o Planejamento de vagão abre pelo botão "Planejamento de vagão" desta aba.',
+    body: 'O macro da obra: a Linha de Balanço no estilo do Prevision (um bloco por serviço e local), os Fluxos de serviços que alimentam o lançamento, as Medições com fotos, a Curva S do avanço, o Gantt de legalização dos 12 meses até a entrega, "Vagões" e o Planejador anterior. As pendências da obra ficam na aba 1.4, o Quadro de Restrições; o Planejamento de vagão abre pelo botão "Planejamento de vagão" desta aba.',
   },
   {
     target: 'work-nav',
@@ -28,7 +28,7 @@ export const steps: TourStep[] = [
   {
     target: 'longo-visoes',
     title: 'As visões da aba',
-    body: 'Linha de Balanço (padrão) é o cronograma; Fluxos de serviços guarda as sequências padrão da empresa; Medições registra o realizado com fotos; o Gantt de legalização mostra os 12 meses até a entrega, com o caminho crítico da obra e a legalização. "Vagões" mostra as atividades dos vagões, a curva de avanço e as linhas de base, e o Planejador é a ferramenta anterior, que ainda gera os vagões. O tour explica a visão que estiver aberta.',
+    body: 'Linha de Balanço (padrão) é o cronograma; Fluxos de serviços guarda as sequências padrão da empresa; Medições registra o realizado com fotos; Curva S compara linha de base, previsto e realizado mês a mês; o Gantt de legalização mostra os 12 meses até a entrega, com o caminho crítico da obra e a legalização. "Vagões" mostra as atividades dos vagões, a curva de avanço e as linhas de base, e o Planejador é a ferramenta anterior, que ainda gera os vagões. O tour explica a visão que estiver aberta.',
   },
   {
     target: 'longo-vagoes-link',
@@ -98,9 +98,14 @@ export const steps: TourStep[] = [
     body: 'Os blocos em que o previsto até hoje passa do medido, com o atraso em dias úteis. Clique num deles para selecioná-lo no gráfico.',
   },
   {
+    target: 'longo-lob-calendario',
+    title: 'Calendário da obra',
+    body: 'Os dias da semana trabalhados e os dias sem trabalho (feriados e recessos) desta obra. Antes de gravar, a prévia mostra quantos blocos mudam de data. No gráfico, os dias sem trabalho aparecem grifados em cinza nos zooms Semana e Mês.',
+  },
+  {
     target: 'longo-lob-linha-base',
     title: 'Linhas de base',
-    body: 'Guarde uma foto das datas, compare com o atual ou restaure. Antes de cada lançamento de fluxo o sistema grava uma automaticamente.',
+    body: 'Guarde uma foto das datas, compare com o atual ou restaure. Antes de cada lançamento de fluxo o sistema grava uma automaticamente. Com uma linha de base escolhida no gráfico, o tracejado mostra onde cada bloco estava, e a dica, o selo no bloco e a Tabela mostram o desvio em dias úteis.',
   },
   {
     target: 'longo-lob-custos',
@@ -202,6 +207,38 @@ export const steps: TourStep[] = [
     target: 'longo-medicoes-salvar',
     title: 'Salvar medição',
     body: 'Fecha a rodada e preenche as datas reais. Fica desabilitado enquanto houver avanço sem foto.',
+  },
+
+  // ─── Curva S (23/11/2026) ─────────────────────────────────────────────────────
+  {
+    target: 'longo-curva-linha-base',
+    title: 'Linha de base da curva',
+    body: 'Escolha com qual linha de base comparar. A tela abre na manual mais recente, a mesma que o IDP usa; obra sem linha de base mostra só o previsto e o realizado.',
+  },
+  {
+    target: 'longo-curva-resumo',
+    title: 'Na última medição',
+    body: 'O realizado da última medição salva e, na mesma data, o previsto pelo cronograma atual e pela linha de base, com a diferença em pontos percentuais.',
+  },
+  {
+    target: 'longo-curva-peso',
+    title: 'Peso do avanço',
+    body: 'Diz se o avanço está ponderado pelo custo dos pacotes ou pela duração (quando falta custo em algum pacote). É o mesmo peso dos cartões "Avanço físico" e "IDP".',
+  },
+  {
+    target: 'longo-curva-grafico',
+    title: 'Curva S · avanço acumulado',
+    body: 'O avanço físico acumulado no fim de cada mês: linha de base tracejada em cinza, previsto pelo cronograma atual e realizado, com um ponto em cada mês que teve medição. A linha âmbar marca hoje. Passe o mouse (ou use as setas do teclado) para ver os valores do mês e o desvio entre realizado e previsto.',
+  },
+  {
+    target: 'longo-curva-mensal',
+    title: 'Progresso mensal',
+    body: 'O ganho de cada mês em cada série: o acumulado do mês menos o do mês anterior. Mês sem medição nova fica sem barra de realizado.',
+  },
+  {
+    target: 'longo-curva-tabela',
+    title: 'Mês a mês',
+    body: 'Os mesmos números dos dois gráficos em tabela: acumulados, desvio e ganhos de cada mês, com o mês atual destacado.',
   },
 
   // ─── Gantt de legalização ─────────────────────────────────────────────────────

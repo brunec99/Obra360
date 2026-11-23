@@ -6,7 +6,7 @@ import { PlanningProvider } from '@/modules/planejamento/planning-provider';
 import { SidebarWrapper } from '@/modules/layout/sidebar-wrapper';
 import { MobileDrawer } from '@/modules/layout/mobile-drawer';
 import { PortfolioLink, WorkNav, WorkTabsMobile } from '@/modules/layout/work-nav';
-import { TopBar } from '@/modules/layout/top-bar';
+import { AppMain, TopBar } from '@/modules/layout/top-bar';
 import { ToastProvider } from '@/modules/layout/toast';
 import { ConfirmProvider } from '@/modules/layout/confirm';
 import { ZoomToggle } from '@/modules/layout/zoom-toggle';
@@ -144,9 +144,8 @@ export default async function AppLayout({ children }: Readonly<{ children: React
         />
         <WorkTabsMobile />
         <ConnectionBanner />
-        <main id="main" className="mx-auto w-full max-w-[1600px] flex-1 p-4 sm:p-5 md:p-8">
-          {children}
-        </main>
+        {/* O quadro lê o endereço para liberar o teto de 1600 px no curto prazo (23/11/2026). */}
+        <AppMain>{children}</AppMain>
       </div>
       <TourOverlay />
       {claudiaGeral && <ClaudiaWindow />}

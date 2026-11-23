@@ -2,7 +2,7 @@
 
 O usuário pediu que administradores possam excluir obras. Até aqui não havia como: o manual da Claudia respondia "Não há botão para isso na tela".
 
-**Estado:** código e migração **criados** em 30/10/2026 e publicados no commit `65cd066`. **Atualização de 04/11/2026:** a função `delete_work` existe no `takt-hub`, ou seja, a `0037_delete_work.sql` foi aplicada (conferido por consulta ao catálogo do banco). A tela ainda não foi aberta logada. A migração 0038 (Linha de Balanço) pôs `on delete cascade` nas tabelas novas, então a exclusão de obra também leva os blocos, as medições e as fotos dela, e a rota apaga a pasta da obra no bucket `medicoes`.
+**Estado:** código e migração **criados** em 30/10/2026 e publicados no commit `65cd066`. **Atualização de 04/11/2026:** a função `delete_work` existe no `takt-hub`, ou seja, a `0037_delete_work.sql` foi aplicada (conferido por consulta ao catálogo do banco). A tela ainda não foi aberta logada. A migração 0038 (Linha de Balanço) pôs `on delete cascade` nas tabelas novas, então a exclusão de obra também leva os blocos, as medições e as fotos dela, e a rota apaga a pasta da obra no bucket `medicoes`. A migração 0056 (`lob_calendars`, calendário da Linha de Balanço, aplicada em 23/11/2026) segue o mesmo caminho: sai pela cascata a partir de `works`.
 
 ## O que a pessoa vê
 

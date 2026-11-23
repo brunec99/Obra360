@@ -52,3 +52,33 @@ export function filterPlanRows(tasks: PlanTask[], { query, filter, conflictTaskI
 export function dependencyAnchors(type: LinkType): { from: 'start' | 'end'; to: 'start' | 'end' } {
   return { from: type[0] === 'I' ? 'start' : 'end', to: type[1] === 'I' ? 'start' : 'end' };
 }
+
+/** Linha do cronograma para o "Mostrar até o nível": o número EAP calculado ("2.1.3") e se é resumo. */
+export interface OutlineRow {
+  id: string;
+  number: string;
+  summary: boolean;
+}
+/** Profundidade da linha na estrutura: "2" é nível 1, "2.1.3" é nível 3. Vem do número EAP, não do
+ * `level` gravado, que pode pular degraus em dado antigo ou importado. */
+export const outlineDepth = (number: string) => number.split('.').length;
+/** O nível mais fundo do cronograma (0 sem linhas): até onde vai a lista "Mostrar até". */
+export const maxOutlineDepth = (rows: readonly OutlineRow[]) => rows.reduce((max, r) => Math.max(max, outlineDepth(r.number)), 0);
+/** "Mostrar subtarefas → Nível N" do Project: os resumos a recolher para ficarem à vista as linhas até
+ * a profundidade `level`. Recolhe os resumos de profundidade `level` ou maior e deixa abertos os de
+ * cima; os de dentro também ficam recolhidos, para a seta de um resumo abrir só um degrau por vez. */
+export function foldedForLevel(rows: readonly OutlineRow[], level: number): string[] {
+  const limit = Math.max(1, Math.floor(level));
+  return rows.filter(r => r.summary && outlineDepth(r.number) >= limit).map(r => r.id);
+}
+/** O nível que a tela mostra agora: 'all' com tudo aberto, o número quando os resumos recolhidos são
+ * exatamente os de um nível, e nada quando a pessoa abriu ou fechou resumos à mão depois. Ids
+ * guardados de linhas que já não existem (ou que deixaram de ser resumo) não contam. */
+export function shownLevel(rows: readonly OutlineRow[], folded: readonly string[]): number | 'all' | undefined {
+  const summaries = new Set(rows.filter(r => r.summary).map(r => r.id));
+  const closed = new Set(folded.filter(id => summaries.has(id)));
+  if (!closed.size) return 'all';
+  const shallowest = Math.min(...rows.filter(r => closed.has(r.id)).map(r => outlineDepth(r.number)));
+  const expected = foldedForLevel(rows, shallowest);
+  return expected.length === closed.size && expected.every(id => closed.has(id)) ? shallowest : undefined;
+}

@@ -11,6 +11,7 @@ import { LobView } from '@/modules/longo-prazo/lob/lob-view';
 import { FlowsView } from '@/modules/longo-prazo/lob/flows-view';
 import { MeasurementsView } from '@/modules/longo-prazo/lob/measurements-view';
 import { CostsView } from '@/modules/longo-prazo/lob/costs-view';
+import { LobCurveView } from '@/modules/longo-prazo/lob/lob-curve-view';
 import { LegalizationView } from '@/modules/longo-prazo/legalizacao/legalization-view';
 import { TabHeader } from '@/modules/layout/tab-header';
 import { Callout } from '@/modules/planejamento/ui';
@@ -24,11 +25,13 @@ export const metadata = { title: 'Cronograma de longo prazo' };
  * vagões". O endereço guarda a visão em `?visao=`. O Gantt de legalização (04/11/2026, segundo modelo
  * aprovado, regra 1) entra depois de Medições: os 12 meses até a entrega, no cronograma do Project.
  * Custos (11/11/2026, com o IDP ponderado por custo) vem logo depois de Medições: o orçamento
- * apropriado por pacote de serviço, que dá o peso de cada serviço. */
+ * apropriado por pacote de serviço, que dá o peso de cada serviço. A Curva S (23/11/2026, retorno do
+ * Atmos) fica entre Medições e Custos: avanço acumulado e progresso mensal da Linha de Balanço. */
 const VIEWS = [
   { id: 'lob', label: 'Linha de Balanço' },
   { id: 'fluxos', label: 'Fluxos de serviços' },
   { id: 'medicoes', label: 'Medições' },
+  { id: 'curva-s', label: 'Curva S' },
   { id: 'custos', label: 'Custos' },
   { id: 'legalizacao', label: 'Gantt de legalização' },
   { id: 'prevision', label: 'Vagões' },
@@ -39,6 +42,8 @@ const DESCRIPTIONS: Record<View, string> = {
   lob: 'Linha de Balanço da obra: cada bloco é um serviço num local, com o que já foi medido. Arraste para reprogramar; as sucessoras acompanham.',
   fluxos: 'Fluxos de serviços: a sequência padrão da empresa, com duração por local e dependências, pronta para lançar em qualquer obra.',
   medicoes: 'Medições: o acumulado realizado de cada serviço em cada local, com foto do que avançou.',
+  'curva-s':
+    'Curva S: o avanço físico acumulado e o progresso de cada mês, comparando a linha de base, o previsto pelo cronograma atual e o realizado pelas medições.',
   custos:
     'Custos: o orçamento apropriado em cada pacote de serviço, que dá o peso de cada serviço no avanço físico e no IDP (real ÷ planejado).',
   legalizacao:
@@ -74,6 +79,11 @@ export default async function Page({
       <p>
         <strong>Medições</strong> são rodadas com data: o acumulado realizado de cada bloco, com foto obrigatória de cada avanço. Elas
         preenchem os blocos, apontam os atrasos e alimentam o avanço físico.
+      </p>
+      <p>
+        <strong>Curva S</strong> mostra o avanço físico acumulado da obra mês a mês, em três séries (linha de base, previsto pelo cronograma
+        atual e realizado pelas medições salvas), e o <strong>progresso mensal</strong>, que é o ganho de cada série no mês. O peso é o
+        mesmo do avanço físico e do IDP.
       </p>
       <p>
         <strong>Custos</strong> é a apropriação do orçamento em cada pacote de serviço: digite um valor por pacote ou cole as linhas do
@@ -140,6 +150,7 @@ export default async function Page({
       {view === 'lob' && <LobView workId={obraId} />}
       {view === 'fluxos' && <FlowsView workId={obraId} />}
       {view === 'medicoes' && <MeasurementsView workId={obraId} />}
+      {view === 'curva-s' && <LobCurveView workId={obraId} />}
       {view === 'custos' && <CostsView workId={obraId} />}
       {view === 'legalizacao' && <LegalizationView workId={obraId} />}
       {view === 'planejador' && <LongTermPlanner workId={obraId} />}

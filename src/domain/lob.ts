@@ -3,8 +3,11 @@
  * Difere do Planejador (`long-term-plan.ts`), em que cada serviço é uma fórmula (início + ritmo ×
  * pavimento): aqui cada bloco tem data própria, pode atrasar sozinho e é medido sozinho.
  *
- * Tudo em dias úteis (segunda a sexta, sem feriados nesta etapa), em datas AAAA-MM-DD tratadas em
- * UTC para não escorregar de fuso. Os dados vivem fora do snapshot do planejamento (migração 0038),
+ * Tudo em dias úteis do calendário da obra (`LobData.calendar`, de `lob-calendar.ts`: dias da semana
+ * trabalhados e dias sem trabalho; sem calendário gravado, segunda a sexta sem feriados), em datas
+ * AAAA-MM-DD tratadas em UTC para não escorregar de fuso. As funções de dias úteis recebem o
+ * calendário como último parâmetro, opcional: TODO chamador real passa o da obra, senão tela e
+ * servidor discordam das datas. Os dados vivem fora do snapshot do planejamento (migração 0038),
  * como a Terminalidade: a ausência das tabelas derruba só estas visões da aba 1. */
 import { NON_FULFILLMENT_CAUSES } from './entities';
 import {
@@ -18,8 +21,9 @@ import {
   floorLabel,
 } from './long-term-plan';
 import { SERIES_COLORS } from '../shared/palette';
+import { isWorkingDay, type LobCalendar } from './lob-calendar';
 
-export type { LocalDate };
+export type { LocalDate, LobCalendar };
 export type LobId = string;
 type Stamped = { id: LobId; createdAt: string; updatedAt: string };
 
@@ -74,6 +78,11 @@ export interface LobBaselineEntry {
   localId: LobId;
   start: LocalDate;
   durationDays: number;
+  /** Último dia trabalhado na hora da foto (23/11/2026). Gravado porque o calendário da obra pode
+   * mudar depois: sem ele, o término da linha de base seria recalculado com o calendário novo e a
+   * comparação esconderia o efeito da mudança. Linhas de base antigas não têm; leia sempre por
+   * `baselineEntryFinish`. */
+  finish?: LocalDate;
 }
 /** Foto das datas de todos os blocos. `automatic` = gravada pelo sistema antes de um lançamento. */
 export interface LobBaseline {
@@ -171,6 +180,9 @@ export interface LobData {
   photos: LobPhoto[];
   /** Itens de custo apropriados (migração 0044). Vazio antes da migração ou sem custo cadastrado. */
   costs: LobCostItem[];
+  /** Calendário de dias úteis da obra (migração 0056). Ausente = segunda a sexta, sem feriados: obra
+   * que nunca configurou, ou banco ainda sem a migração. Não é uma tabela de linhas como as demais. */
+  calendar?: LobCalendar;
 }
 export const emptyLobData = (): LobData => ({
   locals: [],
@@ -259,42 +271,104 @@ export const lobPhotoPaths = (workId: string, itemId: string, photoId: string) =
 // ─── Dias úteis ─────────────────────────────────────────────────────────────────
 
 export const weekday = (date: LocalDate) => new Date(toMs(date)).getUTCDay();
-export const isWorkday = (date: LocalDate) => {
-  const d = weekday(date);
-  return d !== 0 && d !== 6;
-};
-/** O próprio dia, se útil; senão a segunda-feira seguinte. */
-export function nextWorkday(date: LocalDate): LocalDate {
+/** Dia útil no calendário da obra; sem calendário, segunda a sexta. */
+export const isWorkday = (date: LocalDate, calendar?: LobCalendar) => isWorkingDay(date, calendar);
+/** O próprio dia, se útil; senão o dia útil seguinte. */
+export function nextWorkday(date: LocalDate, calendar?: LobCalendar): LocalDate {
   let d = date;
-  while (!isWorkday(d)) d = addDays(d, 1);
+  while (!isWorkingDay(d, calendar)) d = addDays(d, 1);
   return d;
 }
-export function previousWorkday(date: LocalDate): LocalDate {
+export function previousWorkday(date: LocalDate, calendar?: LobCalendar): LocalDate {
   let d = date;
-  while (!isWorkday(d)) d = addDays(d, -1);
+  while (!isWorkingDay(d, calendar)) d = addDays(d, -1);
   return d;
 }
 /** `n` dias úteis depois de `date` (negativo: antes). Parte de um dia útil; zero devolve o próprio. */
-export function addWorkdays(date: LocalDate, n: number): LocalDate {
-  let d = nextWorkday(date);
+export function addWorkdays(date: LocalDate, n: number, calendar?: LobCalendar): LocalDate {
+  let d = nextWorkday(date, calendar);
   const step = n < 0 ? -1 : 1;
   for (let k = 0; k < Math.abs(n);) {
     d = addDays(d, step);
-    if (isWorkday(d)) k++;
+    if (isWorkingDay(d, calendar)) k++;
   }
   return d;
 }
 /** Dias úteis em [from, to): zero quando `to` não passa de `from`. */
-export function workdaysBetween(from: LocalDate, to: LocalDate): number {
+export function workdaysBetween(from: LocalDate, to: LocalDate, calendar?: LobCalendar): number {
   if (to <= from) return 0;
   let n = 0;
-  for (let d = from; d < to; d = addDays(d, 1)) if (isWorkday(d)) n++;
+  for (let d = from; d < to; d = addDays(d, 1)) if (isWorkingDay(d, calendar)) n++;
   return n;
 }
 /** Primeiro dia útil livre depois do bloco (fim exclusivo): é onde a sucessora encaixa. */
-export const activityEnd = (a: Pick<LobActivity, 'start' | 'durationDays'>): LocalDate => addWorkdays(a.start, a.durationDays);
+export const activityEnd = (a: Pick<LobActivity, 'start' | 'durationDays'>, calendar?: LobCalendar): LocalDate =>
+  addWorkdays(a.start, a.durationDays, calendar);
 /** Último dia trabalhado, o que se mostra como término. */
-export const activityFinish = (a: Pick<LobActivity, 'start' | 'durationDays'>): LocalDate => addWorkdays(a.start, a.durationDays - 1);
+export const activityFinish = (a: Pick<LobActivity, 'start' | 'durationDays'>, calendar?: LobCalendar): LocalDate =>
+  addWorkdays(a.start, a.durationDays - 1, calendar);
+
+/** Término (último dia trabalhado) de um bloco numa linha de base: o gravado na foto ou, nas linhas
+ * de base antigas, o calculado pelo calendário atual. */
+export const baselineEntryFinish = (entry: LobBaselineEntry, calendar?: LobCalendar): LocalDate =>
+  entry.finish ?? activityFinish(entry, calendar);
+/** Fim exclusivo do bloco na linha de base: o primeiro dia útil depois do término dele. */
+export const baselineEntryEnd = (entry: LobBaselineEntry, calendar?: LobCalendar): LocalDate =>
+  entry.finish ? nextWorkday(addDays(entry.finish, 1), calendar) : activityEnd(entry, calendar);
+
+// ─── Desvio contra a linha de base ──────────────────────────────────────────────
+
+/** Dias úteis de `from` até `to`, com sinal: positivo quando `to` vem depois (atraso), negativo quando
+ * vem antes (adiantamento), zero no mesmo dia. Conta os dias trabalhados DEPOIS de `from` até `to`,
+ * inclusive: de sexta para segunda é 1, e uma data que virou dia sem trabalho não conta por ela mesma. */
+export function workdayDelta(from: LocalDate, to: LocalDate, calendar?: LobCalendar): number {
+  if (to === from) return 0;
+  return to > from
+    ? workdaysBetween(addDays(from, 1), addDays(to, 1), calendar)
+    : -workdaysBetween(addDays(to, 1), addDays(from, 1), calendar);
+}
+/** O bloco comparado com a linha de base (23/11/2026, retorno de quem vem do Prevision): `new` = não
+ * existia na foto; senão, as datas da foto e o desvio de início e de término em DIAS ÚTEIS do
+ * calendário da obra (positivo = atrasado em relação à linha de base, negativo = adiantado). O desvio
+ * que vale como "o desvio do bloco" é o do término. */
+export type LobBaselineDeviation =
+  | { status: 'new' }
+  | {
+      status: 'compared';
+      baselineStart: LocalDate;
+      /** Último dia trabalhado na linha de base. */
+      baselineFinish: LocalDate;
+      baselineDurationDays: number;
+      startDays: number;
+      finishDays: number;
+    };
+export function baselineDeviation(
+  activity: Pick<LobActivity, 'start' | 'durationDays'>,
+  entry: LobBaselineEntry | undefined,
+  calendar?: LobCalendar,
+): LobBaselineDeviation {
+  if (!entry) return { status: 'new' };
+  const baselineFinish = baselineEntryFinish(entry, calendar);
+  return {
+    status: 'compared',
+    baselineStart: entry.start,
+    baselineFinish,
+    baselineDurationDays: entry.durationDays,
+    startDays: workdayDelta(entry.start, activity.start, calendar),
+    finishDays: workdayDelta(baselineFinish, activityFinish(activity, calendar), calendar),
+  };
+}
+/** As entradas de uma linha de base por bloco. */
+export const baselineEntries = (baseline: Pick<LobBaseline, 'snapshot'>) => new Map(baseline.snapshot.map(e => [e.activityId, e]));
+/** Término da obra numa linha de base: o último dia trabalhado entre os blocos da foto. */
+export function baselineFinishDate(baseline: Pick<LobBaseline, 'snapshot'>, calendar?: LobCalendar): LocalDate | undefined {
+  let max: LocalDate | undefined;
+  for (const entry of baseline.snapshot) {
+    const finish = baselineEntryFinish(entry, calendar);
+    if (!max || finish > max) max = finish;
+  }
+  return max;
+}
 
 // ─── Rede e reprogramação ───────────────────────────────────────────────────────
 
@@ -319,13 +393,26 @@ export function successorsOf(dependencies: LobDependency[]) {
   }
   return map;
 }
-/** Ordem topológica dos blocos (predecessoras antes). Blocos presos num ciclo ficam de fora. */
+/** Ordem topológica dos blocos (predecessoras antes). Blocos presos num ciclo ficam de fora.
+ * O(V + E): cada bloco conhece as suas sucessoras (23/11/2026; antes, a cada bloco liberado a função
+ * varria todos os outros, o que pesava ao arrastar numa obra de 600 blocos). A ordem devolvida é a
+ * mesma de antes: por ondas, e dentro da onda na ordem em que os blocos vieram. */
 export function topologicalActivities(activities: LobActivity[], dependencies: LobDependency[]): LobActivity[] {
-  const ids = new Set(activities.map(a => a.id));
+  const index = new Map<LobId, number>();
+  activities.forEach((a, i) => index.set(a.id, i));
   const pending = new Map<LobId, Set<LobId>>(activities.map(a => [a.id, new Set()]));
-  for (const d of dependencies)
-    if (ids.has(d.predecessorId) && ids.has(d.successorId) && d.predecessorId !== d.successorId)
-      pending.get(d.successorId)!.add(d.predecessorId);
+  const successors = new Map<LobId, LobId[]>();
+  for (const d of dependencies) {
+    if (!index.has(d.predecessorId) || !index.has(d.successorId) || d.predecessorId === d.successorId) continue;
+    const preds = pending.get(d.successorId)!;
+    if (preds.has(d.predecessorId)) continue;
+    preds.add(d.predecessorId);
+    const list = successors.get(d.predecessorId);
+    if (list) list.push(d.successorId);
+    else successors.set(d.predecessorId, [d.successorId]);
+  }
+  // Sucessoras na ordem dos blocos: é a ordem em que a varredura antiga as encontrava.
+  for (const list of successors.values()) if (list.length > 1) list.sort((x, y) => index.get(x)! - index.get(y)!);
   const byId = new Map(activities.map(a => [a.id, a]));
   const order: LobActivity[] = [];
   let ready = activities.filter(a => pending.get(a.id)!.size === 0).map(a => a.id);
@@ -333,7 +420,10 @@ export function topologicalActivities(activities: LobActivity[], dependencies: L
     const next: LobId[] = [];
     for (const id of ready) {
       order.push(byId.get(id)!);
-      for (const [other, preds] of pending) if (preds.delete(id) && preds.size === 0) next.push(other);
+      for (const other of successors.get(id) ?? []) {
+        const preds = pending.get(other)!;
+        if (preds.delete(id) && preds.size === 0) next.push(other);
+      }
     }
     ready = next;
   }
@@ -359,31 +449,193 @@ export function minimumStart(
   activityId: LobId,
   activities: Map<LobId, LobActivity>,
   preds: Map<LobId, LobDependency[]>,
+  calendar?: LobCalendar,
 ): LocalDate | undefined {
   let best: LocalDate | undefined;
   for (const d of preds.get(activityId) ?? []) {
     const p = activities.get(d.predecessorId);
     if (!p) continue;
-    const candidate = addWorkdays(activityEnd(p), d.lagDays);
+    const candidate = addWorkdays(activityEnd(p, calendar), d.lagDays, calendar);
     if (!best || candidate > best) best = candidate;
   }
   return best;
 }
 /** Reprograma em cascata: só empurra para frente quem ficou antes do mínimo; folga dada à mão fica.
  * Devolve só os blocos que mudaram. */
-export function cascade(activities: LobActivity[], dependencies: LobDependency[]): LobActivity[] {
+export function cascade(activities: LobActivity[], dependencies: LobDependency[], calendar?: LobCalendar): LobActivity[] {
   const next = new Map(activities.map(a => [a.id, { ...a }]));
   const preds = predecessorsOf(dependencies);
   const changed: LobActivity[] = [];
   for (const original of topologicalActivities(activities, dependencies)) {
     const a = next.get(original.id)!;
-    const minimum = minimumStart(a.id, next, preds);
+    const minimum = minimumStart(a.id, next, preds, calendar);
     if (minimum && minimum > a.start) {
       a.start = minimum;
       changed.push(a);
     }
   }
   return changed;
+}
+/** Mudança de calendário (regra de 23/11/2026): as durações em dias úteis ficam como estão; o início
+ * que cair em dia sem trabalho vai para o próximo dia útil; e a rede é recalculada em cascata, pela
+ * mesma regra de sempre (só empurra para a frente quem ficou antes do mínimo; folga dada à mão fica).
+ * Devolve só os blocos cujo INÍCIO mudou. O término de um bloco pode mudar sem o início mudar (um
+ * feriado no meio dele): quem mostra a prévia compara os términos com `calendarChangePreview`. */
+export function applyCalendar(activities: LobActivity[], dependencies: LobDependency[], calendar?: LobCalendar): LobActivity[] {
+  const snapped = activities.map(a => {
+    const start = nextWorkday(a.start, calendar);
+    return start === a.start ? a : { ...a, start };
+  });
+  const result = new Map<LobId, LobActivity>();
+  snapped.forEach((a, i) => {
+    if (a !== activities[i]) result.set(a.id, a);
+  });
+  for (const a of cascade(snapped, dependencies, calendar)) result.set(a.id, a);
+  return [...result.values()];
+}
+export interface CalendarChangePreview {
+  /** Blocos cujo início ou término muda de data. */
+  changedBlocks: number;
+  /** Dos que mudam, os que mudam de início (são os gravados). */
+  movedStarts: number;
+  /** Término da obra (último dia trabalhado) antes e depois; indefinidos sem blocos. */
+  finishBefore?: LocalDate;
+  finishAfter?: LocalDate;
+}
+/** O efeito de trocar o calendário `from` por `to`, para a prévia da tela e o resumo do comando. */
+export function calendarChangePreview(
+  activities: LobActivity[],
+  dependencies: LobDependency[],
+  from: LobCalendar | undefined,
+  to: LobCalendar | undefined,
+): CalendarChangePreview {
+  const moved = new Map(applyCalendar(activities, dependencies, to).map(a => [a.id, a]));
+  let changedBlocks = 0;
+  for (const a of activities) {
+    const next = moved.get(a.id) ?? a;
+    if (next.start !== a.start || activityFinish(next, to) !== activityFinish(a, from)) changedBlocks++;
+  }
+  const after = activities.map(a => moved.get(a.id) ?? a);
+  return {
+    changedBlocks,
+    movedStarts: moved.size,
+    finishBefore: lobSpan(activities, from)?.finish,
+    finishAfter: lobSpan(after, to)?.finish,
+  };
+}
+/** Planejador de movimentos sobre UMA foto da obra (23/11/2026): monta uma vez a rede (predecessoras,
+ * ordem topológica, a cascata do estado atual) e responde a vários "e se este bloco começasse em tal
+ * dia?" recalculando só o bloco e as suas sucessoras. É o que o arrasto usa no navegador, dia a dia,
+ * e o que o servidor usa ao gravar (`moveActivity` é este planejador com um movimento só): a mesma
+ * regra dos dois lados, senão a tela mostraria uma data e o servidor gravaria outra. */
+export interface LobMovePlanner {
+  /** Os blocos alterados ao mover `id` para `start` (e, se informada, trocar a duração): o mesmo
+   * resultado de `moveActivity`, na mesma ordem. Não altera a foto: cada chamada parte dela. */
+  move(id: LobId, start: LocalDate, durationDays?: number): LobActivity[];
+}
+export function createMovePlanner(activities: LobActivity[], dependencies: LobDependency[], calendar?: LobCalendar): LobMovePlanner {
+  const original = new Map(activities.map(a => [a.id, a]));
+  const preds = predecessorsOf(dependencies);
+  const succ = successorsOf(dependencies);
+  const order = topologicalActivities(activities, dependencies);
+  const position = new Map<LobId, number>();
+  order.forEach((a, i) => position.set(a.id, i));
+  const endOf = (a: Pick<LobActivity, 'start' | 'durationDays'>) => activityEnd(a, calendar);
+
+  /** A cascata da foto sem movimento nenhum: quem já estava antes do mínimo vai para o lugar (é o
+   * que `cascade` sempre fez a cada comando). Só o início de quem mudou; o fim de todos, guardado
+   * para as contas seguintes não refazerem a soma de dias úteis. */
+  const settledStart = new Map<LobId, LocalDate>();
+  const settledEnd = new Map<LobId, LocalDate>();
+  for (const a of order) {
+    let start = a.start;
+    for (const d of preds.get(a.id) ?? []) {
+      const p = original.get(d.predecessorId);
+      if (!p) continue;
+      const candidate = addWorkdays(settledEnd.get(p.id) ?? endOf(p), d.lagDays, calendar);
+      if (candidate > start) start = candidate;
+    }
+    if (start !== a.start) settledStart.set(a.id, start);
+    settledEnd.set(a.id, start === a.start ? endOf(a) : endOf({ start, durationDays: a.durationDays }));
+  }
+  /** Sucessoras (diretas e indiretas) de cada bloco, em ordem topológica; montadas na primeira vez. */
+  const followers = new Map<LobId, LobActivity[]>();
+  const followersOf = (id: LobId) => {
+    let list = followers.get(id);
+    if (!list) {
+      const seen = new Set<LobId>();
+      const stack = [id];
+      while (stack.length) {
+        const current = stack.pop()!;
+        for (const d of succ.get(current) ?? [])
+          if (!seen.has(d.successorId)) {
+            seen.add(d.successorId);
+            stack.push(d.successorId);
+          }
+      }
+      seen.delete(id);
+      list = order.filter(a => seen.has(a.id));
+      followers.set(id, list);
+    }
+    return list;
+  };
+
+  return {
+    move(id, start, durationDays) {
+      const source = original.get(id);
+      if (!source) return [];
+      // O pedido: nunca antes do mínimo das predecessoras (pelas datas da foto) nem em dia sem trabalho.
+      const minimum = minimumStart(id, original, preds, calendar);
+      const wanted = nextWorkday(start, calendar);
+      const target: LobActivity = { ...source, start: minimum && minimum > wanted ? minimum : wanted };
+      if (durationDays !== undefined) target.durationDays = durationDays;
+
+      // Só o bloco e as sucessoras dele mudam em relação à cascata da foto; o resto já está calculado.
+      const movedStart = new Map<LobId, LocalDate>();
+      const movedEnd = new Map<LobId, LocalDate>();
+      const startOf = (a: LobActivity) => movedStart.get(a.id) ?? settledStart.get(a.id) ?? a.start;
+      const endAt = (a: LobActivity) => movedEnd.get(a.id) ?? settledEnd.get(a.id) ?? endOf(a);
+      const settle = (a: LobActivity, own: LocalDate, duration: number) => {
+        let next = own;
+        for (const d of preds.get(a.id) ?? []) {
+          const p = original.get(d.predecessorId);
+          if (!p) continue;
+          // Predecessora presa num ciclo não entra na ordem: vale a data da foto (ou a do pedido).
+          const candidate = addWorkdays(endAt(p), d.lagDays, calendar);
+          if (candidate > next) next = candidate;
+        }
+        movedStart.set(a.id, next);
+        movedEnd.set(a.id, endOf({ start: next, durationDays: duration }));
+        return next;
+      };
+      const inOrder = position.has(id);
+      let pushedTarget = false;
+      if (inOrder) {
+        const settled = settle(target, target.start, target.durationDays);
+        pushedTarget = settled > target.start;
+        target.start = settled;
+        for (const a of followersOf(id)) settle(a, a.start, a.durationDays);
+      } else {
+        movedStart.set(id, target.start);
+        movedEnd.set(id, endOf(target));
+      }
+
+      // Mesma ordem de sempre: os empurrados pela cascata em ordem topológica e, se o próprio bloco
+      // não foi empurrado mas mudou, ele por último.
+      const affected = inOrder ? new Set(followersOf(id).map(a => a.id)) : new Set<LobId>();
+      const result: LobActivity[] = [];
+      for (const a of order) {
+        if (a.id === id) {
+          if (pushedTarget) result.push(target);
+          continue;
+        }
+        const next = affected.has(a.id) ? startOf(a) : (settledStart.get(a.id) ?? a.start);
+        if (next !== a.start) result.push({ ...a, start: next });
+      }
+      if (!pushedTarget && (target.start !== source.start || target.durationDays !== source.durationDays)) result.push(target);
+      return result;
+    },
+  };
 }
 /** Move um bloco para `start` (regra 16): nunca antes do mínimo das predecessoras, e as sucessoras
  * são empurradas. Devolve os blocos alterados (o próprio incluído, se mudou). */
@@ -393,21 +645,9 @@ export function moveActivity(
   id: LobId,
   start: LocalDate,
   durationDays?: number,
+  calendar?: LobCalendar,
 ): LobActivity[] {
-  const byId = new Map(activities.map(a => [a.id, { ...a }]));
-  const target = byId.get(id);
-  if (!target) return [];
-  const preds = predecessorsOf(dependencies);
-  const minimum = minimumStart(id, byId, preds);
-  const wanted = nextWorkday(start);
-  target.start = minimum && minimum > wanted ? minimum : wanted;
-  if (durationDays !== undefined) target.durationDays = durationDays;
-  const list = [...byId.values()];
-  const pushed = cascade(list, dependencies);
-  const result = new Map(pushed.map(a => [a.id, a]));
-  const original = activities.find(a => a.id === id)!;
-  if (target.start !== original.start || target.durationDays !== original.durationDays) result.set(id, result.get(id) ?? target);
-  return [...result.values()];
+  return createMovePlanner(activities, dependencies, calendar).move(id, start, durationDays);
 }
 /** Blocos que acompanham `id` ao arrastar: todos os sucessores, direta ou indiretamente. */
 export function descendants(dependencies: LobDependency[], id: LobId): Set<LobId> {
@@ -547,7 +787,8 @@ export interface LaunchInput {
   flowId?: LobId;
   locals: LobLocal[];
   params: LobLaunchParams;
-  existing: Pick<LobData, 'services' | 'activities' | 'dependencies'>;
+  /** A obra como está; `calendar` é o calendário dela (quem passa `data` inteiro já o leva junto). */
+  existing: Pick<LobData, 'services' | 'activities' | 'dependencies' | 'calendar'>;
   launchId: LobId;
   now: string;
   newId: () => string;
@@ -559,6 +800,7 @@ export interface LaunchInput {
  * serviço que já existe no local é mantido, e as sucessoras encaixam nele. Puro: nada de banco. */
 export function planLaunch(input: LaunchInput): LaunchPlan {
   const { flow, params, existing, workId, now, newId, launchId } = input;
+  const calendar = existing.calendar;
   validateFlowForLaunch(flow);
   if (!isLocalDate(params.start)) fail('Informe a data de início do lançamento.');
   const chosen = new Set(params.localIds);
@@ -573,7 +815,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   )
     fail(`Takt inválido: informe de 1 a ${LOB_LIMITS.taktDays} dias úteis.`);
 
-  const start = nextWorkday(params.start);
+  const start = nextWorkday(params.start, calendar);
   const serviceByName = new Map(existing.services.map(s => [normalizeName(s.name), s]));
   const newServices: LobService[] = [];
   let orderIndex = existing.services.reduce((max, s) => Math.max(max, s.orderIndex), -1) + 1;
@@ -622,14 +864,14 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
       const links: { predecessorId: LobId; lagDays: number; kind: LobDependencyKind }[] = [];
       if (previous && params.rhythm.kind !== 'together') {
         const lag = params.rhythm.kind === 'continuous' ? 0 : params.rhythm.days - previous.durationDays;
-        st = maxDate(st, addWorkdays(activityEnd(previous), lag));
+        st = maxDate(st, addWorkdays(activityEnd(previous, calendar), lag, calendar));
         links.push({ predecessorId: previous.id, lagDays: lag, kind: 'crew' });
       }
       for (const p of fs.predecessors) {
         const predService = serviceOf.get(p.serviceId);
         const predBlock = predService && at(predService.id, local.id);
         if (!predBlock) continue;
-        st = maxDate(st, addWorkdays(activityEnd(predBlock), p.lagDays));
+        st = maxDate(st, addWorkdays(activityEnd(predBlock, calendar), p.lagDays, calendar));
         links.push({ predecessorId: predBlock.id, lagDays: p.lagDays, kind: 'fs' });
       }
       const block: LobActivity = {
@@ -648,7 +890,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
       for (const l of links) dep(l.predecessorId, block.id, l.lagDays, l.kind);
       previous = block;
       if (!first || st < first) first = st;
-      const end = activityEnd(block);
+      const end = activityEnd(block, calendar);
       if (!last || end > last) last = end;
     }
   }
@@ -659,11 +901,11 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
 // ─── Avanço, previsto e atraso ──────────────────────────────────────────────────
 
 /** Previsto acumulado (%) do bloco até `date`, inclusive: proporção dos dias úteis decorridos. */
-export function plannedPercent(a: Pick<LobActivity, 'start' | 'durationDays'>, date: LocalDate): number {
+export function plannedPercent(a: Pick<LobActivity, 'start' | 'durationDays'>, date: LocalDate, calendar?: LobCalendar): number {
   if (date < a.start) return 0;
-  const end = activityEnd(a);
+  const end = activityEnd(a, calendar);
   if (date >= end) return 100;
-  return Math.round((100 * workdaysBetween(a.start, addDays(date, 1))) / a.durationDays);
+  return Math.round((100 * workdaysBetween(a.start, addDays(date, 1), calendar)) / a.durationDays);
 }
 export const byRound = (a: LobMeasurement, b: LobMeasurement) => a.date.localeCompare(b.date) || a.number - b.number;
 /** Medições fechadas, da mais antiga à mais nova. */
@@ -708,34 +950,39 @@ export function physicalProgress(
   }
   return weight ? done / weight : undefined;
 }
-export function plannedProgress(activities: LobActivity[], date: LocalDate, weights?: ReadonlyMap<LobId, number>): number | undefined {
+export function plannedProgress(
+  activities: LobActivity[],
+  date: LocalDate,
+  weights?: ReadonlyMap<LobId, number>,
+  calendar?: LobCalendar,
+): number | undefined {
   let weight = 0,
     done = 0;
   for (const a of activities) {
     const w = weights ? (weights.get(a.id) ?? 0) : a.durationDays;
     weight += w;
-    done += w * plannedPercent(a, date);
+    done += w * plannedPercent(a, date, calendar);
   }
   return weight ? done / weight : undefined;
 }
 /** Bloco atrasado (regra 14): previsto até hoje acima do medido, com folga de `lateThreshold` pontos
  * para a semana entre medições não marcar tudo em vermelho. */
-export const isLate = (a: LobActivity, measured: number | undefined, today: LocalDate) =>
-  plannedPercent(a, today) - (measured ?? 0) >= LOB_LIMITS.lateThreshold && (measured ?? 0) < 100;
+export const isLate = (a: LobActivity, measured: number | undefined, today: LocalDate, calendar?: LobCalendar) =>
+  plannedPercent(a, today, calendar) - (measured ?? 0) >= LOB_LIMITS.lateThreshold && (measured ?? 0) < 100;
 /** Atraso em dias úteis: quanto do bloco falta em relação ao previsto, em dias. */
-export const delayDays = (a: LobActivity, measured: number | undefined, today: LocalDate) =>
-  Math.max(0, Math.round(((plannedPercent(a, today) - (measured ?? 0)) / 100) * a.durationDays));
+export const delayDays = (a: LobActivity, measured: number | undefined, today: LocalDate, calendar?: LobCalendar) =>
+  Math.max(0, Math.round(((plannedPercent(a, today, calendar) - (measured ?? 0)) / 100) * a.durationDays));
 /** Começo e fim do cronograma. */
-export function lobSpan(activities: LobActivity[]) {
+export function lobSpan(activities: LobActivity[], calendar?: LobCalendar) {
   if (!activities.length) return undefined;
   let start = activities[0].start,
-    end = activityEnd(activities[0]);
+    end = activityEnd(activities[0], calendar);
   for (const a of activities) {
     if (a.start < start) start = a.start;
-    const e = activityEnd(a);
+    const e = activityEnd(a, calendar);
     if (e > end) end = e;
   }
-  return { start, end, finish: previousWorkday(addDays(end, -1)), days: daysBetween(start, end) };
+  return { start, end, finish: previousWorkday(addDays(end, -1), calendar), days: daysBetween(start, end) };
 }
 
 // ─── Medições ───────────────────────────────────────────────────────────────────
@@ -793,7 +1040,13 @@ function uniqueName(name: string, used: Set<string>) {
   used.add(normalizeName(candidate));
   return candidate;
 }
-export function fromLongTermPlan(document: LongTermPlanDocument, workId: LobId, now: string, newId: () => string): PlannerImport {
+export function fromLongTermPlan(
+  document: LongTermPlanDocument,
+  workId: LobId,
+  now: string,
+  newId: () => string,
+  calendar?: LobCalendar,
+): PlannerImport {
   const usedLocals = new Set<string>();
   const usedServices = new Set<string>();
   const locals: LobLocal[] = [];
@@ -833,8 +1086,8 @@ export function fromLongTermPlan(document: LongTermPlanDocument, workId: LobId, 
     for (const slot of floorSchedule(planned)) {
       const local = localByFloor.get(slot.floor);
       if (!local) continue;
-      const start = nextWorkday(slot.start);
-      const durationDays = Math.max(1, workdaysBetween(start, slot.end));
+      const start = nextWorkday(slot.start, calendar);
+      const durationDays = Math.max(1, workdaysBetween(start, slot.end, calendar));
       const block: LobActivity = {
         id: newId(),
         workId,
@@ -848,7 +1101,8 @@ export function fromLongTermPlan(document: LongTermPlanDocument, workId: LobId, 
       activities.push(block);
       blockAt.set(`${planned.id}|${slot.floor}`, block);
       if (previous) {
-        const lag = workdaysBetween(activityEnd(previous), start) - workdaysBetween(start, activityEnd(previous));
+        const previousEnd = activityEnd(previous, calendar);
+        const lag = workdaysBetween(previousEnd, start, calendar) - workdaysBetween(start, previousEnd, calendar);
         dependencies.push({
           id: newId(),
           workId,
@@ -870,15 +1124,16 @@ export function fromLongTermPlan(document: LongTermPlanDocument, workId: LobId, 
         const from = blockAt.get(`${pred.id}|${floor}`),
           to = blockAt.get(`${planned.id}|${floor}`);
         if (!from || !to) continue;
-        const end = activityEnd(from);
+        const end = activityEnd(from, calendar);
         // Folga real entre os dois blocos, em dias úteis (negativa quando se sobrepõem).
-        const gap = to.start >= end ? workdaysBetween(end, to.start) : -workdaysBetween(to.start, end);
+        const gap = to.start >= end ? workdaysBetween(end, to.start, calendar) : -workdaysBetween(to.start, end, calendar);
         dependencies.push({
           id: newId(),
           workId,
           predecessorId: from.id,
           successorId: to.id,
-          lagDays: Math.min(Math.round((link.lagDays * 5) / 7), gap),
+          // A espera do Planejador é em dias corridos: vira dias úteis pela semana do calendário.
+          lagDays: Math.min(Math.round((link.lagDays * (calendar?.weekdays.length ?? 5)) / 7), gap),
           kind: 'fs',
           createdAt: now,
         });
@@ -942,7 +1197,14 @@ export type LobCommand =
   | { type: 'delete_photo'; photoId: LobId }
   /** Apropriação de custos (11/11/2026): grava de uma vez os itens novos ou alterados e remove os
    * excluídos. O `id` do item novo vem do navegador (UUID), como o `itemId` da medição. */
-  | { type: 'save_costs'; workId: LobId; upsert: LobCostInput[]; remove: LobId[] };
+  | { type: 'save_costs'; workId: LobId; upsert: LobCostInput[]; remove: LobId[] }
+  /** Calendário de dias úteis da obra (23/11/2026): grava o calendário e, na mesma operação, leva os
+   * inícios que caírem em dia sem trabalho ao próximo dia útil e recalcula a rede em cascata. Com
+   * blocos que mudam de data, guarda antes a linha de base automática "Antes da mudança de calendário". */
+  | { type: 'set_calendar'; workId: LobId; calendar: LobCalendar }
+  /** Devolve início e duração de vários blocos de uma vez e recalcula a rede (23/11/2026): é o
+   * "Desfazer" de um arrasto, que mexe no bloco e em todas as sucessoras, numa gravação só. */
+  | { type: 'set_activity_dates'; workId: LobId; items: { activityId: LobId; start: LocalDate; durationDays: number }[] };
 /** Um item de custo como a tela manda: `serviceId` nulo = não apropriado; `amount` em reais. */
 export interface LobCostInput {
   id: LobId;

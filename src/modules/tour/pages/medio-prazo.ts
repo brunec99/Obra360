@@ -48,7 +48,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-modo-exibicao',
     title: 'Modo de exibição',
-    body: 'Troca a visão principal, como no Project: Gráfico de Gantt (tabela e Gantt), Planejador de Equipe, Uso dos Recursos e Planilha de Recursos. O nome da visão aberta fica em pé na borda esquerda, e a escolha fica salva para a próxima vez.',
+    body: 'Troca a visão principal, como no Project: Gantt de controle (tabela e Gantt com linha de base, % concluída e datas reais; é o Gantt de acompanhamento, ou Tracking Gantt), Planejador de Equipe, Uso dos Recursos e Planilha de Recursos. O nome da visão aberta fica em pé na borda esquerda, e a escolha fica salva para a próxima vez.',
   },
   {
     target: 'medio-linha-tempo-exibir',
@@ -91,6 +91,11 @@ export const steps: TourStep[] = [
     body: 'Cria um card no Quadro de Restrições (aba 1.4) ligado à tarefa selecionada. Você informa só o título, o tempo de execução em dias úteis e o responsável: a entrega é o dia útil anterior ao início da tarefa e acompanha a reprogramação. Não vale para tarefa-resumo nem para linha de base, e tarefa nova ou alterada pede salvar o cronograma antes. O mesmo botão está no rodapé de "Informações da tarefa". Só aparece para quem tem a aba 1.4 liberada.',
   },
   {
+    target: 'medio-levar-curto',
+    title: 'Levar para o curto prazo',
+    body: 'Cria linhas na planilha da semana (aba 1.3) a partir das tarefas selecionadas, ou de todas as previstas na semana: você escolhe a semana atual ou a próxima, confere a lista e clica em "Criar N linhas". Cada linha leva o nome, a empresa, a equipe e os dias úteis da tarefa dentro da semana; resumo selecionado vale pelas tarefas dele, e tarefa que já tem linha de mesmo nome na semana vem desmarcada. A linha não fica ligada à tarefa. Só aparece no Gantt de controle, para quem edita a obra e tem o curto prazo liberado.',
+  },
+  {
     target: 'medio-linha-tempo-adicionar',
     title: 'Adicionar à Linha do Tempo',
     body: 'Põe as tarefas selecionadas na Linha do Tempo, ou as tira, se a ativa já estiver nela; resumos e marcos também entram. É salvo sozinho e desfaz com Ctrl+Z.',
@@ -109,6 +114,11 @@ export const steps: TourStep[] = [
     target: 'medio-expandir',
     title: 'Expandir e recolher',
     body: 'Abre ou fecha de uma vez todos os resumos; para um só, use a seta ao lado do nome dele. Com busca ou filtro ativo, os dois ficam desligados e cada resultado aparece com os resumos acima dele.',
+  },
+  {
+    target: 'medio-nivel',
+    title: 'Mostrar até o nível',
+    body: 'Como "Mostrar subtarefas" do Project: escolha Nível 1, Nível 2… para deixar à vista as linhas até aquele nível da estrutura, ou "Todos" para abrir tudo. Depois, a seta de cada resumo continua valendo. Fica desligado com busca ou filtro ativo.',
   },
   {
     target: 'medio-colunas',
@@ -232,8 +242,8 @@ export const steps: TourStep[] = [
   },
   {
     target: 'medio-gantt-grafico',
-    title: 'Gantt de acompanhamento',
-    body: 'Barra azul é o previsto, com o avanço no tom escuro, e vermelha quando crítica; a cinza embaixo é a linha de base. Colchete preto é resumo e losango é marco; as setas são os vínculos. Clique numa barra para selecionar a linha na tabela.',
+    title: 'Gantt de controle',
+    body: 'Barra azul é o previsto, com o avanço no tom escuro, e vermelha quando crítica; a cinza embaixo é a linha de base, que só aparece depois de "Definir linha de base". Colchete preto é resumo e losango é marco; as setas são os vínculos. Clique numa barra para selecionar a linha na tabela.',
   },
   {
     target: 'medio-gantt-grafico',
@@ -283,12 +293,12 @@ export const steps: TourStep[] = [
   {
     target: 'medio-status-visoes',
     title: 'Atalhos das visões',
-    body: 'Os mesmos modos de exibição do seletor da barra de ferramentas, em um clique: Gráfico de Gantt, Planejador de Equipe, Uso dos Recursos e Planilha de Recursos, como os ícones do rodapé do Project.',
+    body: 'Os mesmos modos de exibição do seletor da barra de ferramentas, em um clique: Gantt de controle, Planejador de Equipe, Uso dos Recursos e Planilha de Recursos, como os ícones do rodapé do Project.',
   },
   {
     target: 'medio-apresentacao',
     title: 'Tabela e Gantt',
-    body: 'No Gráfico de Gantt, alterna tabela e Gantt lado a lado, só a tabela ou só o Gantt. Arraste a faixa entre os dois para dividir o espaço; o último botão (ou duplo clique na faixa) divide a tela ao meio, com a tabela à esquerda e o Gantt à direita.',
+    body: 'No Gantt de controle, alterna tabela e Gantt lado a lado, só a tabela ou só o Gantt. Arraste a faixa entre os dois para dividir o espaço; o último botão (ou duplo clique na faixa) divide a tela ao meio, com a tabela à esquerda e o Gantt à direita.',
   },
   {
     target: 'medio-zoom',

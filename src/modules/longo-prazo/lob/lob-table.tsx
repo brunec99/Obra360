@@ -6,18 +6,35 @@ import {
   isLate,
   plannedPercent,
   type LobActivity,
+  type LobBaseline,
+  type LobBaselineDeviation,
+  type LobCalendar,
   type LobData,
   type LobLocal,
   type LobService,
   type LocalDate,
 } from '@/domain/lob';
 import { formatDate } from '@/shared/format';
-import { orderedLocals } from './lob-model';
+import { DEVIATION_COLORS, baselineDeviations, orderedLocals, signedWorkdays } from './lob-model';
 
 /** Visão em tabela da Linha de Balanço (regra 17 do modelo): uma linha por bloco, com datas,
- * previsto, medido e situação. Respeita os mesmos filtros do gráfico e compartilha a seleção. */
+ * previsto, medido e situação. Respeita os mesmos filtros do gráfico e compartilha a seleção. Com uma
+ * linha de base escolhida (23/11/2026), ganha as datas dela e o desvio do término em dias úteis. */
 
-type SortKey = 'local' | 'service' | 'start' | 'finish' | 'duration' | 'planned' | 'measured' | 'status' | 'actualStart' | 'actualFinish';
+type SortKey =
+  | 'local'
+  | 'service'
+  | 'start'
+  | 'finish'
+  | 'duration'
+  | 'baselineStart'
+  | 'baselineFinish'
+  | 'deviation'
+  | 'planned'
+  | 'measured'
+  | 'status'
+  | 'actualStart'
+  | 'actualFinish';
 type Direction = 'asc' | 'desc';
 type Situation = 'late' | 'done' | 'running' | 'pending';
 
@@ -31,6 +48,8 @@ interface TableRow {
   planned: number;
   measured: number;
   situation: Situation;
+  /** Contra a linha de base escolhida; ausente sem linha de base. */
+  deviation?: LobBaselineDeviation;
 }
 
 const SITUATION: Record<Situation, { label: string; className: string; rank: number }> = {
@@ -39,12 +58,16 @@ const SITUATION: Record<Situation, { label: string; className: string; rank: num
   pending: { label: 'a iniciar', className: 'not_started', rank: 2 },
   done: { label: 'concluído', className: 'terminal', rank: 3 },
 };
-const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [
+/** `baseline`: coluna que só existe com uma linha de base escolhida. */
+const COLUMNS: { key: SortKey; label: string; numeric?: boolean; baseline?: boolean }[] = [
   { key: 'local', label: 'Local' },
   { key: 'service', label: 'Serviço' },
   { key: 'start', label: 'Início' },
   { key: 'finish', label: 'Término' },
   { key: 'duration', label: 'Duração', numeric: true },
+  { key: 'baselineStart', label: 'Início (linha de base)', baseline: true },
+  { key: 'baselineFinish', label: 'Término (linha de base)', baseline: true },
+  { key: 'deviation', label: 'Desvio (dias úteis)', numeric: true, baseline: true },
   { key: 'planned', label: 'Previsto até hoje', numeric: true },
   { key: 'measured', label: 'Medido', numeric: true },
   { key: 'status', label: 'Situação' },
@@ -53,8 +76,12 @@ const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [
 ];
 
 const percentText = (value: number) => `${String(Math.round(value * 10) / 10).replace('.', ',')}%`;
-const situationOf = (a: LobActivity, measured: number, today: LocalDate): Situation =>
-  measured >= 100 ? 'done' : isLate(a, measured, today) ? 'late' : measured > 0 || a.start <= today ? 'running' : 'pending';
+const situationOf = (a: LobActivity, measured: number, today: LocalDate, calendar?: LobCalendar): Situation =>
+  measured >= 100 ? 'done' : isLate(a, measured, today, calendar) ? 'late' : measured > 0 || a.start <= today ? 'running' : 'pending';
+
+const compared = (row: TableRow) => (row.deviation?.status === 'compared' ? row.deviation : undefined);
+/** Desvio do término para ordenar: bloco novo (fora da linha de base) vai para o fim. */
+const deviationRank = (row: TableRow) => compared(row)?.finishDays ?? Number.MAX_SAFE_INTEGER;
 
 /** Comparador crescente de cada coluna. "Local" crescente é de cima para baixo (como no gráfico). */
 const compare: Record<SortKey, (a: TableRow, b: TableRow) => number> = {
@@ -63,6 +90,9 @@ const compare: Record<SortKey, (a: TableRow, b: TableRow) => number> = {
   start: (a, b) => a.activity.start.localeCompare(b.activity.start),
   finish: (a, b) => a.finish.localeCompare(b.finish),
   duration: (a, b) => a.activity.durationDays - b.activity.durationDays,
+  baselineStart: (a, b) => (compared(a)?.baselineStart ?? '9999').localeCompare(compared(b)?.baselineStart ?? '9999'),
+  baselineFinish: (a, b) => (compared(a)?.baselineFinish ?? '9999').localeCompare(compared(b)?.baselineFinish ?? '9999'),
+  deviation: (a, b) => deviationRank(a) - deviationRank(b),
   planned: (a, b) => a.planned - b.planned,
   measured: (a, b) => a.measured - b.measured,
   status: (a, b) => SITUATION[a.situation].rank - SITUATION[b.situation].rank,
@@ -72,6 +102,7 @@ const compare: Record<SortKey, (a: TableRow, b: TableRow) => number> = {
 
 export function LobTable({
   data,
+  baseline,
   percents,
   today,
   hiddenServiceIds,
@@ -79,7 +110,10 @@ export function LobTable({
   selectedId,
   onSelect,
 }: {
-  data: Pick<LobData, 'locals' | 'services' | 'activities'>;
+  /** `calendar` = dias úteis da obra, para o término, o previsto e a situação. */
+  data: Pick<LobData, 'locals' | 'services' | 'activities' | 'calendar'>;
+  /** Linha de base em comparação: acrescenta as colunas das datas dela e do desvio. */
+  baseline?: LobBaseline;
   percents: Record<string, number>;
   today: string;
   hiddenServiceIds: ReadonlySet<string>;
@@ -88,11 +122,12 @@ export function LobTable({
   onSelect: (id: string | undefined) => void;
 }) {
   const [sort, setSort] = useState<{ key: SortKey; direction: Direction }>({ key: 'local', direction: 'asc' });
-  const { locals, services, activities } = data;
+  const { locals, services, activities, calendar } = data;
 
   const rows = useMemo(() => {
     const localIndex = new Map(orderedLocals(locals, visibleLocalIds).map((l, index) => [l.id, { local: l, index }]));
     const serviceById = new Map(services.map(s => [s.id, s]));
+    const deviationOf = baseline ? baselineDeviations(baseline, calendar) : undefined;
     const list: TableRow[] = [];
     for (const activity of activities) {
       if (hiddenServiceIds.has(activity.serviceId)) continue;
@@ -105,10 +140,11 @@ export function LobTable({
         service,
         local: entry.local,
         localIndex: entry.index,
-        finish: activityFinish(activity),
-        planned: plannedPercent(activity, today),
+        finish: activityFinish(activity, calendar),
+        planned: plannedPercent(activity, today, calendar),
         measured,
-        situation: situationOf(activity, measured, today),
+        situation: situationOf(activity, measured, today, calendar),
+        deviation: deviationOf?.(activity),
       });
     }
     // Desempate sempre por local (de cima para baixo) e serviço, para a ordem ser estável.
@@ -116,7 +152,8 @@ export function LobTable({
     const sign = sort.direction === 'asc' ? 1 : -1;
     list.sort((a, b) => sign * primary(a, b) || compare.local(a, b) || compare.service(a, b));
     return list;
-  }, [locals, services, activities, visibleLocalIds, hiddenServiceIds, percents, today, sort]);
+  }, [locals, services, activities, calendar, baseline, visibleLocalIds, hiddenServiceIds, percents, today, sort]);
+  const columns = baseline ? COLUMNS : COLUMNS.filter(c => !c.baseline);
 
   const toggleSort = (key: SortKey) =>
     setSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }));
@@ -135,10 +172,11 @@ export function LobTable({
         <caption className="sr-only">
           {rows.length} {rows.length === 1 ? 'bloco' : 'blocos'} da Linha de Balanço, ordenados por{' '}
           {COLUMNS.find(c => c.key === sort.key)?.label.toLowerCase()}
+          {baseline ? `, comparados com a linha de base “${baseline.name}”` : ''}
         </caption>
         <thead>
           <tr>
-            {COLUMNS.map(column => {
+            {columns.map(column => {
               const active = sort.key === column.key;
               const Icon = active ? (sort.direction === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
               return (
@@ -190,6 +228,34 @@ export function LobTable({
                 <td className="whitespace-nowrap tabular-nums">{formatDate(a.start)}</td>
                 <td className="whitespace-nowrap tabular-nums">{formatDate(row.finish)}</td>
                 <td className="text-right tabular-nums">{a.durationDays}</td>
+                {baseline &&
+                  (() => {
+                    const deviation = compared(row);
+                    if (!deviation)
+                      return (
+                        <td colSpan={3} className="whitespace-nowrap text-xs text-slate-500">
+                          não estava na linha de base
+                        </td>
+                      );
+                    const days = deviation.finishDays;
+                    return (
+                      <>
+                        <td className="whitespace-nowrap tabular-nums text-slate-500">{formatDate(deviation.baselineStart)}</td>
+                        <td className="whitespace-nowrap tabular-nums text-slate-500">{formatDate(deviation.baselineFinish)}</td>
+                        <td
+                          className="whitespace-nowrap text-right font-semibold tabular-nums"
+                          style={days ? { color: days > 0 ? DEVIATION_COLORS.late : DEVIATION_COLORS.ahead } : undefined}
+                          title={
+                            deviation.startDays !== days
+                              ? `Início: ${signedWorkdays(deviation.startDays)} · término: ${signedWorkdays(days)}`
+                              : undefined
+                          }
+                        >
+                          {days ? `${days > 0 ? '+' : '−'}${Math.abs(days)} ${days > 0 ? '(atrasado)' : '(adiantado)'}` : 'no prazo'}
+                        </td>
+                      </>
+                    );
+                  })()}
                 <td className="text-right tabular-nums">{row.planned}%</td>
                 <td className={`text-right tabular-nums ${row.situation === 'late' ? 'font-semibold text-danger' : ''}`}>
                   {percentText(row.measured)}

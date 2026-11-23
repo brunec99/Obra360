@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { requireModuleAccess } from '@/infrastructure/auth/supabase-server';
 import {
   isLobCommandError,
+  isLobScheduleCommand,
   lobCommandTarget,
   parseLobCommand,
   planLobCommand,
   type LobExtras,
   type LobMutation,
+  type LobScheduleResponse,
 } from '@/application/use-cases/lob-commands';
 import type { LobCommand, LobCostAccess } from '@/domain/lob';
 import type { LongTermPlanDocument } from '@/domain/long-term-plan';
@@ -14,7 +16,9 @@ import {
   applyLobMutation,
   findWorkIdForEntity,
   getFlow,
+  loadLobSchedule,
   loadLobWithCosts,
+  LobCalendarUnavailableError,
   LobConflictError,
   LobCostsUnavailableError,
   LobUnavailableError,
@@ -38,7 +42,12 @@ async function loadPlannerDocument(workId: string): Promise<LongTermPlanDocument
 
 /** Um comando por requisição: descobre a obra, confere o acesso, aplica as regras
  * (`planLobCommand`) sobre os dados atuais, grava e devolve a obra já atualizada. Consulta não chega
- * aqui, então os custos voltam sempre em reais (`costAccess: 'full'`), ou `'unavailable'` sem a 0044. */
+ * aqui, então os custos voltam sempre em reais (`costAccess: 'full'`), ou `'unavailable'` sem a 0044.
+ *
+ * Comandos de datas (mover, esticar ou devolver blocos; `isLobScheduleCommand`) seguem o caminho curto
+ * (23/11/2026): leem só blocos, dependências e calendário, gravam os blocos alterados em lote e
+ * respondem `{ partial: true, activities }` com o que foi gravado, sem reler a obra nem reassinar as
+ * fotos. A tela já aplicou a mesma regra na hora e só confere; se divergir, ela recarrega. */
 export async function POST(request: Request) {
   const gate = await requireModuleAccess('longo-prazo');
   if (gate.error) return gate.error;
@@ -64,9 +73,26 @@ export async function POST(request: Request) {
     if (command.type === 'launch_flow') extras.flow = (await getFlow(command.flowId)) ?? undefined;
     if (command.type === 'import_planner') extras.plannerDocument = await loadPlannerDocument(workId);
 
-    const { data: current, costsAvailable } = await loadLobWithCosts(workId);
+    if (isLobScheduleCommand(command)) {
+      const schedule = await loadLobSchedule(workId);
+      let mutation: LobMutation;
+      try {
+        mutation = planLobCommand(schedule, command, commandContext(profile.id));
+      } catch (error) {
+        if (isLobCommandError(error) || error instanceof Error) return responseError(error.message, 400);
+        throw error;
+      }
+      if (mutation.workId !== workId) return responseError('Você não tem acesso a esta obra.', 403);
+      await applyLobMutation(mutation);
+      const body: LobScheduleResponse = { available: true, partial: true, activities: mutation.update.activities };
+      return NextResponse.json(body, { headers });
+    }
+
+    const { data: current, costsAvailable, calendarAvailable } = await loadLobWithCosts(workId);
     // Sem a tabela, todo item pareceria novo: recusa antes de planejar.
     if (command.type === 'save_costs' && !costsAvailable) return responseError(new LobCostsUnavailableError().message, 503);
+    // Sem a 0056 não há onde gravar o calendário: recusa antes de calcular datas com ele.
+    if (command.type === 'set_calendar' && !calendarAvailable) return responseError(new LobCalendarUnavailableError().message, 503);
     let mutation: LobMutation;
     try {
       mutation = planLobCommand(current, command, commandContext(profile.id), extras);
@@ -86,7 +112,8 @@ export async function POST(request: Request) {
     const extra = mutation.summary ?? {};
     return NextResponse.json({ available: true, ...fresh, ...extra, costAccess }, { headers });
   } catch (error) {
-    if (error instanceof LobUnavailableError || error instanceof LobCostsUnavailableError) return responseError(error.message, 503);
+    if (error instanceof LobUnavailableError || error instanceof LobCostsUnavailableError || error instanceof LobCalendarUnavailableError)
+      return responseError(error.message, 503);
     if (error instanceof LobConflictError) return responseError(error.message, 409);
     logRouteError('POST /api/lob/commands', error, { actorId: profile.id, type: command.type });
     return responseError('Não foi possível gravar a alteração. Tente novamente.', 502);

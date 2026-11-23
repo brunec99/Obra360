@@ -21,7 +21,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { parseMspdi } from '../src/domain/mspdi-import';
-import { activityFinish, cascade } from '../src/domain/lob';
+import { activityFinish, cascade, type LobCalendar } from '../src/domain/lob';
+import { lobCalendarLabel } from '../src/domain/lob-calendar';
 import { isLocalDate } from '../src/domain/long-term-plan';
 import {
   buildPrevisionImport,
@@ -84,17 +85,18 @@ const EMPTY = (): Record<LobTable, never[]> => ({
   costs: [],
 });
 
-function report(result: PrevisionImport, workName: string) {
+function report(result: PrevisionImport, workName: string, calendar?: LobCalendar) {
   const serviceName = new Map(result.services.map(s => [s.id, s.name]));
   const localName = new Map(result.localOrder.map(l => [l.local.id, l.local.name]));
   const span = result.activities.reduce(
     (acc, a) => ({
       start: a.start < acc.start ? a.start : acc.start,
-      finish: activityFinish(a) > acc.finish ? activityFinish(a) : acc.finish,
+      finish: activityFinish(a, calendar) > acc.finish ? activityFinish(a, calendar) : acc.finish,
     }),
     { start: '9999-12-31', finish: '0000-01-01' },
   );
   console.log(`\n=== ${workName}: Linha de Balanço ===`);
+  console.log(`Calendário da obra: ${lobCalendarLabel(calendar)}`);
   console.log(`Período: ${br(span.start)} a ${br(span.finish)}`);
   console.log(`Locais: ${result.localOrder.length} (${result.locals.length} novos), de baixo para cima:`);
   const groups = new Map<string, string[]>();
@@ -116,7 +118,7 @@ function report(result: PrevisionImport, workName: string) {
       console.log(`  ${String(item.value).padStart(5)}%  ${serviceName.get(a.serviceId)} › ${localName.get(a.localId)}`);
     }
   }
-  const moved = cascade(result.activities, result.dependencies);
+  const moved = cascade(result.activities, result.dependencies, calendar);
   console.log(`Conferência: ${moved.length === 0 ? 'nenhum bloco se move com as dependências' : `${moved.length} BLOCOS SE MOVERIAM`}`);
   for (const flow of result.flows) {
     console.log(`\n=== Fluxo "${flow.document.name}" (${flow.document.services.length} serviços, ${flow.locals.length} locais) ===`);
@@ -152,7 +154,9 @@ async function main() {
     fail(`${work.name} já tem dados na Linha de Balanço (${busy.map(t => `${current[t].length} ${t}`).join(', ')}). Nada foi gravado.`);
 
   const project = parseMspdi(fs.readFileSync(file, 'utf8'));
-  const schedule = readPrevisionSchedule(project);
+  // Dias úteis pelo calendário já configurado na obra (ausente = segunda a sexta sem feriados).
+  const calendar = current.calendar;
+  const schedule = readPrevisionSchedule(project, calendar);
   const result = buildPrevisionImport(schedule, {
     workId: work.id,
     workName: work.name,
@@ -162,13 +166,14 @@ async function main() {
     measurementDate,
     sourceName: path.basename(file),
     existingLocals: current.locals,
+    calendar,
   });
   const flows = values['sem-fluxos'] ? [] : result.flows;
-  report({ ...result, flows }, work.name);
+  report({ ...result, flows }, work.name, calendar);
   const existingFlows = flows.length ? await listFlows() : [];
   const repeated = flows.filter(f => existingFlows.some(e => e.name.toLowerCase() === f.document.name.toLowerCase()));
   for (const f of repeated) console.log(`\nJá existe um fluxo chamado "${f.document.name}": ele não será recriado.`);
-  if (cascade(result.activities, result.dependencies).length) fail('As dependências moveriam blocos. Nada foi gravado.');
+  if (cascade(result.activities, result.dependencies, calendar).length) fail('As dependências moveriam blocos. Nada foi gravado.');
   if (!values.apply) return;
 
   const mutation: LobMutation = {
