@@ -1,6 +1,6 @@
 # Obra 360 · ATR
 
-Gestão de projetos e obras da ATR Incorporadora. O nome "Obra 360" aparece na lateral, no login, no título da aba do navegador e no tour; o endereço do site e o nome do repositório não mudaram.
+Gestão de projetos e obras da ATR Incorporadora. O nome "Obra 360" aparece na lateral, no login, no título da aba do navegador e no tour; o endereço do site não mudou. Em 23/11/2026 o repositório passou de `brunec99/PlanejamentoDeVagao` para `brunec99/Obra360` (o GitHub redireciona o endereço antigo) e o pacote, de `sistema-planejamento-vagao` para `obra-360`. A imagem Docker sai com os dois nomes, `ghcr.io/brunec99/planejamentodevagao` (o que o servidor da ATR busca hoje) e `ghcr.io/brunec99/obra360`, até o servidor ser apontado para o novo; só então o nome antigo sai de `.github/workflows/imagem.yml`.
 
 Aplicação em Next.js, TypeScript, Tailwind CSS e App Router. O vagão é um **período temporal**, sem pavimento ou local próprio. Os locais pertencem às atividades.
 

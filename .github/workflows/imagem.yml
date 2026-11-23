@@ -23,8 +23,11 @@ permissions:
   contents: read
   packages: write
 
+# Troca de nome (23/11/2026): o projeto passou a se chamar Obra 360. A imagem sai com os dois nomes
+# até o servidor da ATR passar a buscar IMAGEM_NOVA; depois disso, IMAGEM (o nome antigo) pode sair.
 env:
   IMAGEM: ghcr.io/brunec99/planejamentodevagao
+  IMAGEM_NOVA: ghcr.io/brunec99/obra360
 
 jobs:
   imagem:
@@ -69,3 +72,7 @@ jobs:
           docker tag "$IMAGEM:teste" "$IMAGEM:${GITHUB_SHA::12}"
           docker push "$IMAGEM:latest"
           docker push "$IMAGEM:${GITHUB_SHA::12}"
+          docker tag "$IMAGEM:teste" "$IMAGEM_NOVA:latest"
+          docker tag "$IMAGEM:teste" "$IMAGEM_NOVA:${GITHUB_SHA::12}"
+          docker push "$IMAGEM_NOVA:latest"
+          docker push "$IMAGEM_NOVA:${GITHUB_SHA::12}"
