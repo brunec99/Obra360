@@ -148,7 +148,7 @@ export const steps: TourStep[] = [
   {
     target: 'medio-filtros',
     title: 'Buscar e filtrar',
-    body: 'A busca procura no nome, no recurso e nas anotações. Os filtros deixam só uma situação (atrasadas, críticas, prazo perdido, fora do horizonte, alteradas…) ou um recurso. Com filtro ativo, inserir, recuar, vincular e excluir ficam desligados.',
+    body: 'A busca procura no nome, no recurso e nas anotações. Os filtros deixam só uma situação (atrasadas, críticas, prazo perdido, fora do horizonte, alteradas…), um recurso ou um intervalo de datas ("De … até": ficam as tarefas com algum dia dentro dele). Com filtro ativo, inserir, recuar, vincular e excluir ficam desligados.',
   },
   {
     target: 'medio-referencia',

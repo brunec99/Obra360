@@ -685,6 +685,11 @@ export function Sheet({
     [status, setStatus] = useState('all'),
     [team, setTeam] = useState(''),
     [reference, setReference] = useState(today);
+  // Filtro de data (23/11/2026): só as tarefas com algum dia dentro de "De … até". Cada ponta é opcional.
+  const [range, setRange] = useState({ from: '', to: '' });
+  // Datas invertidas não filtram nada: o campo "até" avisa, em vez de esvaziar a grade.
+  const rangeInverted = !!range.from && !!range.to && range.from > range.to;
+  const ranging = (!!range.from || !!range.to) && !rangeInverted;
   const [folded, setFolded] = useState<string[]>([]),
     [hidden, setHidden] = useState<Col[]>(() => DEFAULT_HIDDEN.filter(k => !variant?.defaultShown?.includes(k))),
     [order, setOrder] = useState<Col[]>(DEFAULT_ORDER),
@@ -847,7 +852,7 @@ export function Sheet({
   const baselineTasks = useMemo(() => data.planTasks.filter(t => t.planId === baseId), [data.planTasks, baseId]);
   const baselineRoll = useMemo(() => rollUpPlan(baselineTasks), [baselineTasks]);
   const visibleCols = order.map(k => COLUMN[k]).filter(c => !hidden.includes(c.key) || c.key === 'name');
-  const filtering = !!query || status !== 'all' || !!team;
+  const filtering = !!query || status !== 'all' || !!team || ranging;
   const outOfWindow = (id: string) => {
     const v = roll.get(id)!;
     return !v.summary && (v.plannedEnd < win.start || v.plannedStart > win.end);
@@ -863,6 +868,8 @@ export function Sheet({
         .split(/\s+/)
         .every(token => hay.includes(token)) &&
       (!team || taskTeamIds(t).includes(team)) &&
+      // O período olha a tarefa, não o resumo: o grupo aparece por causa das tarefas dele que caem no intervalo.
+      (!ranging || (!v.summary && (!range.from || v.plannedEnd >= range.from) && (!range.to || v.plannedStart <= range.to))) &&
       (status === 'all' ||
         (status === 'zero' && v.progress === 0) ||
         (status === 'ongoing' && v.progress > 0 && v.progress < 100) ||
@@ -2160,6 +2167,7 @@ export function Sheet({
         setQuery('');
         setStatus('all');
         setTeam('');
+        setRange({ from: '', to: '' });
       }
       // Sem filtro, as linhas da tabela são as que nenhum resumo recolhido esconde.
       r = unfoldedRows(draft.tasks, open).findIndex(t => t.id === id);
@@ -2543,6 +2551,13 @@ export function Sheet({
     const filters = [
       status !== 'all' ? statusLabel : '',
       team ? teamLabel(team) : '',
+      ranging
+        ? range.from && range.to
+          ? `de ${projectDate(range.from)} a ${projectDate(range.to)}`
+          : range.from
+            ? `a partir de ${projectDate(range.from)}`
+            : `até ${projectDate(range.to)}`
+        : '',
       query.trim() ? `busca “${query.trim()}”` : '',
     ].filter(Boolean);
     const foldedCount = folded.filter(id => roll.get(id)?.summary).length;
@@ -3085,6 +3100,57 @@ export function Sheet({
                   ))}
                 </select>
               </label>
+              <span data-tour="medio-filtro-data" className="flex items-center gap-1 text-slate-600">
+                <label className="flex items-center gap-1">
+                  De
+                  <input
+                    className="field w-auto py-1 text-xs"
+                    type="date"
+                    value={range.from}
+                    disabled={!!editor}
+                    title="Mostra só as tarefas com algum dia a partir desta data"
+                    onClick={openNativePicker}
+                    onChange={e => {
+                      setRange(r => ({ ...r, from: e.target.value }));
+                      setSelected({ row: 0, col: selected.col });
+                    }}
+                  />
+                </label>
+                <label className="flex items-center gap-1">
+                  até
+                  <input
+                    className={`field w-auto py-1 text-xs ${rangeInverted ? 'border-danger-ring' : ''}`}
+                    type="date"
+                    value={range.to}
+                    min={range.from || undefined}
+                    disabled={!!editor}
+                    aria-invalid={rangeInverted}
+                    title={
+                      rangeInverted
+                        ? 'A data final é anterior à inicial: o filtro de data não está valendo'
+                        : 'Mostra só as tarefas com algum dia até esta data'
+                    }
+                    onClick={openNativePicker}
+                    onChange={e => {
+                      setRange(r => ({ ...r, to: e.target.value }));
+                      setSelected({ row: 0, col: selected.col });
+                    }}
+                  />
+                </label>
+                {(range.from || range.to) && (
+                  <button
+                    type="button"
+                    className="text-link"
+                    disabled={!!editor}
+                    onClick={() => {
+                      setRange({ from: '', to: '' });
+                      setSelected({ row: 0, col: selected.col });
+                    }}
+                  >
+                    Limpar datas
+                  </button>
+                )}
+              </span>
             </span>
             {!hidden.includes('target') && (
               <label data-tour="medio-referencia" className="flex items-center gap-1 text-slate-600">

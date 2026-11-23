@@ -1984,3 +1984,37 @@ Regras puras em `column-widths.tsx` (`parseStoredWidths`, `serializeStoredWidths
 - No Atmos, as durações importadas do Prevision já incluem os feriados (para manter o término); marcar esses feriados no calendário empurra os términos. A prévia mostra isso antes de gravar, e a conversão das durações não foi feita.
 - A Curva S não tem custo realizado (curva financeira) nem exportação, e os dashboards continuam lendo o Planejador antigo.
 - Cenários e integração direta com o Sienge continuam pendentes.
+
+## Médio prazo: filtro de data (23/11/2026)
+
+### Pedido
+
+Gabriel Andrade, na conversa "Feedback Obra 360" de 23/11/2026: "está faltando um filtro de data", ao analisar com o Jorge o planejamento do próximo ano. O usuário confirmou que é no médio prazo (a Linha de Balanço já tinha o seletor "Período").
+
+### Comportamento entregue
+
+- Na barra de filtros do cronograma (visão Gantt de controle), depois do filtro de recurso, entraram os campos **"De"** e **"até"**. Ficam só as tarefas com algum dia dentro do intervalo: término ≥ "De" e início ≤ "até". Tarefa que atravessa o intervalo, ou que começa antes e termina dentro, aparece.
+- Cada ponta é opcional: só "De" mostra dali em diante; só "até" mostra o que começa até a data.
+- "Limpar datas" aparece com algum campo preenchido. Data final anterior à inicial não filtra nada: o campo fica marcado e a dica explica.
+- Combina com a busca, a situação e o recurso. Como nos outros filtros, cada resultado vem com os resumos acima dele, e inserir, recuar, vincular e excluir ficam desligados com o filtro ativo.
+- O intervalo sai no cabeçalho da impressão ("Filtro: de Seg 04/01/27 a Sex 26/02/27").
+- Vale também no Gantt de legalização da aba 1.1, que usa a mesma tela.
+
+### Decisões
+
+- O resumo não é testado contra o intervalo: ele aparece por causa das tarefas dele que caem nas datas. Assim um grupo longo não aparece vazio.
+- O filtro é da sessão da tela, como a busca e a situação: não é gravado nem guardado no navegador.
+- Sem migração e sem mudança no servidor: é só `src/modules/medio-prazo/schedule-sheet.tsx` (estado `range`), mais o tour e o manual da Claudia do médio prazo.
+
+### Validação (23/11/2026)
+
+Sequência do `ci.yml` rodada local, toda verde: `verify:portal-kit`, `typecheck`, `lint` (sem erros; só os avisos que já existiam), `format:check`, `npm test` (1.692 testes), `validate:migrations`, `build` e `test:e2e` (10 testes).
+
+### Não verificado
+
+- A tela não foi aberta no navegador: não há teste automático do filtro (a regra está dentro do componente) nem conferência visual da barra em tela estreita.
+
+### Próximas etapas (não implementado)
+
+- Atalhos de período ("este mês", "próximos 30 dias", ano) e filtro de data nas visões Planejador de Equipe e Uso dos Recursos.
+
