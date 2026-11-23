@@ -23,6 +23,7 @@ export const sections: ManualSection[] = [
       'a medir',
       'sem produção medida',
       'repetir o último dia',
+      'último lançamento da produtividade',
       'unidade da produção',
       'serviço novo',
       'empreiteiro novo',
@@ -70,6 +71,10 @@ O lápis da linha leva o lançamento para o formulário (**Salvar alteração**)
 
 ### Histórico da planilha
 
-Os lançamentos antigos entram por importação, feita pelo administrador do sistema. Produção vazia ou "0,00" da planilha entra como "a medir".`,
+Os lançamentos antigos entram por importação, feita pelo administrador do sistema. Produção vazia ou "0,00" da planilha entra como "a medir".
+
+### Quando foi o último lançamento de cada obra
+
+No **Dashboard geral**, o quadro de controles compara os **dias lançados** de cada obra no período. A Claudia geral (administradores) lê, pelo panorama das obras, os dias lançados, a parcela com produção medida e a **data do último lançamento** de cada obra, além dos serviços medidos em mais de uma obra. As linhas do dia (equipe, serviço e produção de cada lançamento) ela não lê; isso está na aba.`,
   },
 ];

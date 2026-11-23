@@ -27,6 +27,9 @@ export const sections: ManualSection[] = [
       'média por dia útil',
       'por empresa',
       'por função',
+      'último lançamento',
+      'última vez que a obra preencheu',
+      'obra parada sem lançar',
     ],
     screen: 'histograma',
     body: `## O que é a aba 2.2, Histograma de mão de obra
@@ -49,7 +52,13 @@ export const sections: ManualSection[] = [
 
 - **Homens-dia** é a soma de pessoas × dias no período.
 - Na visão por **semana** e por **mês**, a barra é a **média por dia útil lançado**: sábado e domingo ficam fora da média, porque a equipe é reduzida.
-- **Próprio** é a mão de obra da ATR e da Takt; o resto conta como empreiteiro.`,
+- **Próprio** é a mão de obra da ATR e da Takt; o resto conta como empreiteiro.
+
+### Quando foi o último lançamento de cada obra
+
+- Na aba, o primeiro cartão mostra o **último dia lançado** e quantos dias úteis estão sem lançar.
+- No **Dashboard geral**, o quadro de controles compara os **dias lançados** de cada obra no período.
+- A Claudia geral (administradores) responde "qual foi a última vez que cada obra preencheu o histograma?": ela lê, pelo panorama das obras, o efetivo médio, os dias lançados no período e a **data do último lançamento** de cada obra. O efetivo de um dia, por empresa ou por função, ela não lê; isso está na Folha do dia.`,
   },
   {
     id: 'histograma-lancar',

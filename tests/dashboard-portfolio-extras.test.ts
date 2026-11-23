@@ -509,6 +509,8 @@ test('servidor (Claudia): composePortfolio com a resposta da rota dos quadros no
   const said = portfolioText(composed);
   assert.match(said, /Histograma: efetivo médio 84 por dia útil, dias lançados 20\/22/);
   assert.match(said, /Produtividade: dias lançados 19\/22, produção medida 62%/);
+  // 23/11/2026: a data do último lançamento sai no texto (a Claudia respondia que não tinha esse dado).
+  assert.match(said, /Histograma: [^·]*último lançamento em 30\/10\/2026/);
   assert.match(said, /Quadro de Restrições: em aberto 23, vencidos 4, começo atrasado 3/);
   assert.match(said, /IDP 0,93 \(atenção\)/);
   assert.match(said, /Checklist de equipamentos: vencidos hoje 4 de 21 \(17 em dia\)/);

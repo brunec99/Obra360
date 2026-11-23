@@ -218,6 +218,9 @@ Dúvidas sobre o sistema custam pouco (uma consulta ao manual), mas cada pergunt
       'contexto',
       'várias obras',
       'panorama das obras',
+      'último lançamento do histograma',
+      'quando a obra lançou o histograma',
+      'o que a claudia lê',
       'não vejo a janela',
       'geral várias obras',
     ],
@@ -247,11 +250,13 @@ No alto da janela, o chip de **contexto** mostra a obra e a tela da página em q
 
 ## O que ela lê (só leitura)
 
-De qualquer obra: o **curto prazo** (planilha da semana, PPC e causas), o **médio prazo** (plano do mês e restrições), o **longo prazo** (plano macro e Linha de Balanço com as medições), os **vagões** (restrições e pendências), a **terminalidade** (pendências por apartamento), a **segurança do trabalho** (apontamentos dos TSTs) e as **configurações da obra** (semana 1, locais e equipes). Para comparar, ela usa o **panorama das obras**, com os mesmos números do Dashboard geral, e só depois abre o detalhe das obras que a pergunta pede. Os **chips cinza** embaixo da resposta mostram o que ela consultou.
+De qualquer obra: o **curto prazo** (planilha da semana, PPC e causas), o **médio prazo** (plano do mês e restrições), o **longo prazo** (plano macro e Linha de Balanço com as medições), os **vagões** (restrições e pendências), a **terminalidade** (pendências por apartamento), a **segurança do trabalho** (apontamentos dos TSTs) e as **configurações da obra** (semana 1, locais e equipes). Para comparar, ela usa o **panorama das obras**, com os mesmos números do Dashboard geral, e só depois abre o detalhe das obras que a pergunta pede.
+
+É pelo panorama que ela lê também os **quadros de controles** de cada obra: a **Linha de Balanço** (IDP) e a **legalização** (marcos e tarefas atrasadas), o **Quadro de Restrições** (cards em aberto, vencidos e com começo atrasado), o **histograma de mão de obra** (efetivo médio, dias lançados no período e a **data do último lançamento**), o **controle de produtividade** (dias lançados, produção medida e a data do último lançamento) e o **checklist de equipamentos** (vencidos hoje e não conformidades do período). Desses cinco ela tem os **números do período**, não a lista linha a linha: o efetivo de um dia por empresa ou função, um card do quadro ou a inspeção de um equipamento continuam na aba de cada um. Os **chips cinza** embaixo da resposta mostram o que ela consultou.
 
 Ela **não lê**: o conteúdo das fotos (só sabe quantas há e o que a descrição diz), os PDFs, os modelos IFC, os usuários e acessos e os dados de uso de IA. Não gera PDF nem planilha e não manda mensagem a ninguém; sobre essas telas ela explica como usar.
 
-Exemplos: "Qual obra tem o PPC mais baixo nas últimas semanas?", "Compare o avanço físico das obras com o previsto", "Quais obras têm mais pendências abertas na terminalidade?", "Resuma a segurança do trabalho do mês em todas as obras".
+Exemplos: "Qual foi a última vez que cada obra preencheu o histograma?", "Quais obras estão com checklist de equipamento vencido?", "Qual obra tem o PPC mais baixo nas últimas semanas?", "Compare o avanço físico das obras com o previsto", "Quais obras têm mais pendências abertas na terminalidade?", "Resuma a segurança do trabalho do mês em todas as obras".
 
 ## Edições
 

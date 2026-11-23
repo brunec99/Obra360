@@ -12,7 +12,7 @@ import type { PortfolioData, PortfolioRow, PortfolioWork } from './types';
  * os responsáveis terceiros e os tipos de apontamento de segurança (os que o geral calcula: até 6 cada). Desde
  * 12/11/2026, cada obra traz também Linha de Balanço e legalização (IDP, sem reais), Quadro de Restrições,
  * histograma, produtividade e checklist, e o fim do texto lista os serviços medidos em mais de uma obra e os
- * responsáveis com mais cards vencidos.
+ * responsáveis com mais cards vencidos. Desde 23/11/2026, histograma e produtividade dizem o último dia lançado.
  *
  * Se o texto completo passar do limite, sai a versão curta (sem os detalhes secundários de cada quadro e com as
  * listas menores); se ainda passar, as últimas obras saem com o aviso de quantas ficaram de fora. Puro. */
@@ -175,9 +175,14 @@ function restrictionsText(row: PortfolioRow, compact: boolean): string {
   return parts.join(', ');
 }
 
+/** O último dia lançado até o fim do período, com o ano: é o que responde "quando foi o último lançamento da
+ * obra" (23/11/2026). Sai também na versão curta, porque a obra parada é justamente a que tem zero dia no período. */
+const lastLaunchText = (day: string) => `último lançamento em ${formatDate(day)}`;
+
 function headcountText(row: PortfolioRow, compact: boolean): string {
   const h = row.headcount!;
   const parts = [`efetivo médio ${int(h.dailyAverage)} por dia útil`, `dias lançados ${coverageText(h.coverage)}`];
+  if (h.lastDay) parts.push(lastLaunchText(h.lastDay));
   if (!compact) {
     parts.push(`${pct(h.contractorShare * 100)} empreiteiros`, `pico ${int(h.peak)}${h.peakDay ? ` em ${dayMonth(h.peakDay)}` : ''}`);
     if (h.coverage.missingCount) parts.push(missingText(h.coverage));
@@ -191,6 +196,7 @@ function productionText(row: PortfolioRow, compact: boolean): string {
     `dias lançados ${coverageText(p.coverage)}`,
     `produção medida ${p.measuredShare === undefined ? '—' : pct(p.measuredShare * 100)}`,
   ];
+  if (p.lastDay) parts.push(lastLaunchText(p.lastDay));
   if (!compact) {
     parts.push(`${int(p.entries)} lançamentos, ${int(p.manDays)} homens-dia`);
     if (p.coverage.missingCount) parts.push(missingText(p.coverage));

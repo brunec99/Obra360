@@ -206,7 +206,7 @@ Pedido do usuário em 08/11/2026, com o modelo de UX aprovado sem mudança. Os n
 **O que ela lê (6, 7).** Só leitura, das obras da pessoa (`profile.workIds`), carregadas sob demanda e guardadas durante a pergunta (`createAgentDataLoader`, `global-data.ts`), com os mesmos recortes das rotas de cada módulo:
 
 - as seis ferramentas da Claudia da obra (`listar_semana`, `listar_tarefas_mes`, `listar_servicos_macro`, `propor_*`) com o parâmetro `obra`, sobre o mesmo `ToolContext`; o texto devolvido começa por "Obra X (SIGLA)." para o modelo não misturar obras;
-- `panorama_obras`: os **mesmos números do Dashboard geral**, porque o servidor repete as etapas do `usePortfolio` com as mesmas funções (`composePortfolio`) e as mesmas leituras (`readPortfolioSources`, movidas da rota `/api/dashboard/obras`, que só passou a chamá-las). Padrão: as últimas 4 semanas (personalizado, da segunda três semanas antes da atual até hoje); aceita escala, chave (`AAAA-MM`, `AAAA-T1`, `AAAA`) e lista de obras. O texto (`portfolioText`, até 10 mil caracteres) traz a frase e os cartões da página, uma linha por obra com os rótulos da página, o Pareto de causas, os empreiteiros em mais de uma obra e os tipos de segurança;
+- `panorama_obras`: os **mesmos números do Dashboard geral**, porque o servidor repete as etapas do `usePortfolio` com as mesmas funções (`composePortfolio`) e as mesmas leituras (`readPortfolioSources`, movidas da rota `/api/dashboard/obras`, que só passou a chamá-las). Padrão: as últimas 4 semanas (personalizado, da segunda três semanas antes da atual até hoje); aceita escala, chave (`AAAA-MM`, `AAAA-T1`, `AAAA`) e lista de obras. O texto (`portfolioText`, até 10 mil caracteres) traz a frase e os cartões da página, uma linha por obra com os rótulos da página, o Pareto de causas, os empreiteiros em mais de uma obra e os tipos de segurança. Desde 12/11/2026 cada obra traz também Linha de Balanço (IDP) e legalização, Quadro de Restrições, histograma, produtividade e checklist de equipamentos; desde 23/11/2026 o histograma e a produtividade dizem a **data do último lançamento** (ver "Panorama: último lançamento e descrição completa");
 - `resumo_obra`: o dossiê com o radar (`buildBriefing`);
 - `consultar_vagoes` (status, takt vencido, restrições pelo mesmo prazo do quadro de vagões, pendências, dívidas, liberações), `consultar_lob` (Linha de Balanço por serviço e local: previsto × medido hoje, atraso, última medição; é a visão nova de 04/11, que a Claudia da obra não lê), `consultar_configuracoes_obra` (semana 1, local, equipes, locais);
 - `consultar_terminalidade` e `consultar_seguranca` (uma obra ou "todas"): resumo com as mesmas contas das telas (`summarize`, `percentLabel`, `safetyDays`, `OPEN_OVER_DAYS`), contagem por grupo e as linhas, as abertas mais antigas primeiro; filtros por situação, pavimento/local, apartamento, tipo, empreiteiro, responsável, risco, TST, busca na descrição e datas. A segurança mostra quem lançou pelo nome do perfil (o carregador junta os nomes, como o "Apontado por" da tela);
@@ -377,7 +377,53 @@ Escrita de cache custa 1,25× a entrada e leitura de cache 10% (US$ 0,20 no Sonn
 
 Os limites por padrão, com seis obras ativas: teto US$ 20,00; parte de cada obra US$ 5,00; limite por pessoa sem valor.
 
+## Panorama: último lançamento e descrição completa (23/11/2026)
+
+**O problema.** Um administrador perguntou à Claudia geral "qual foi a última vez que cada obra preencheu o histograma?" e ela respondeu que nenhuma ferramenta lia o histograma. O dado existia: `HeadcountBlock.lastDay` (o último dia lançado até o fim do período, lido do banco por obra) já chegava ao servidor da Claudia desde 12/11/2026. Duas falhas somadas escondiam isso:
+
+1. `portfolioText` (`headcountText` e `productionText`) não escrevia `lastDay`;
+2. a descrição de `panorama_obras`, o prompt do sistema (`globalSystemText`) e a seção `agente-claudia-geral` do manual ainda listavam só os seis quadros de 08/11/2026, sem Linha de Balanço/legalização, Quadro de Restrições, histograma, produtividade e checklist, que o texto do panorama já trazia. O modelo concluiu que não tinha a leitura e não chamou a ferramenta.
+
+**O que mudou.**
+
+- `src/modules/dashboard/portfolio/portfolio-text.ts`: histograma e produtividade ganham "último lançamento em DD/MM/AAAA", também na versão curta (a obra parada é a que tem zero dia no período, e é dela que se pergunta).
+- `src/application/use-cases/agent-global-tools.ts`: a descrição de `panorama_obras` cita os cinco quadros de controles, diz que ela é a única ferramenta que lê histograma, produtividade, checklist e legalização, e que serve também para uma obra só.
+- `src/infrastructure/agent/chat.ts`: o prompt da Claudia geral lista esses módulos, explica o que o panorama traz deles e manda dar o número do panorama e apontar a aba quando pedirem o detalhe linha a linha.
+- Manual: `agente-claudia-geral` (o que ela lê, exemplos e palavras-chave), `histograma-visao-geral` e a seção da produtividade (onde ver o último lançamento de cada obra).
+- Teste: `tests/dashboard-portfolio-extras.test.ts` confere a data no texto.
+
+**Validação.** `npm test`, `tsc`, ESLint e Prettier (ver o commit). **Não validado:** a mesma pergunta refeita em produção, logado, com a API real.
+
+**Limite conhecido.** `lastDay` é o último lançamento **até o fim do período** pedido; no padrão (até hoje) é o último lançamento da obra. Obra que nunca lançou sai como "sem dado".
+
+### Levantamento: o que a base da Claudia ainda não cobre (23/11/2026)
+
+Conferido no código nesta data. Nada abaixo foi implementado.
+
+**Dados que o sistema tem e nenhuma ferramenta entrega**
+
+| Módulo | O que ela lê hoje | O que falta |
+| --- | --- | --- |
+| Histograma (2.2) | Panorama: efetivo médio, dias lançados, dias que faltaram, pico, % empreiteiros, último lançamento | Efetivo de um dia, por empresa e por função. As 5 maiores empresas já vêm no bloco (`companies`) e não são escritas |
+| Produtividade (2.3) | Panorama: dias lançados, % medido, homens-dia, último lançamento; serviços em mais de uma obra | Serviços de uma obra só (o bloco traz até 12 em `services`, não escritos) e as linhas do dia |
+| Checklist de equipamentos (3.2) | Panorama: vencidos hoje, inspeções e não conformidades do período | Quais equipamentos estão vencidos (`pendingList`, não escrito), as não conformidades item a item e a tratativa do TST |
+| Quadro de Restrições (1.4) | Panorama: em aberto, vencidos, começo atrasado, concluídos/criados; responsáveis somando as obras | A lista de cards (título, responsável, entrega, conversa, checklists). `consultar_vagoes` lê as restrições **dos vagões**, que são outro cadastro; por coluna e por responsável da obra já vêm no bloco (`byStatus`, `byResponsible`) e não são escritos |
+| Legalização (1.1) | Panorama: marcos feitos, tarefas atrasadas, próximo marco | Entrega contratual × prevista e dias de atraso (`deliveryDate`, `forecast`, `lateDays`, não escritos) e as tarefas do Gantt |
+| Médio prazo (1.2) | `listar_tarefas_mes`: tarefas folha do plano vivo | Escolher entre os vários cronogramas do mesmo mês (16/11), recursos extras da tarefa (17/11), Curva S e Gantt de controle (23/11) |
+| Acessos | Nada (declarado no manual) | Quem entrou, em quais módulos e por quanto tempo (aba "Acessos" do Dashboard geral, só admin) |
+
+**Manual**
+
+- **Entrada pelo Portal Inteligência** (login único da ATR, 21/11/2026): a seção de login só descreve "Continuar com o Google". Falta dizer que quem vem do Portal entra sem escolher a conta.
+- **Claudia da obra** (não admin): o prompt e o manual dela não mudaram; ela continua sem ler os controles (histograma, produtividade, checklist, Quadro de Restrições), e o manual não lista esses quatro entre o que ela não lê.
+- As demais entregas de 12 a 23/11/2026 (menu numerado, Quadro de Restrições, contas externas, liberação "Concluir apontamentos", aba Acessos, médio prazo de 16 a 23/11, checklist de 16 a 23/11, quadro de segurança do Dashboard geral, retorno do Jorge) têm texto no manual; a conferência foi por palavra-chave de cada entrega, não por leitura integral das seções.
+
+**Regra de trabalho (pedido do usuário em 23/11/2026).** Toda mudança no sistema atualiza, no mesmo commit, o manual (`src/modules/agente/manual/`), as descrições das ferramentas e o texto que elas entregam.
+
 ## Próximas etapas
+
+- **Ferramentas de detalhe dos controles** (levantamento de 23/11/2026): escrever no panorama de uma obra só o que os blocos já trazem (empresas do histograma, serviços da produtividade, equipamentos vencidos, cards por coluna e responsável, entrega da legalização) e, depois, ferramentas próprias para o Quadro de Restrições, o histograma por dia e o checklist.
+- **Manual: entrada pelo Portal Inteligência** e o que a Claudia da obra não lê (levantamento de 23/11/2026).
 
 - **Conferir a 0035 e as variáveis na Vercel** no primeiro uso logado (o usuário informou que fez os dois em 27/10/2026; ver a seção da migração). Até lá, em produção, só o radar funciona. Trocar o `.env.local` para o `takt-hub` se quiser testar o painel localmente.
 - **Testar no navegador, logado**, numa obra com os três níveis preenchidos: leitura, pergunta, as três propostas aplicadas e desfeitas, 429 ao estourar um teto, a tela do admin com limite e corte. Registrar aqui o custo real de uma leitura e de uma pergunta numa obra de verdade (o livro-razão já guarda), e ajustar `ESTIMATED_CALL_USD` e a tabela acima se a conta não bater.
