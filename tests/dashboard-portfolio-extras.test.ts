@@ -19,7 +19,9 @@ import type {
   WorkdayCoverage,
 } from '../src/modules/dashboard/extras/types';
 import { aggregatePortfolio, KPIS_SHOWN } from '../src/modules/dashboard/portfolio/aggregate';
+import { GLOBAL_TOOL_SPECS } from '../src/application/use-cases/agent-global-tools';
 import { composePortfolio, portfolioRange, portfolioText } from '../src/modules/dashboard/portfolio/compose';
+import { DETAIL_MAX_WORKS } from '../src/modules/dashboard/portfolio/portfolio-text';
 import { extractRow, workState, type PortfolioWorkInput } from '../src/modules/dashboard/portfolio/extract';
 import {
   cardOwnersOf,
@@ -515,6 +517,17 @@ test('servidor (Claudia): composePortfolio com a resposta da rota dos quadros no
   assert.match(said, /IDP 0,93 \(atenção\)/);
   assert.match(said, /Checklist de equipamentos: vencidos hoje 4 de 21 \(17 em dia\)/);
   assert.doesNotMatch(said, /R\$/);
+
+  // 23/11/2026: com até três obras, cada obra traz o detalhe que os blocos já têm; com mais, não.
+  const one = portfolioText({ ...composed, rows: [first] });
+  assert.match(one, /empresas com mais homens-dia: Alfa Estruturas 440 Hd \(média de 22 nos dias em que esteve\)/);
+  assert.match(one, /faltam hoje \(1 de 4\): Betoneira 02 — Diário · Betoneira diário/);
+  assert.match(one, /por coluna: A fazer 21, Fazendo 1, Pausado 1/);
+  assert.doesNotMatch(one, /R\$/);
+  assert.ok(GLOBAL_TOOL_SPECS.find(spec => spec.name === 'panorama_obras')!.description.includes(`Com até ${DETAIL_MAX_WORKS} obras`));
+  const four = portfolioText({ ...composed, rows: [first, first, first, first] });
+  assert.doesNotMatch(four, /empresas com mais homens-dia|faltam hoje|por coluna/);
+  assert.match(four, /último lançamento em 30\/10\/2026/);
 
   // Leitura falhou: os cinco quadros ficam indisponíveis, com a mensagem; sem leitura, somem.
   const failed = composePortfolio({ planning, works, extras: { error: 'Fora do ar.' }, ...access });

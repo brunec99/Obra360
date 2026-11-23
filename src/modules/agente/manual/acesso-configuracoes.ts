@@ -16,6 +16,9 @@ export const sections: ManualSection[] = [
       'conta google',
       'senha',
       'continuar com o google',
+      'portal inteligência',
+      'entrar pelo portal',
+      'login único',
       'sair',
       'logout',
       'trocar de conta',
@@ -42,6 +45,15 @@ O Obra 360 não tem senha própria. Quem confirma quem você é é o Google, com
 4. Pronto. O sistema devolve você à página que tentou abrir; entrando pela porta da frente, cai na lista de obras ("/obras").
 
 A sessão fica guardada no navegador, então não é preciso repetir isso todo dia. Depois de muito tempo parado ela expira: o sistema pede o login de novo e **volta para a mesma página** em que você estava.
+
+### Entrar pelo Portal Inteligência
+
+Desde 21/11/2026 o Obra 360 também abre pelo **Portal Inteligência**, o login único dos sistemas da ATR. Quem já está no Portal e abre o Obra 360 por lá **entra direto**, sem passar pela tela "Entrar no Obra 360" nem escolher a conta de novo: aparece por um instante "Entrando no Obra 360 pelo Portal Inteligência…" e o sistema abre na lista de obras.
+
+- **As regras de acesso são as mesmas.** O Portal só leva você até o sistema; quem decide se você entra é o cadastro do Obra 360. Sem cadastro feito por um administrador, a entrada é recusada como no login com o Google. Papel, obras e módulos continuam sendo os que o administrador do Obra 360 liberou.
+- **O link do Portal vale por poucos minutos e uma vez só.** Não adianta guardar nem repassar o endereço: se ele expirar ou já tiver sido usado, volte ao Portal e abra o Obra 360 de novo.
+- **Se o navegador já está com outra conta no Obra 360**, a entrada pelo Portal não troca a conta sozinha: saia do sistema ("Sair do sistema") e entre de novo pelo Portal.
+- O botão **"Continuar com o Google"** continua valendo para quem abre o endereço do Obra 360 direto.
 
 ### No primeiro acesso a lista de obras vem vazia
 
@@ -75,6 +87,9 @@ Para entrar com outra conta, clique em "Continuar com o Google" e escolha a outr
       'falha ao entrar com google',
       'login incompleto',
       'convite inválido',
+      'link do portal expirou',
+      'link do portal já foi usado',
+      'erro ao entrar pelo portal',
       'não tem acesso a esta obra',
       'permite apenas consulta',
       'módulo disponível apenas para desenvolvimento',
@@ -94,7 +109,22 @@ A tela de login mostra um quadro vermelho "Não foi possível concluir o login" 
 | **Convite inválido ou expirado. Entre com sua conta Google.** | Link de um convite antigo por e-mail. | Ignore o link e entre com a conta Google. |
 | **Não foi possível provisionar seu acesso. Contate um administrador.** | O Google aprovou, mas o sistema não criou o seu perfil. | Problema do sistema, não seu: avise um administrador. |
 
-"Não foi possível iniciar o login com Google." é falha momentânea: tente em instantes. Dentro do sistema:
+"Não foi possível iniciar o login com Google." é falha momentânea: tente em instantes.
+
+Quem entra pelo **Portal Inteligência** (login único da ATR) pode ver, na mesma tela, estas mensagens:
+
+| Mensagem | O que aconteceu | O que fazer |
+| --- | --- | --- |
+| **O link do Portal expirou ou não é válido. Volte ao Portal Inteligência e entre de novo.** | O link do Portal vale por poucos minutos. | Volte ao Portal e abra o Obra 360 outra vez. |
+| **Este link do Portal já foi usado. Volte ao Portal Inteligência e entre de novo.** | Cada link serve uma vez só (endereço guardado, repassado ou recarregado). | Volte ao Portal e abra o Obra 360 outra vez. |
+| **Link de acesso sem token. Volte ao Portal Inteligência e entre de novo.** | O endereço de entrada do Portal foi aberto incompleto. | Volte ao Portal e abra o Obra 360 por lá. |
+| **Seu e-mail ainda não foi cadastrado no Obra 360. Peça o cadastro a um administrador do Obra 360.** | O Portal liberou o sistema, mas ninguém cadastrou o seu e-mail no Obra 360. | Peça o cadastro a um administrador do Obra 360. |
+| **Este navegador já está com outra conta no Obra 360. Saia dela e entre de novo pelo Portal.** | Há uma sessão aberta de outra pessoa neste navegador. | Clique em "Sair do sistema" e entre de novo pelo Portal. |
+| **Não foi possível confirmar a sua conta. Peça ajuda a um administrador do Obra 360.** | A conta existe, mas não pôde ser confirmada. | Avise um administrador. |
+| **Não foi possível entrar pelo Portal agora. Tente de novo em instantes.** | Falha momentânea. | Tente de novo; se insistir, entre com "Continuar com o Google". |
+| **A entrada pelo Portal ainda não está configurada neste endereço.** | Problema de configuração do sistema, não seu. | Avise um administrador e entre com "Continuar com o Google". |
+
+Dentro do sistema:
 
 - **Sessão expirada. Faça login novamente.** Entre de novo; o sistema devolve você à mesma página.
 - **Você não tem acesso a esta obra.** Peça a liberação a um administrador.

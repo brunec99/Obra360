@@ -58,7 +58,7 @@ export const sections: ManualSection[] = [
 
 - Na aba, o primeiro cartão mostra o **último dia lançado** e quantos dias úteis estão sem lançar.
 - No **Dashboard geral**, o quadro de controles compara os **dias lançados** de cada obra no período.
-- A Claudia geral (administradores) responde "qual foi a última vez que cada obra preencheu o histograma?": ela lê, pelo panorama das obras, o efetivo médio, os dias lançados no período e a **data do último lançamento** de cada obra. O efetivo de um dia, por empresa ou por função, ela não lê; isso está na Folha do dia.`,
+- A Claudia geral (administradores) responde "qual foi a última vez que cada obra preencheu o histograma?": ela lê, pelo panorama das obras, o efetivo médio, os dias lançados no período e a **data do último lançamento** de cada obra. Perguntando de até três obras, ela diz também os homens-dia do período e as cinco empresas com mais homens-dia. O efetivo de um dia e a divisão por função ela não lê; isso está na Folha do dia.`,
   },
   {
     id: 'histograma-lancar',

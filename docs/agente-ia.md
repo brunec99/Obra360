@@ -398,7 +398,7 @@ Os limites por padrão, com seis obras ativas: teto US$ 20,00; parte de cada obr
 
 ### Levantamento: o que a base da Claudia ainda não cobre (23/11/2026)
 
-Conferido no código nesta data. Nada abaixo foi implementado.
+Conferido no código nesta data. A tabela é o retrato de antes da segunda entrega, descrita logo abaixo.
 
 **Dados que o sistema tem e nenhuma ferramenta entrega**
 
@@ -412,7 +412,7 @@ Conferido no código nesta data. Nada abaixo foi implementado.
 | Médio prazo (1.2) | `listar_tarefas_mes`: tarefas folha do plano vivo | Escolher entre os vários cronogramas do mesmo mês (16/11), recursos extras da tarefa (17/11), Curva S e Gantt de controle (23/11) |
 | Acessos | Nada (declarado no manual) | Quem entrou, em quais módulos e por quanto tempo (aba "Acessos" do Dashboard geral, só admin) |
 
-**Manual**
+**Manual** (as duas primeiras lacunas foram fechadas na segunda entrega)
 
 - **Entrada pelo Portal Inteligência** (login único da ATR, 21/11/2026): a seção de login só descreve "Continuar com o Google". Falta dizer que quem vem do Portal entra sem escolher a conta.
 - **Claudia da obra** (não admin): o prompt e o manual dela não mudaram; ela continua sem ler os controles (histograma, produtividade, checklist, Quadro de Restrições), e o manual não lista esses quatro entre o que ela não lê.
@@ -420,10 +420,31 @@ Conferido no código nesta data. Nada abaixo foi implementado.
 
 **Regra de trabalho (pedido do usuário em 23/11/2026).** Toda mudança no sistema atualiza, no mesmo commit, o manual (`src/modules/agente/manual/`), as descrições das ferramentas e o texto que elas entregam.
 
+### Segunda entrega do levantamento: detalhe no panorama e lacunas do manual (23/11/2026)
+
+**Detalhe dos controles com até três obras.** `portfolioText` passou a escrever o que os blocos já traziam e ficava de fora, quando o comparativo tem até `DETAIL_MAX_WORKS` (3) obras e o texto sai na versão completa:
+
+- histograma: homens-dia do período e as 5 empresas com mais homens-dia (média nos dias em que esteve; marca "própria");
+- produtividade: até 8 serviços medidos com mais homens-dia, com a produção por homem-dia, a quantidade e a unidade;
+- checklist de equipamentos: inspeções com não conformidade e os equipamentos que faltam hoje (até 6, como o bloco entrega), com a frequência e o checklist;
+- Quadro de Restrições: cards por coluna (A fazer, Fazendo, Pausado), cancelados no período e os responsáveis com mais cards em aberto;
+- legalização: tarefas concluídas e a entrega contratual × prevista, com os dias úteis de atraso ou folga.
+
+Com mais de três obras o detalhe não sai: ele empurraria o comparativo de todas as obras para além dos 10 mil caracteres e o texto cairia na versão curta, perdendo o que já tinha. A descrição de `panorama_obras` e o prompt dizem isso ao modelo ("para perguntas de detalhe, chame só com as obras em questão"); um teste amarra o "até 3 obras" da descrição à constante. Continua sem valor em reais.
+
+**Manual.**
+
+- `acesso-entrar-sair`: seção "Entrar pelo Portal Inteligência" (entra direto, mesmas regras de cadastro, link de poucos minutos e de uso único, outra conta aberta no navegador). `acesso-erros-pedido`: tabela com as oito mensagens da entrada pelo Portal (`MENSAGENS_PORTAL`). Escrito a partir do código do Obra 360; a tela do Portal em si não foi vista, então o manual não descreve onde clicar lá.
+- `agente` (Claudia da obra): lista o que ela não lê, agora com Quadro de Restrições, histograma, produtividade, checklist, legalização e a Linha de Balanço por serviço × local.
+- `agente-claudia-geral`, `histograma-visao-geral` e produtividade: o que vem a mais com até três obras.
+
+**Validação.** `tests/dashboard-portfolio-extras.test.ts` (uma obra: empresas, equipamento vencido e colunas no texto; quatro obras: sem o detalhe, com o último lançamento), mais a sequência do CI. **Não validado:** pergunta real em produção, logado; o tamanho do texto com três obras reais cheias (se passar de 10 mil caracteres, cai na versão curta, sem o detalhe).
+
+**Continua em aberto do levantamento:** lista de cards do Quadro de Restrições, efetivo por dia e por função, itens e tratativa das inspeções do checklist, tarefas do Gantt de legalização, os vários cronogramas do mês no médio prazo e a aba Acessos.
+
 ## Próximas etapas
 
-- **Ferramentas de detalhe dos controles** (levantamento de 23/11/2026): escrever no panorama de uma obra só o que os blocos já trazem (empresas do histograma, serviços da produtividade, equipamentos vencidos, cards por coluna e responsável, entrega da legalização) e, depois, ferramentas próprias para o Quadro de Restrições, o histograma por dia e o checklist.
-- **Manual: entrada pelo Portal Inteligência** e o que a Claudia da obra não lê (levantamento de 23/11/2026).
+- **Ferramentas de detalhe dos controles** (levantamento de 23/11/2026): ferramentas próprias para a lista de cards do Quadro de Restrições, o histograma por dia e por função, as inspeções do checklist e as tarefas da legalização; `listar_tarefas_mes` com escolha do cronograma do mês; leitura da aba Acessos.
 
 - **Conferir a 0035 e as variáveis na Vercel** no primeiro uso logado (o usuário informou que fez os dois em 27/10/2026; ver a seção da migração). Até lá, em produção, só o radar funciona. Trocar o `.env.local` para o `takt-hub` se quiser testar o painel localmente.
 - **Testar no navegador, logado**, numa obra com os três níveis preenchidos: leitura, pergunta, as três propostas aplicadas e desfeitas, 429 ao estourar um teto, a tela do admin com limite e corte. Registrar aqui o custo real de uma leitura e de uma pergunta numa obra de verdade (o livro-razão já guarda), e ajustar `ESTIMATED_CALL_USD` e a tabela acima se a conta não bater.

@@ -1,3 +1,4 @@
+import { FREQUENCY_LABEL } from '@/domain/equipment-checklist';
 import { formatDate } from '@/shared/format';
 import { dayMonth, monthShort, pct, PORTFOLIO_MODULES, signedDays, signedPoints, type PortfolioModule } from '../model';
 import { scaleLabel } from '../period';
@@ -12,7 +13,8 @@ import type { PortfolioData, PortfolioRow, PortfolioWork } from './types';
  * os responsáveis terceiros e os tipos de apontamento de segurança (os que o geral calcula: até 6 cada). Desde
  * 12/11/2026, cada obra traz também Linha de Balanço e legalização (IDP, sem reais), Quadro de Restrições,
  * histograma, produtividade e checklist, e o fim do texto lista os serviços medidos em mais de uma obra e os
- * responsáveis com mais cards vencidos. Desde 23/11/2026, histograma e produtividade dizem o último dia lançado.
+ * responsáveis com mais cards vencidos. Desde 23/11/2026, histograma e produtividade dizem o último dia lançado e,
+ * com até `DETAIL_MAX_WORKS` obras, cada obra traz o detalhe dos quadros de controles.
  *
  * Se o texto completo passar do limite, sai a versão curta (sem os detalhes secundários de cada quadro e com as
  * listas menores); se ainda passar, as últimas obras saem com o aviso de quantas ficaram de fora. Puro. */
@@ -22,6 +24,12 @@ const PARETO_SHOWN = 8;
 const COMPANIES_SHOWN = 10;
 const SAFETY_TYPES_SHOWN = 8;
 const SHORT_LISTS = 5;
+/** Com até este número de obras no comparativo, cada obra sai com o detalhe dos quadros de controles que os
+ * blocos já trazem (23/11/2026): empresas do histograma, serviços da produtividade, equipamentos com checklist
+ * vencido, cards por coluna e por responsável e a entrega da legalização. Com mais obras o detalhe fica de fora,
+ * para o comparativo não estourar o limite e cair na versão curta. */
+export const DETAIL_MAX_WORKS = 3;
+const DETAIL_SERVICES = 8;
 
 /** O que `composePortfolio` entrega além de `PortfolioData` (opcional: o texto também sai só com os dados). */
 export interface PortfolioTextExtras {
@@ -140,7 +148,7 @@ function safetyText(row: PortfolioRow, compact: boolean): string {
   return parts.join(', ');
 }
 
-function balanceText(row: PortfolioRow, compact: boolean): string {
+function balanceText(row: PortfolioRow, compact: boolean, detail: boolean): string {
   const { lob, legalization } = row.balance!;
   const parts: string[] = [];
   if (lob) {
@@ -164,14 +172,38 @@ function balanceText(row: PortfolioRow, compact: boolean): string {
         !compact && l.next ? `, próximo marco ${l.next.name} em ${formatDate(l.next.date)}` : ''
       }`,
     );
+    if (detail) {
+      parts.push(`tarefas ${int(l.tasks.done)}/${int(l.tasks.total)} concluídas`);
+      if (l.deliveryDate && l.forecast)
+        parts.push(
+          `entrega contratual ${formatDate(l.deliveryDate)} × prevista ${formatDate(l.forecast)} (${
+            l.lateDays > 0
+              ? `${plural(l.lateDays, 'dia útil', 'dias úteis')} de atraso`
+              : l.lateDays < 0
+                ? `${plural(-l.lateDays, 'dia útil', 'dias úteis')} de folga`
+                : 'no prazo'
+          })`,
+        );
+      else if (l.deliveryDate) parts.push(`entrega contratual ${formatDate(l.deliveryDate)}`);
+    }
   }
   return parts.join('; ');
 }
 
-function restrictionsText(row: PortfolioRow, compact: boolean): string {
+function restrictionsText(row: PortfolioRow, compact: boolean, detail: boolean): string {
   const r = row.restrictions!;
   const parts = [`em aberto ${int(r.open)}`, `vencidos ${int(r.overdue)}`, `começo atrasado ${int(r.startOverdue)}`];
   if (!compact) parts.push(`concluídos / criados no período ${int(r.doneInPeriod)} / ${int(r.createdInPeriod)}`);
+  if (detail) {
+    parts.push(
+      `por coluna: A fazer ${int(r.byStatus.todo)}, Fazendo ${int(r.byStatus.doing)}, Pausado ${int(r.byStatus.paused)}`,
+      `cancelados no período ${int(r.cancelledInPeriod)}`,
+    );
+    if (r.byResponsible.length)
+      parts.push(
+        `responsáveis com mais cards em aberto: ${r.byResponsible.map(p => `${p.name} ${int(p.open)} (${int(p.overdue)} ${p.overdue === 1 ? 'vencido' : 'vencidos'})`).join('; ')}`,
+      );
+  }
   return parts.join(', ');
 }
 
@@ -179,7 +211,7 @@ function restrictionsText(row: PortfolioRow, compact: boolean): string {
  * obra" (23/11/2026). Sai também na versão curta, porque a obra parada é justamente a que tem zero dia no período. */
 const lastLaunchText = (day: string) => `último lançamento em ${formatDate(day)}`;
 
-function headcountText(row: PortfolioRow, compact: boolean): string {
+function headcountText(row: PortfolioRow, compact: boolean, detail: boolean): string {
   const h = row.headcount!;
   const parts = [`efetivo médio ${int(h.dailyAverage)} por dia útil`, `dias lançados ${coverageText(h.coverage)}`];
   if (h.lastDay) parts.push(lastLaunchText(h.lastDay));
@@ -187,10 +219,19 @@ function headcountText(row: PortfolioRow, compact: boolean): string {
     parts.push(`${pct(h.contractorShare * 100)} empreiteiros`, `pico ${int(h.peak)}${h.peakDay ? ` em ${dayMonth(h.peakDay)}` : ''}`);
     if (h.coverage.missingCount) parts.push(missingText(h.coverage));
   }
+  if (detail) {
+    parts.push(`${int(h.manDays)} homens-dia no período`);
+    if (h.companies.length)
+      parts.push(
+        `empresas com mais homens-dia: ${h.companies
+          .map(c => `${c.name} ${int(c.manDays)} Hd (média de ${int(c.averagePresent)} nos dias em que esteve${c.own ? ', própria' : ''})`)
+          .join('; ')}`,
+      );
+  }
   return parts.join(', ');
 }
 
-function productionText(row: PortfolioRow, compact: boolean): string {
+function productionText(row: PortfolioRow, compact: boolean, detail: boolean): string {
   const p = row.production!;
   const parts = [
     `dias lançados ${coverageText(p.coverage)}`,
@@ -201,18 +242,35 @@ function productionText(row: PortfolioRow, compact: boolean): string {
     parts.push(`${int(p.entries)} lançamentos, ${int(p.manDays)} homens-dia`);
     if (p.coverage.missingCount) parts.push(missingText(p.coverage));
   }
+  if (detail && p.services.length) {
+    const services = p.services.slice(0, DETAIL_SERVICES);
+    parts.push(
+      `serviços medidos com mais homens-dia (${services.length} de ${p.services.length}): ${services
+        .map(s => `${s.name} ${rate(s.perManDay)} ${s.unit}/Hd (${rate(s.quantity)} ${s.unit} em ${int(s.manDays)} Hd)`)
+        .join('; ')}`,
+    );
+  }
   return parts.join(', ');
 }
 
-function checklistText(row: PortfolioRow, compact: boolean): string {
+function checklistText(row: PortfolioRow, compact: boolean, detail: boolean): string {
   const c = row.checklist!;
   const parts = [`vencidos hoje ${int(c.pending)} de ${int(c.due)} (${int(checklistOnTime(c))} em dia)`];
   if (!compact) parts.push(plural(c.equipment, 'equipamento', 'equipamentos'), `${int(c.runsInPeriod)} inspeções no período`);
   parts.push(`não conformidades no período ${int(c.nonConformities)}`);
+  if (detail) {
+    parts.push(`${int(c.runsWithNonConformity)} inspeções com não conformidade`);
+    if (c.pendingList.length)
+      parts.push(
+        `faltam hoje (${c.pendingList.length} de ${int(c.pending)}): ${c.pendingList
+          .map(item => `${item.equipment} — ${FREQUENCY_LABEL[item.frequency]} · ${item.model}`)
+          .join('; ')}`,
+      );
+  }
   return parts.join(', ');
 }
 
-function moduleText(row: PortfolioRow, module: PortfolioModule, end: string, compact: boolean): string | undefined {
+function moduleText(row: PortfolioRow, module: PortfolioModule, end: string, compact: boolean, detail: boolean): string | undefined {
   const status = row.status[module];
   if (status.kind === 'hidden') return undefined;
   const name = module === 'seguranca' ? 'Segurança' : label(module);
@@ -232,21 +290,21 @@ function moduleText(row: PortfolioRow, module: PortfolioModule, end: string, com
               : module === 'seguranca' && row.safety
                 ? safetyText(row, compact)
                 : module === 'balanco' && row.balance
-                  ? balanceText(row, compact)
+                  ? balanceText(row, compact, detail)
                   : module === 'restricoes' && row.restrictions
-                    ? restrictionsText(row, compact)
+                    ? restrictionsText(row, compact, detail)
                     : module === 'histograma' && row.headcount
-                      ? headcountText(row, compact)
+                      ? headcountText(row, compact, detail)
                       : module === 'produtividade' && row.production
-                        ? productionText(row, compact)
+                        ? productionText(row, compact, detail)
                         : module === 'checklist' && row.checklist
-                          ? checklistText(row, compact)
+                          ? checklistText(row, compact, detail)
                           : undefined;
   return `${name}: ${body ?? 'sem dado'}`;
 }
 
-function workLine(row: PortfolioRow, shown: readonly PortfolioModule[], end: string, compact: boolean): string {
-  const modules = shown.flatMap(module => moduleText(row, module, end, compact) ?? []);
+function workLine(row: PortfolioRow, shown: readonly PortfolioModule[], end: string, compact: boolean, detail: boolean): string {
+  const modules = shown.flatMap(module => moduleText(row, module, end, compact, detail) ?? []);
   return `- ${workName(row.work)} · ${row.stateLabel}${modules.length ? ` · ${modules.join(' · ')}` : ''}`;
 }
 
@@ -279,7 +337,8 @@ function compose(data: PortfolioData & PortfolioTextExtras, compact: boolean, wo
     `Obras no comparativo (${int(data.rows.length)}), uma por linha; "sem dado" = a obra não tem o módulo até o fim do período, "erro" = a leitura falhou:`,
   );
   const rows = data.rows.slice(0, workLimit);
-  for (const row of rows) out.push(workLine(row, shown, end, compact));
+  const detail = !compact && data.rows.length <= DETAIL_MAX_WORKS;
+  for (const row of rows) out.push(workLine(row, shown, end, compact, detail));
   if (rows.length < data.rows.length) {
     const left = data.rows.slice(rows.length).map(row => row.work.code || row.work.name);
     out.push(`… e mais ${plural(left.length, 'obra', 'obras')} fora deste texto (${left.join(', ')}); peça menos obras ou menos quadros.`);

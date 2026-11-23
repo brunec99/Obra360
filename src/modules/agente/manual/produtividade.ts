@@ -75,6 +75,6 @@ Os lançamentos antigos entram por importação, feita pelo administrador do sis
 
 ### Quando foi o último lançamento de cada obra
 
-No **Dashboard geral**, o quadro de controles compara os **dias lançados** de cada obra no período. A Claudia geral (administradores) lê, pelo panorama das obras, os dias lançados, a parcela com produção medida e a **data do último lançamento** de cada obra, além dos serviços medidos em mais de uma obra. As linhas do dia (equipe, serviço e produção de cada lançamento) ela não lê; isso está na aba.`,
+No **Dashboard geral**, o quadro de controles compara os **dias lançados** de cada obra no período. A Claudia geral (administradores) lê, pelo panorama das obras, os dias lançados, a parcela com produção medida e a **data do último lançamento** de cada obra, além dos serviços medidos em mais de uma obra. Perguntando de até três obras, ela diz também os serviços medidos da obra com mais homens-dia (até oito), com a produção por homem-dia. As linhas do dia (equipe, serviço e produção de cada lançamento) ela não lê; isso está na aba.`,
   },
 ];
