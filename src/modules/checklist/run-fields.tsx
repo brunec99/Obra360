@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { Camera, Eraser, X } from 'lucide-react';
+import { Camera, Eraser, ImagePlus, X } from 'lucide-react';
 import { CHECKLIST_LIMITS } from '@/domain/equipment-checklist';
 
 /** Campos da inspeção que a tela logada e a tela do operador (QR) dividem, desde 12/11/2026: o quadro de
@@ -103,6 +103,9 @@ export function SignaturePad({ onChange, disabled }: { onChange: (png: string | 
   );
 }
 
+const TILE =
+  'relative grid size-20 cursor-pointer place-items-center rounded-lg border-2 border-dashed border-slate-300 text-slate-500 hover:border-primary hover:text-primary-ink has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary-ring';
+
 /** Foto no formulário: `data` é o JPEG novo em base64; `url` é a foto já gravada (URL assinada). */
 export interface PhotoDraft {
   id: string;
@@ -165,7 +168,13 @@ export async function compressChecklistPhoto(file: File): Promise<string> {
   }
 }
 
-/** Fotos da inspeção: até `CHECKLIST_LIMITS.photos`, opcionais. O celular oferece câmera ou galeria. */
+/** Fotos da inspeção: até `CHECKLIST_LIMITS.photos`, opcionais. No celular (tela de toque) são dois botões,
+ * "Câmera" (abre direto a câmera) e "Galeria": só com a galeria, o Android novo não oferecia tirar a foto na
+ * hora (23/11/2026, pedido da equipe de SST). No computador fica um botão só, "Adicionar".
+ *
+ * O rótulo é `relative` de propósito: o campo de arquivo é invisível e de posição absoluta, e sem um ancestral
+ * posicionado ele ficava preso ao documento, fora da área que rola. Ao receber o foco (depois de escolher a
+ * foto), o navegador rolava o documento inteiro para mostrá-lo e a tela logada ficava em branco. */
 export function PhotoPicker({
   photos,
   onChange,
@@ -222,26 +231,56 @@ export function PhotoPicker({
           </li>
         ))}
         {room > 0 && !disabled && (
-          <li>
-            <label className="grid size-20 cursor-pointer place-items-center rounded-lg border-2 border-dashed border-slate-300 text-slate-500 hover:border-primary hover:text-primary-ink">
-              <span className="flex flex-col items-center gap-0.5 text-[11px] font-medium">
-                <Camera size={20} aria-hidden />
-                {busy ? 'Aguarde…' : 'Adicionar'}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="sr-only"
-                aria-label="Adicionar foto"
-                disabled={busy}
-                onChange={event => {
-                  void add(event.target.files);
-                  event.target.value = '';
-                }}
-              />
-            </label>
-          </li>
+          <>
+            <li className="hidden pointer-coarse:block">
+              <label className={TILE}>
+                <span className="flex flex-col items-center gap-0.5 text-[11px] font-medium">
+                  <Camera size={20} aria-hidden />
+                  {busy ? 'Aguarde…' : 'Câmera'}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="sr-only"
+                  aria-label="Tirar foto"
+                  disabled={busy}
+                  onChange={event => {
+                    void add(event.target.files);
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+            </li>
+            <li>
+              <label className={TILE}>
+                <span className="flex flex-col items-center gap-0.5 text-[11px] font-medium">
+                  <Camera size={20} aria-hidden className="pointer-coarse:hidden" />
+                  <ImagePlus size={20} aria-hidden className="hidden pointer-coarse:block" />
+                  {busy ? (
+                    'Aguarde…'
+                  ) : (
+                    <>
+                      <span className="pointer-coarse:hidden">Adicionar</span>
+                      <span className="hidden pointer-coarse:inline">Galeria</span>
+                    </>
+                  )}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  aria-label="Adicionar foto"
+                  disabled={busy}
+                  onChange={event => {
+                    void add(event.target.files);
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+            </li>
+          </>
         )}
       </ul>
       {error && (

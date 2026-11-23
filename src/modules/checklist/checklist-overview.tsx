@@ -3,7 +3,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  Ban,
   CheckCheck,
+  ChevronDown,
   Copy,
   ListChecks,
   Pencil,
@@ -19,17 +21,21 @@ import {
   CHECKLIST_FREQUENCIES,
   CHECKLIST_LIMITS,
   doneLocations,
+  FREQUENCY_DONE,
   FREQUENCY_LABEL,
   FREQUENCY_OPTION_LABEL,
   FREQUENCY_PERIOD,
+  awaitsRun,
   checklistBoard,
   checklistKey,
   checklistPublicPath,
   checklistSummary,
   equipmentTypes,
   formatChecklistDay,
+  isSkippedRun,
   modelsFor,
   nonConformities,
+  openNonConformities,
   operatorLabel,
   recentRuns,
   type ChecklistCommand,
@@ -57,6 +63,8 @@ const STATUS_STYLE = {
   pending: 'border-amber-300 bg-amber-50 text-amber-900',
   done: 'border-emerald-300 bg-emerald-50 text-emerald-900',
   nonconforming: 'border-red-300 bg-red-50 text-red-900',
+  treated: 'border-sky-300 bg-sky-50 text-sky-900',
+  skipped: 'border-slate-300 bg-slate-100 text-slate-600',
 } as const;
 
 /** Assinatura e fotos de uma inspeção, buscadas quando ela é aberta (URLs assinadas de uma hora). */
@@ -356,14 +364,96 @@ function EquipmentModels({
 function dueText(due: ChecklistDue): string {
   if (due.status === 'pending')
     return `pendente ${FREQUENCY_PERIOD[due.model.frequency]}${due.lastDoneOn ? ` · último em ${formatChecklistDay(due.lastDoneOn)}` : ''}`;
-  const day = formatChecklistDay(due.run!.doneOn);
+  if (due.status === 'skipped' || !due.run)
+    return `não se aplica ${FREQUENCY_DONE[due.model.frequency]}${due.skip?.note ? ` · ${due.skip.note}` : ''}`;
+  const day = formatChecklistDay(due.run.doneOn);
   const nc = due.periodRuns.reduce((sum, run) => sum + nonConformities(run), 0);
   // Com local, o período pode ter várias inspeções: a linha lista os locais já feitos.
   const places = due.model.asksLocation ? doneLocations(due.periodRuns) : [];
   // Sem local, mais de uma inspeção no período é o equipamento usado por mais de uma pessoa: a linha diz quantas.
   const count = !places.length && due.periodRuns.length > 1 ? ` · ${due.periodRuns.length} inspeções` : '';
   const where = places.length ? ` · ${places.join(', ')}` : count;
-  return nc ? `${nc} não conforme${nc > 1 ? 's' : ''} · ${day}${where}` : `feito em ${day}${where}`;
+  if (!nc) return `feito em ${day}${where}`;
+  const open = due.periodRuns.reduce((sum, run) => sum + openNonConformities(run), 0);
+  return open
+    ? `${nc} não conforme${nc > 1 ? 's' : ''}${open < nc ? ` (${open} sem tratativa)` : ''} · ${day}${where}`
+    : `${nc} não conforme${nc > 1 ? 's' : ''}, tratada${nc > 1 ? 's' : ''} pelo TST · ${day}${where}`;
+}
+
+/** A tratativa do TST nos itens não conformes de uma inspeção (23/11/2026, pedido da equipe de SST): o que foi
+ * feito ou combinado para cada item. Com todos tratados, o checklist sai do vermelho ("tratada pelo TST"): o
+ * equipamento segue liberado com a justificativa. Quem só consulta lê; TST e admin escrevem. */
+function NcTreatments({ run, canEdit, busy, execute }: { run: ChecklistRun; canEdit: boolean; busy: boolean; execute: Execute }) {
+  const items = run.answers.filter(a => a.answer === 'nc');
+  const [drafts, setDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(items.map(a => [a.itemId, a.treatment?.text ?? ''])),
+  );
+  if (!items.length) return null;
+  const dirty = items.some(a => (drafts[a.itemId] ?? '').trim() !== (a.treatment?.text ?? ''));
+  const open = openNonConformities(run);
+  return (
+    <div
+      data-tour="checklist-treatment"
+      className={`rounded-xl border p-3 ${open ? 'border-red-200 bg-red-50/60' : 'border-sky-200 bg-sky-50/60'}`}
+    >
+      <p className="text-sm font-bold text-slate-900">
+        Tratativa do TST{' '}
+        <span className={`font-normal ${open ? 'text-danger' : 'text-sky-800'}`}>
+          · {open ? `${open} ${open === 1 ? 'item sem tratativa' : 'itens sem tratativa'}` : 'todas as não conformidades tratadas'}
+        </span>
+      </p>
+      <p className="mb-2 text-xs text-slate-600">
+        Para cada item não conforme, escreva o que foi feito ou combinado. Com todos tratados, o checklist deixa de aparecer em vermelho.
+      </p>
+      <ul className="space-y-3">
+        {items.map(answer => (
+          <li key={answer.itemId} className="text-sm text-slate-800">
+            <p>
+              <strong>{answer.text}</strong>
+              {answer.note && <span className="text-slate-600"> — {answer.note}</span>}
+            </p>
+            {canEdit ? (
+              <textarea
+                className="field mt-1 min-h-16"
+                rows={2}
+                aria-label={`Tratativa do item: ${answer.text}`}
+                placeholder="Ex.: manutenção agendada para 25/11; cobrada da empresa a entrega do manual, prazo dia 30"
+                maxLength={CHECKLIST_LIMITS.treatment}
+                disabled={busy}
+                value={drafts[answer.itemId] ?? ''}
+                onChange={e => setDrafts(current => ({ ...current, [answer.itemId]: e.target.value }))}
+              />
+            ) : (
+              <p className={`mt-0.5 ${answer.treatment ? 'text-slate-800' : 'text-slate-500'}`}>
+                {answer.treatment ? `Tratativa: ${answer.treatment.text}` : 'Sem tratativa ainda.'}
+              </p>
+            )}
+            {answer.treatment && (
+              <p className="mt-0.5 text-xs text-slate-500">
+                Tratado{answer.treatment.byName ? ` por ${answer.treatment.byName}` : ''} em {signedAtText(answer.treatment.at)}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+      {canEdit && (
+        <button
+          type="button"
+          className="button mt-3"
+          disabled={busy || !dirty}
+          onClick={() =>
+            execute(
+              { type: 'treat_run', id: run.id, treatments: items.map(a => ({ itemId: a.itemId, text: drafts[a.itemId] ?? '' })) },
+              'Tratativa registrada',
+            )
+          }
+        >
+          <CheckCheck size={15} aria-hidden />
+          Salvar tratativa
+        </button>
+      )}
+    </div>
+  );
 }
 
 type Filling = { equipment: ChecklistEquipment; model?: ChecklistModel; run?: ChecklistRun };
@@ -468,6 +558,11 @@ function RunForm({
           </button>
         </div>
       </div>
+      {run && nonConformities(run) > 0 && (
+        <div className="mb-4">
+          <NcTreatments key={`${run.id}|${run.updatedAt}`} run={run} canEdit={canEdit} busy={busy} execute={execute} />
+        </div>
+      )}
       <form onSubmit={submit}>
         <fieldset disabled={!canEdit || busy} className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
@@ -805,6 +900,9 @@ export function ChecklistOverview({ workId }: { workId: string }) {
   const [openRun, setOpenRun] = useState<string>();
   const [linkOf, setLinkOf] = useState<string>();
   const [modelsOf, setModelsOf] = useState<string>();
+  // "Manter a página limpa" (pedido da equipe de SST, 19/11/2026): o histórico e os modelos abrem recolhidos.
+  const [showHistory, setShowHistory] = useState(false);
+  const [showModels, setShowModels] = useState(false);
 
   if (context.state !== 'ready') return <LoadState error={context.state === 'error'} />;
   const { planning } = context;
@@ -886,6 +984,7 @@ export function ChecklistOverview({ workId }: { workId: string }) {
   const summary = checklistSummary(board);
   const types = equipmentTypes(data);
   const history = recentRuns(data.runs).slice(0, 30);
+  const openHistory = history.filter(run => openNonConformities(run) > 0).length;
   const equipmentById = new Map(data.equipment.map(e => [e.id, e]));
   const inactiveEquipment = data.equipment.filter(e => !e.active);
   const models = data.models
@@ -936,12 +1035,24 @@ export function ChecklistOverview({ workId }: { workId: string }) {
   };
   const deleteRun = async (run: ChecklistRun) => {
     const ok = await confirm({
-      title: 'Excluir esta inspeção?',
+      title: isSkippedRun(run) ? 'Excluir a marca de "não se aplica"?' : 'Excluir esta inspeção?',
       description: `${run.modelName} · ${equipmentById.get(run.equipmentId)?.name ?? 'equipamento'}${run.location ? ` (${run.location})` : ''} · ${formatChecklistDay(run.doneOn)}. Não dá para desfazer.`,
       confirmLabel: 'Excluir',
       tone: 'danger',
     });
     if (ok) await execute({ type: 'delete_run', id: run.id }, 'Inspeção excluída');
+  };
+
+  const skipDue = async (due: ChecklistDue) => {
+    const note = window.prompt(
+      `Marcar "${due.model.name}" de ${due.equipment.name} como não se aplica ${FREQUENCY_DONE[due.model.frequency]}?\n\nMotivo (opcional):`,
+      'Sem serviço no dia',
+    );
+    if (note === null) return;
+    await execute(
+      { type: 'skip_run', workId, equipmentId: due.equipment.id, modelId: due.model.id, note },
+      `Marcado como não se aplica ${FREQUENCY_DONE[due.model.frequency]}`,
+    );
   };
 
   const PLURAL: Record<ChecklistFrequency, string> = { daily: 'diários', weekly: 'semanais', monthly: 'mensais', once: 'liberações' };
@@ -991,10 +1102,14 @@ export function ChecklistOverview({ workId }: { workId: string }) {
           />
         )}
         <StatCard
-          label="Com não conformidade"
+          label="Não conformidade sem tratativa"
           value={summary.nonconforming}
           tone={summary.nonconforming ? 'danger' : 'default'}
-          hint="checklists do período corrente"
+          hint={
+            summary.treated
+              ? `${summary.treated} ${summary.treated === 1 ? 'tratada' : 'tratadas'} pelo TST no período`
+              : 'checklists do período corrente'
+          }
         />
       </div>
 
@@ -1113,31 +1228,55 @@ export function ChecklistOverview({ workId }: { workId: string }) {
                     </p>
                   )}
                   {row.dues.map(due => {
-                    const disabled = due.status === 'pending' && !canEdit;
+                    const disabled = awaitsRun(due.status) && !canEdit;
                     return (
-                      <button
-                        key={due.model.id}
-                        type="button"
-                        disabled={disabled}
-                        title={
-                          due.model.asksLocation && canEdit && due.run ? 'Preencher para outro nº de equipamento ou pavimento' : undefined
-                        }
-                        onClick={() =>
-                          setFilling({
-                            equipmentId: row.equipment.id,
-                            modelId: due.model.id,
-                            // Com local, o checklist se repete: quem registra abre uma inspeção nova (as feitas
-                            // ficam em "Últimas inspeções"); quem só consulta abre a mais recente.
-                            runId: due.model.asksLocation && canEdit ? undefined : due.run?.id,
-                          })
-                        }
-                        className={`min-h-11 rounded-lg border px-3 py-1.5 text-left transition-shadow enabled:hover:shadow-sm ${STATUS_STYLE[due.status]}`}
-                      >
-                        <span className="block text-xs font-bold">
-                          {FREQUENCY_LABEL[due.model.frequency]} · {due.model.name}
-                        </span>
-                        <span className="block text-xs">{dueText(due)}</span>
-                      </button>
+                      <div key={due.model.id} className="flex flex-col items-start gap-0.5">
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          title={
+                            due.model.asksLocation && canEdit && due.run ? 'Preencher para outro nº de equipamento ou pavimento' : undefined
+                          }
+                          onClick={() =>
+                            setFilling({
+                              equipmentId: row.equipment.id,
+                              modelId: due.model.id,
+                              // Com local, o checklist se repete: quem registra abre uma inspeção nova (as feitas
+                              // ficam em "Últimas inspeções"); quem só consulta abre a mais recente.
+                              runId: due.model.asksLocation && canEdit ? undefined : due.run?.id,
+                            })
+                          }
+                          className={`min-h-11 rounded-lg border px-3 py-1.5 text-left transition-shadow enabled:hover:shadow-sm ${STATUS_STYLE[due.status]}`}
+                        >
+                          <span className="block text-xs font-bold">
+                            {FREQUENCY_LABEL[due.model.frequency]} · {due.model.name}
+                          </span>
+                          <span className="block text-xs">{dueText(due)}</span>
+                        </button>
+                        {/* O equipamento não foi usado no período (sem serviço em balancim no dia): o TST tira o
+                            checklist dos pendentes. A liberação não tem dia e fica de fora. */}
+                        {canEdit && due.status === 'pending' && due.model.frequency !== 'once' && (
+                          <button
+                            type="button"
+                            className="text-link inline-flex items-center gap-1 text-[11px]"
+                            disabled={busy}
+                            onClick={() => skipDue(due)}
+                          >
+                            <Ban size={11} aria-hidden />
+                            Não se aplica {FREQUENCY_DONE[due.model.frequency]}
+                          </button>
+                        )}
+                        {canEdit && due.status === 'skipped' && due.skip && (
+                          <button
+                            type="button"
+                            className="text-link text-[11px]"
+                            disabled={busy}
+                            onClick={() => execute({ type: 'delete_run', id: due.skip!.id }, 'Checklist voltou a pendente')}
+                          >
+                            Desfazer
+                          </button>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -1233,107 +1372,170 @@ export function ChecklistOverview({ workId }: { workId: string }) {
       </section>
 
       <section data-tour="checklist-history" className="panel mb-6 p-5" aria-labelledby="ck-history">
-        <h2 id="ck-history" className="mb-1 text-base font-bold text-slate-900">
-          Últimas inspeções
+        <h2 id="ck-history" className="text-base font-bold text-slate-900">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 text-left"
+            aria-expanded={showHistory}
+            aria-controls="ck-history-body"
+            onClick={() => setShowHistory(value => !value)}
+          >
+            <ChevronDown
+              size={18}
+              aria-hidden
+              className={`shrink-0 text-slate-500 transition-transform ${showHistory ? '' : '-rotate-90'}`}
+            />
+            Últimas inspeções
+            <span className="text-sm font-normal text-slate-500">
+              · {history.length}
+              {openHistory > 0 && <span className="text-danger"> · {openHistory} com não conformidade sem tratativa</span>}
+            </span>
+          </button>
         </h2>
-        <p className="mb-4 text-sm text-slate-500">As 30 mais recentes dos últimos 120 dias.</p>
-        {history.length === 0 ? (
-          <Empty>Nenhuma inspeção registrada ainda.</Empty>
-        ) : (
-          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-            {history.map(run => {
-              const nc = nonConformities(run);
-              const open = openRun === run.id;
-              const author = operatorLabel(run) || planning.data.users.find(u => u.id === run.createdBy)?.name;
-              return (
-                <li key={run.id} className="p-3">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    <span className="w-24 text-sm tabular-nums text-slate-600">{formatChecklistDay(run.doneOn)}</span>
-                    <span className="min-w-0 flex-1 text-sm text-slate-800">
-                      <strong>{equipmentById.get(run.equipmentId)?.name ?? 'Equipamento'}</strong> · {run.modelName}
-                      {run.location ? ` · ${run.location}` : ''}
-                      {author && <span className="text-slate-500"> · {author}</span>}
-                      {run.source === 'link' && (
-                        <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary-ink">
-                          pelo QR
+        {showHistory && (
+          <div id="ck-history-body" className="mt-1">
+            <p className="mb-4 text-sm text-slate-500">As 30 mais recentes dos últimos 120 dias.</p>
+            {history.length === 0 ? (
+              <Empty>Nenhuma inspeção registrada ainda.</Empty>
+            ) : (
+              <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                {history.map(run => {
+                  const nc = nonConformities(run);
+                  const untreated = openNonConformities(run);
+                  const skipped = isSkippedRun(run);
+                  const open = openRun === run.id && !skipped;
+                  const author = operatorLabel(run) || planning.data.users.find(u => u.id === run.createdBy)?.name;
+                  return (
+                    <li key={run.id} className="p-3">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        <span className="w-24 text-sm tabular-nums text-slate-600">{formatChecklistDay(run.doneOn)}</span>
+                        <span className="min-w-0 flex-1 text-sm text-slate-800">
+                          <strong>{equipmentById.get(run.equipmentId)?.name ?? 'Equipamento'}</strong> · {run.modelName}
+                          {run.location ? ` · ${run.location}` : ''}
+                          {author && <span className="text-slate-500"> · {author}</span>}
+                          {run.source === 'link' && (
+                            <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary-ink">
+                              pelo QR
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </span>
-                    <span className={`text-xs font-bold ${nc ? 'text-danger' : 'text-success'}`}>
-                      {nc ? `${nc} não conforme${nc > 1 ? 's' : ''}` : 'Conforme'}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-link text-xs"
-                      aria-expanded={open}
-                      onClick={() => setOpenRun(open ? undefined : run.id)}
-                    >
-                      {open ? 'Fechar' : 'Ver respostas'}
-                    </button>
-                    {canEdit && (
-                      <>
-                        <button
-                          type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                          aria-label="Editar a inspeção"
-                          onClick={() => {
-                            setFilling({ equipmentId: run.equipmentId, modelId: run.modelId, runId: run.id });
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
+                        <span
+                          className={`text-xs font-bold ${skipped ? 'text-slate-500' : untreated ? 'text-danger' : nc ? 'text-sky-800' : 'text-success'}`}
                         >
-                          <Pencil size={15} aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-danger"
-                          aria-label="Excluir a inspeção"
-                          disabled={busy}
-                          onClick={() => deleteRun(run)}
-                        >
-                          <Trash2 size={15} aria-hidden />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  {open && (
-                    <ol className="mt-2 space-y-1 rounded-lg bg-slate-50 p-3">
-                      {run.answers.map((answer, index) => (
-                        <li key={answer.itemId} className="text-sm text-slate-700">
-                          <span className="mr-2 tabular-nums text-slate-400">{index + 1}.</span>
-                          {answer.text} —{' '}
-                          <strong
-                            className={answer.answer === 'nc' ? 'text-danger' : answer.answer === 'c' ? 'text-success' : 'text-slate-500'}
+                          {skipped
+                            ? `Não se aplica${run.note ? `: ${run.note}` : ''}`
+                            : untreated
+                              ? `${nc} não conforme${nc > 1 ? 's' : ''}${untreated < nc ? ` (${untreated} sem tratativa)` : ''}`
+                              : nc
+                                ? `${nc} não conforme${nc > 1 ? 's' : ''}, tratada${nc > 1 ? 's' : ''}`
+                                : 'Conforme'}
+                        </span>
+                        {!skipped && (
+                          <button
+                            type="button"
+                            className="text-link text-xs"
+                            aria-expanded={open}
+                            onClick={() => setOpenRun(open ? undefined : run.id)}
                           >
-                            {ANSWER_LABEL[answer.answer]}
-                          </strong>
-                          {answer.note && <span className="text-slate-600">: {answer.note}</span>}
-                        </li>
-                      ))}
-                      {run.note && <li className="pt-1 text-sm text-slate-600">Observação: {run.note}</li>}
-                      <li>
-                        <RunEvidence workId={workId} run={run} />
-                      </li>
-                    </ol>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                            {open ? 'Fechar' : nc && canEdit ? 'Ver respostas e tratar' : 'Ver respostas'}
+                          </button>
+                        )}
+                        {canEdit && (
+                          <>
+                            {!skipped && (
+                              <button
+                                type="button"
+                                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                aria-label="Editar a inspeção"
+                                onClick={() => {
+                                  setFilling({ equipmentId: run.equipmentId, modelId: run.modelId, runId: run.id });
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
+                              >
+                                <Pencil size={15} aria-hidden />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-danger"
+                              aria-label={skipped ? 'Excluir a marca de não se aplica' : 'Excluir a inspeção'}
+                              disabled={busy}
+                              onClick={() => deleteRun(run)}
+                            >
+                              <Trash2 size={15} aria-hidden />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {open && (
+                        <ol className="mt-2 space-y-1 rounded-lg bg-slate-50 p-3">
+                          {run.answers.map((answer, index) => (
+                            <li key={answer.itemId} className="text-sm text-slate-700">
+                              <span className="mr-2 tabular-nums text-slate-400">{index + 1}.</span>
+                              {answer.text} —{' '}
+                              <strong
+                                className={
+                                  answer.answer === 'nc' ? 'text-danger' : answer.answer === 'c' ? 'text-success' : 'text-slate-500'
+                                }
+                              >
+                                {ANSWER_LABEL[answer.answer]}
+                              </strong>
+                              {answer.note && <span className="text-slate-600">: {answer.note}</span>}
+                            </li>
+                          ))}
+                          {run.note && <li className="pt-1 text-sm text-slate-600">Observação: {run.note}</li>}
+                          {nc > 0 && (
+                            <li className="pt-2">
+                              <NcTreatments key={`${run.id}|${run.updatedAt}`} run={run} canEdit={canEdit} busy={busy} execute={execute} />
+                            </li>
+                          )}
+                          <li>
+                            <RunEvidence workId={workId} run={run} />
+                          </li>
+                        </ol>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         )}
       </section>
 
       <section data-tour="checklist-models" className="panel p-5" aria-labelledby="ck-models">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div className={`flex flex-wrap items-end justify-between gap-3 ${showModels || editingModel !== undefined ? 'mb-4' : ''}`}>
           <div>
             <h2 id="ck-models" className="text-base font-bold text-slate-900">
-              Modelos de checklist
+              <button
+                type="button"
+                className="flex items-center gap-2 text-left"
+                aria-expanded={showModels}
+                aria-controls="ck-models-body"
+                onClick={() => setShowModels(value => !value)}
+              >
+                <ChevronDown
+                  size={18}
+                  aria-hidden
+                  className={`shrink-0 text-slate-500 transition-transform ${showModels ? '' : '-rotate-90'}`}
+                />
+                Modelos de checklist
+                <span className="text-sm font-normal text-slate-500">· {data.models.filter(m => m.active).length}</span>
+              </button>
             </h2>
             <p className="text-sm text-slate-500">
               Lista única para todas as obras. Alterar aqui vale para todas. {canManage ? '' : 'Só administradores criam e editam.'}
             </p>
           </div>
           {canManage && editingModel === undefined && (
-            <button type="button" className="button" onClick={() => setEditingModel('new')}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setShowModels(true);
+                setEditingModel('new');
+              }}
+            >
               <Plus size={15} aria-hidden />
               Novo checklist
             </button>
@@ -1349,7 +1551,7 @@ export function ChecklistOverview({ workId }: { workId: string }) {
             onClose={() => setEditingModel(undefined)}
           />
         )}
-        {models.length === 0 ? (
+        {!showModels ? null : models.length === 0 ? (
           <Empty>
             {canManage
               ? 'Nenhum modelo ainda. Crie o primeiro com os itens da ficha que vocês usam hoje.'
@@ -1403,7 +1605,7 @@ export function ChecklistOverview({ workId }: { workId: string }) {
             ))}
           </ul>
         )}
-        {inactiveModels > 0 && (
+        {showModels && inactiveModels > 0 && (
           <button type="button" className="text-link mt-3 text-xs" onClick={() => setShowInactive(value => !value)}>
             {showInactive ? 'Ocultar desativados' : `Mostrar desativados (${inactiveModels})`}
           </button>

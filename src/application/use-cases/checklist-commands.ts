@@ -9,10 +9,13 @@ import {
   cleanChecklistText,
   equipmentModelLinks,
   formatChecklistDay,
+  FREQUENCY_DONE,
   isIsoDay,
   isJpegBase64,
   isPngBase64,
+  isSkippedRun,
   modelsFor,
+  periodKey,
   type ChecklistAnswer,
   type ChecklistCommand,
   type ChecklistData,
@@ -46,6 +49,8 @@ export interface ChecklistMutation {
 
 export interface ChecklistContext {
   actorId: string;
+  /** O nome de quem grava, para assinar a tratativa do TST. */
+  actorName?: string;
   now: string;
   /** Data civil de hoje no fuso da obra. */
   today?: string;
@@ -69,7 +74,7 @@ export const canWriteChecklist = (profile: { tst?: boolean; role?: string } | nu
  * equipe de SST, "para não gerar conflito nas informações". O TST segue registrando e corrigindo inspeções. */
 export const canManageChecklist = (profile: { role?: string } | null | undefined): boolean => profile?.role === 'admin';
 export const checklistCommandNeedsAdmin = (command: ChecklistCommand): boolean =>
-  command.type !== 'save_run' && command.type !== 'delete_run';
+  command.type !== 'save_run' && command.type !== 'delete_run' && command.type !== 'skip_run' && command.type !== 'treat_run';
 
 const fail = (message: string): never => {
   throw new Error(message);
@@ -158,6 +163,27 @@ export function parseChecklistCommand(body: unknown): ChecklistCommand {
       return { type: 'rotate_equipment_token', id: text(body.id, 'id') };
     case 'delete_run':
       return { type: 'delete_run', id: text(body.id, 'id') };
+    case 'skip_run': {
+      const note = optionalText(body.note, 'note');
+      return {
+        type: 'skip_run',
+        workId: text(body.workId, 'workId'),
+        equipmentId: text(body.equipmentId, 'equipmentId'),
+        modelId: text(body.modelId, 'modelId'),
+        ...(note !== undefined ? { note } : {}),
+      };
+    }
+    case 'treat_run': {
+      if (!Array.isArray(body.treatments)) return fail('Campo inválido: treatments.');
+      return {
+        type: 'treat_run',
+        id: text(body.id, 'id'),
+        treatments: body.treatments.map(item => {
+          if (!isRecord(item)) return fail('Campo inválido: treatments.');
+          return { itemId: text(item.itemId, 'treatments.itemId'), text: text(item.text, 'treatments.text') };
+        }),
+      };
+    }
     default:
       return fail('Comando desconhecido.');
   }
@@ -204,7 +230,10 @@ export function checklistCommandTarget(command: ChecklistCommand): ChecklistTarg
     case 'save_run':
       return command.id ? { table: 'runs', id: command.id } : { workId: command.workId };
     case 'delete_run':
+    case 'treat_run':
       return { table: 'runs', id: command.id };
+    case 'skip_run':
+      return { workId: command.workId };
   }
 }
 
@@ -373,10 +402,86 @@ export function planChecklistCommand(
       return mutation;
     }
 
+    case 'skip_run': {
+      // "Não se aplica" no período corrente (23/11/2026, pedido da equipe de SST: "tem dias que não temos serviço
+      // em balancim e ele fica aparecendo como pendente"). É uma marca de hoje, sem respostas; a inspeção feita
+      // depois vale mais que ela, e excluí-la devolve o checklist a pendente.
+      const mutation = emptyMutation(workId);
+      if (ctx.viaLink) fail('Pelo link só se registra a inspeção.');
+      const equipment = data.equipment.find(e => e.id === command.equipmentId);
+      if (!equipment) return fail('Equipamento não encontrado. Recarregue a página.');
+      const model = data.models.find(m => m.id === command.modelId);
+      if (!model) return fail('Checklist não encontrado. Recarregue a página.');
+      if (!equipment.active) fail('Este equipamento está desativado.');
+      if (!modelsFor(equipment, data.models).some(m => m.id === model.id))
+        fail(`O checklist "${model.name}" não está ligado a ${equipment.name}. Recarregue a página.`);
+      if (model.frequency === 'once')
+        fail('A liberação não tem dia: se o equipamento não precisa dela, um administrador a tira em "Checklists do QR".');
+      const period = periodKey(model.frequency, today);
+      const inPeriod = data.runs.filter(
+        r => r.equipmentId === equipment.id && r.modelId === model.id && periodKey(model.frequency, r.doneOn) === period,
+      );
+      if (inPeriod.some(r => !isSkippedRun(r)))
+        fail(`"${model.name}" de ${equipment.name} já foi preenchido ${FREQUENCY_DONE[model.frequency]}.`);
+      if (inPeriod.length)
+        fail(`"${model.name}" de ${equipment.name} já está marcado como não se aplica ${FREQUENCY_DONE[model.frequency]}.`);
+      const note = cleanChecklistText(command.note ?? '');
+      if (note.length > CHECKLIST_LIMITS.note) fail(`Motivo: até ${CHECKLIST_LIMITS.note} caracteres.`);
+      mutation.insert.runs.push({
+        id: ctx.newId(),
+        workId,
+        equipmentId: equipment.id,
+        modelId: model.id,
+        modelName: model.name,
+        frequency: model.frequency,
+        doneOn: today,
+        location: '',
+        answers: [],
+        note,
+        operatorName: '',
+        operatorCompany: '',
+        signaturePath: null,
+        signedAt: null,
+        photos: [],
+        source: 'app',
+        createdBy: ctx.actorId,
+        createdAt: ctx.now,
+        updatedAt: ctx.now,
+      });
+      return mutation;
+    }
+
+    case 'treat_run': {
+      // A tratativa do TST nos itens não conformes (23/11/2026). Só mexe na tratativa: respostas, fotos e
+      // assinatura ficam como estão. Texto igual ao guardado mantém quem escreveu e quando.
+      const mutation = emptyMutation(workId);
+      if (ctx.viaLink) fail('Pelo link só se registra a inspeção.');
+      const run = data.runs.find(r => r.id === command.id);
+      if (!run) return fail('Inspeção não encontrada. Recarregue a página.');
+      const given = new Map(command.treatments.map(t => [t.itemId, cleanChecklistText(t.text)]));
+      if (given.size !== command.treatments.length) fail('Há item tratado duas vezes.');
+      for (const itemId of given.keys())
+        if (!run.answers.some(a => a.itemId === itemId && a.answer === 'nc'))
+          fail('A inspeção mudou enquanto você escrevia. Recarregue a página.');
+      let changed = false;
+      const answers = run.answers.map(answer => {
+        const next = given.get(answer.itemId);
+        if (next === undefined || next === (answer.treatment?.text ?? '')) return answer;
+        if (next.length > CHECKLIST_LIMITS.treatment) fail(`Tratativa: até ${CHECKLIST_LIMITS.treatment} caracteres por item.`);
+        changed = true;
+        const { treatment, ...rest } = answer;
+        void treatment;
+        return next ? { ...rest, treatment: { text: next, by: ctx.actorId, byName: ctx.actorName ?? '', at: ctx.now } } : rest;
+      });
+      if (changed) mutation.update.runs.push({ ...run, answers, updatedAt: ctx.now });
+      return mutation;
+    }
+
     case 'save_run': {
       const mutation = emptyMutation(workId);
       const current = command.id ? data.runs.find(r => r.id === command.id) : undefined;
       if (command.id && !current) fail('Inspeção não encontrada. Recarregue a página.');
+      if (current && isSkippedRun(current)) fail('Este registro é a marca "não se aplica". Exclua a marca e registre a inspeção.');
       const equipment = data.equipment.find(e => e.id === command.equipmentId);
       if (!equipment) return fail('Equipamento não encontrado. Recarregue a página.');
       const model = data.models.find(m => m.id === command.modelId);
@@ -442,7 +547,10 @@ export function planChecklistCommand(
         const note = cleanChecklistText(answer.note ?? '');
         if (note.length > CHECKLIST_LIMITS.note) fail(`Observação do item: até ${CHECKLIST_LIMITS.note} caracteres.`);
         if (answer.answer === 'nc' && !note) fail(`Descreva a não conformidade do item "${item.text}".`);
-        return { itemId: item.id, text: item.text, answer: answer.answer, note };
+        // A tratativa do TST acompanha o item enquanto ele seguir não conforme.
+        const treatment =
+          answer.answer === 'nc' ? current?.answers.find(a => a.itemId === item.id && a.answer === 'nc')?.treatment : undefined;
+        return { itemId: item.id, text: item.text, answer: answer.answer, note, ...(treatment ? { treatment } : {}) };
       });
       const note = cleanChecklistText(command.note ?? '');
       if (note.length > CHECKLIST_LIMITS.note) fail(`Observação: até ${CHECKLIST_LIMITS.note} caracteres.`);

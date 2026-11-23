@@ -1,5 +1,5 @@
 import type { LocalDate } from '@/domain/entities';
-import { checklistBoard, checklistSummary, nonConformities, type ChecklistData } from '@/domain/equipment-checklist';
+import { checklistBoard, checklistSummary, isSkippedRun, nonConformities, type ChecklistData } from '@/domain/equipment-checklist';
 import {
   addDays,
   headcountKey,
@@ -253,7 +253,7 @@ export function buildLobBlock(
  * período. Sem equipamento ativo e sem inspeção até o fim do período, sem dado. */
 export function buildChecklistBlock(data: ChecklistData, range: ExtrasRange): ChecklistBlock | undefined {
   const board = checklistBoard(data, range.today);
-  if (!board.length && !data.runs.some(run => run.doneOn <= range.end)) return undefined;
+  if (!board.length && !data.runs.some(run => !isSkippedRun(run) && run.doneOn <= range.end)) return undefined;
   const summary = checklistSummary(board);
   const totals = Object.values(summary.due);
   const pendingList = board
@@ -261,7 +261,8 @@ export function buildChecklistBlock(data: ChecklistData, range: ExtrasRange): Ch
     .filter(due => due.status === 'pending')
     .slice(0, PENDING_LIST)
     .map(due => ({ equipment: due.equipment.name, model: due.model.name, frequency: due.model.frequency }));
-  const runs = data.runs.filter(run => inRange(run.doneOn, range));
+  // A marca "não se aplica" (registro sem respostas) não é inspeção.
+  const runs = data.runs.filter(run => !isSkippedRun(run) && inRange(run.doneOn, range));
   const counts = runs.map(nonConformities);
   return {
     equipment: summary.equipment,

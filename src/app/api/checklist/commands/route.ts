@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     if ('table' in target && (await findChecklistWorkId(target.table, target.id)) !== workId)
       return responseError('Registro não encontrado. Recarregue a página.', 404);
 
-    const context = { ...commandContext(profile.id), newToken: () => randomBytes(24).toString('base64url') };
+    const context = { ...commandContext(profile.id), actorName: profile.name, newToken: () => randomBytes(24).toString('base64url') };
     const since = shiftDay(context.today, -CHECKLIST_WINDOW_DAYS);
     const current = await loadChecklist(workId, since);
     // Inspeção mais antiga que a janela carregada: entra à parte, para a edição e a exclusão a encontrarem.

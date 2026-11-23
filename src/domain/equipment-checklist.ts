@@ -81,12 +81,24 @@ export interface ChecklistPhoto {
   url?: string;
 }
 export type ChecklistRunSource = 'app' | 'link';
+/** A tratativa do TST para um item não conforme (23/11/2026, pedido da equipe de SST): o que foi feito ou
+ * combinado ("manutenção agendada", "cobrado da empresa o manual, prazo dia 30"). Com ela, a não conformidade
+ * fica validada: o equipamento segue liberado com a justificativa. Vai dentro da resposta, no JSON da inspeção. */
+export interface ChecklistTreatment {
+  text: string;
+  /** Quem escreveu (id e nome no dia) e quando. */
+  by: string;
+  byName: string;
+  at: string;
+}
 export interface ChecklistRunAnswer {
   itemId: string;
   /** O texto do item no dia da inspeção. */
   text: string;
   answer: ChecklistAnswer;
   note: string;
+  /** Só em item não conforme, depois que o TST trata. */
+  treatment?: ChecklistTreatment;
 }
 export interface ChecklistRun {
   id: string;
@@ -99,6 +111,8 @@ export interface ChecklistRun {
   doneOn: string;
   /** O nº do equipamento ou o pavimento a que a inspeção se refere; vazio quando o modelo não pede. */
   location: string;
+  /** Sem nenhuma resposta, o registro não é uma inspeção: é a marca "não se aplica" do período (`isSkippedRun`),
+   * com o motivo em `note`. */
   answers: ChecklistRunAnswer[];
   note: string;
   /** Quem operou e respondeu (nome digitado). Obrigatório pelo link do operador; opcional na tela logada. */
@@ -173,7 +187,12 @@ export type ChecklistCommand =
       /** A lista final de fotos, na ordem. Ausente mantém as que a inspeção já tem. */
       photos?: ChecklistPhotoInput[];
     }
-  | { type: 'delete_run'; id: string };
+  | { type: 'delete_run'; id: string }
+  /** "Não se aplica" no período corrente (23/11/2026): o equipamento não foi usado (sem serviço em balancim no
+   * dia), e o checklist deixa de contar como pendente. Desfaz-se excluindo a marca (`delete_run`). */
+  | { type: 'skip_run'; workId: string; equipmentId: string; modelId: string; note?: string }
+  /** A tratativa do TST nos itens não conformes de uma inspeção. Texto vazio tira a tratativa do item. */
+  | { type: 'treat_run'; id: string; treatments: { itemId: string; text: string }[] };
 
 export const CHECKLIST_TST_ONLY_MESSAGE =
   'Só técnicos de segurança (TST) e administradores registram e corrigem inspeções pela tela; o operador usa o QR do equipamento.';
@@ -183,6 +202,7 @@ export const CHECKLIST_LIMITS = {
   item: 200,
   items: 60,
   note: 300,
+  treatment: 300,
   location: 60,
   operator: 80,
   company: 80,
@@ -279,6 +299,12 @@ export function periodKey(frequency: ChecklistFrequency, day: string): string {
 }
 
 export const nonConformities = (run: Pick<ChecklistRun, 'answers'>) => run.answers.filter(a => a.answer === 'nc').length;
+/** As não conformidades que o TST ainda não tratou. */
+export const openNonConformities = (run: Pick<ChecklistRun, 'answers'>) =>
+  run.answers.filter(a => a.answer === 'nc' && !a.treatment).length;
+/** A marca "não se aplica" do período: um registro sem respostas (toda inspeção de verdade tem ao menos uma,
+ * porque o modelo exige ao menos um item). Não conta como inspeção em lugar nenhum. */
+export const isSkippedRun = (run: Pick<ChecklistRun, 'answers'>) => run.answers.length === 0;
 
 /** Os tipos de equipamento em uso, na grafia mais antiga de cada um, em ordem alfabética. */
 export function equipmentTypes(data: Pick<ChecklistData, 'models' | 'equipment'>): string[] {
@@ -332,7 +358,12 @@ export function equipmentModelLinks(
   return { extraModelIds, hiddenModelIds };
 }
 
-export type ChecklistStatus = 'pending' | 'done' | 'nonconforming';
+/** `nonconforming`: há não conformidade sem tratativa do TST. `treated`: todas as não conformidades do período
+ * foram tratadas (liberado com justificativa). `skipped`: marcado "não se aplica" no período, sem inspeção. */
+export type ChecklistStatus = 'pending' | 'done' | 'nonconforming' | 'treated' | 'skipped';
+/** O checklist ainda espera uma inspeção no período: pendente, ou marcado "não se aplica" (quem for usar o
+ * equipamento preenche mesmo assim, e a inspeção vale mais que a marca). */
+export const awaitsRun = (status: ChecklistStatus) => status === 'pending' || status === 'skipped';
 export interface ChecklistDue {
   equipment: ChecklistEquipment;
   model: ChecklistModel;
@@ -342,6 +373,8 @@ export interface ChecklistDue {
   /** Todas as inspeções do período corrente, da mais recente para a mais antiga: mais de uma quando o modelo
    * pede o local (uma por nº de equipamento ou pavimento). */
   periodRuns: ChecklistRun[];
+  /** A marca "não se aplica" do período corrente, quando há (mesmo que depois alguém tenha inspecionado). */
+  skip: ChecklistRun | null;
   /** A última inspeção deste modelo neste equipamento, de qualquer período (dentro da janela carregada). */
   lastDoneOn: string | null;
 }
@@ -370,21 +403,37 @@ export function checklistBoard(data: ChecklistData, today: string): ChecklistBoa
           .slice()
           .sort((a, b) => b.doneOn.localeCompare(a.doneOn) || b.createdAt.localeCompare(a.createdAt));
         const current = periodKey(model.frequency, today);
-        const periodRuns = runs.filter(r => periodKey(model.frequency, r.doneOn) === current);
+        const inPeriod = runs.filter(r => periodKey(model.frequency, r.doneOn) === current);
+        const periodRuns = inPeriod.filter(r => !isSkippedRun(r));
+        const skip = inPeriod.find(isSkippedRun) ?? null;
         const run = periodRuns[0] ?? null;
-        // Com mais de uma inspeção no período (uma por local), basta uma não conforme para o checklist ficar vermelho.
-        const status: ChecklistStatus = !run ? 'pending' : periodRuns.some(r => nonConformities(r) > 0) ? 'nonconforming' : 'done';
-        return { equipment, model, status, run, periodRuns, lastDoneOn: runs[0]?.doneOn ?? null };
+        // Com mais de uma inspeção no período, basta uma não conformidade sem tratativa para o checklist ficar
+        // vermelho; com todas tratadas pelo TST, fica "tratada". A inspeção vale mais que a marca "não se aplica".
+        const status: ChecklistStatus = !run
+          ? skip
+            ? 'skipped'
+            : 'pending'
+          : periodRuns.some(r => openNonConformities(r) > 0)
+            ? 'nonconforming'
+            : periodRuns.some(r => nonConformities(r) > 0)
+              ? 'treated'
+              : 'done';
+        return { equipment, model, status, run, periodRuns, skip, lastDoneOn: runs.find(r => !isSkippedRun(r))?.doneOn ?? null };
       }),
     }));
 }
 
 export interface ChecklistSummary {
   equipment: number;
-  /** Checklists devidos no período corrente, por periodicidade: quantos existem e quantos faltam. */
+  /** Checklists devidos no período corrente, por periodicidade: quantos existem e quantos faltam. O marcado
+   * "não se aplica" não é devido: fica fora dos dois números. */
   due: Record<ChecklistFrequency, { total: number; pending: number }>;
-  /** Checklists do período corrente feitos com alguma não conformidade. */
+  /** Checklists do período corrente com não conformidade ainda sem tratativa do TST. */
   nonconforming: number;
+  /** Checklists do período corrente em que toda não conformidade já foi tratada pelo TST. */
+  treated: number;
+  /** Checklists marcados "não se aplica" no período corrente. */
+  skipped: number;
   /** Equipamentos ativos sem nenhum checklist ligado ao QR. */
   withoutModel: number;
 }
@@ -398,14 +447,21 @@ export function checklistSummary(board: readonly ChecklistBoardRow[]): Checklist
       once: { total: 0, pending: 0 },
     },
     nonconforming: 0,
+    treated: 0,
+    skipped: 0,
     withoutModel: 0,
   };
   for (const row of board) {
     if (!row.dues.length) summary.withoutModel += 1;
     for (const due of row.dues) {
+      if (due.status === 'skipped') {
+        summary.skipped += 1;
+        continue;
+      }
       summary.due[due.model.frequency].total += 1;
       if (due.status === 'pending') summary.due[due.model.frequency].pending += 1;
       if (due.status === 'nonconforming') summary.nonconforming += 1;
+      if (due.status === 'treated') summary.treated += 1;
     }
   }
   return summary;

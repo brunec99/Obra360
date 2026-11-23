@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  awaitsRun,
   checklistBoard,
   checklistSummary,
+  isSkippedRun,
+  openNonConformities,
   equipmentTypes,
   CHECKLIST_TOKEN,
   doneLocations,
@@ -776,4 +779,139 @@ test('checklist: guarda a empresa do operador e aceita mais de uma inspeção do
   const released = data({ models: [release], runs: [run({ id: 'r-lib', modelId: 'm-lib', frequency: 'once' })] });
   assert.equal(operatorDues(released, 'e1', TODAY)[0].canRepeat, false);
   assert.throws(() => send(released, { ...body, modelId: 'm-lib' }), /já foi registrada/);
+});
+
+// ─── 23/11/2026: tratativa do TST nas não conformidades e "não se aplica" no período ─────────────────
+
+test('checklist: a tratativa do TST valida a não conformidade e acompanha a edição da inspeção', () => {
+  const nc = run({
+    id: 'r-nc',
+    answers: [
+      { itemId: 'i1', text: 'Proteção das partes móveis', answer: 'nc', note: 'Sem a tampa' },
+      { itemId: 'i2', text: 'Aterramento', answer: 'nc', note: 'Fio solto' },
+    ],
+  });
+  const base = data({ runs: [nc] });
+  assert.equal(checklistBoard(base, TODAY)[0].dues[0].status, 'nonconforming');
+  assert.equal(openNonConformities(nc), 2);
+  assert.deepEqual(checklistCommandTarget({ type: 'treat_run', id: 'r-nc', treatments: [] }), { table: 'runs', id: 'r-nc' });
+  assert.equal(checklistCommandNeedsAdmin({ type: 'treat_run', id: 'r-nc', treatments: [] }), false);
+
+  // Um item tratado: segue vermelho, com um em aberto. O texto é limpo e assinado por quem gravou.
+  const who = { ...ctx(), actorName: 'Renata TST' };
+  const treat = (d: ChecklistData, treatments: { itemId: string; text: string }[], now = NOW) =>
+    planChecklistCommand(d, parseChecklistCommand({ type: 'treat_run', id: 'r-nc', treatments }), { ...who, now }, 'obra-1');
+  const one = treat(base, [{ itemId: 'i1', text: '  Tampa  recolocada ' }]).update.runs[0];
+  assert.deepEqual(one.answers[0].treatment, { text: 'Tampa recolocada', by: 'tst-1', byName: 'Renata TST', at: NOW });
+  assert.equal(one.answers[1].treatment, undefined);
+  assert.equal(openNonConformities(one), 1);
+  assert.equal(checklistBoard(data({ runs: [one] }), TODAY)[0].dues[0].status, 'nonconforming');
+
+  // Os dois tratados: "tratada", fora da contagem de não conformidade em aberto. Texto igual não reassina.
+  const later = '2026-11-11T15:00:00.000Z';
+  const both = treat(
+    data({ runs: [one] }),
+    [
+      { itemId: 'i1', text: 'Tampa recolocada' },
+      { itemId: 'i2', text: 'Cobrado da empresa, prazo dia 30' },
+    ],
+    later,
+  ).update.runs[0];
+  assert.equal(both.answers[0].treatment?.at, NOW);
+  assert.equal(both.answers[1].treatment?.at, later);
+  const treated = data({ runs: [both] });
+  assert.equal(checklistBoard(treated, TODAY)[0].dues[0].status, 'treated');
+  const summary = checklistSummary(checklistBoard(treated, TODAY));
+  assert.equal(summary.nonconforming, 0);
+  assert.equal(summary.treated, 1);
+  assert.equal(operatorDues(treated, 'e1', TODAY)[0].status, 'treated');
+  // Nada mudou: nada a gravar. Texto vazio tira a tratativa.
+  assert.equal(treat(treated, [{ itemId: 'i1', text: 'Tampa recolocada' }]).update.runs.length, 0);
+  assert.equal(treat(treated, [{ itemId: 'i1', text: ' ' }]).update.runs[0].answers[0].treatment, undefined);
+
+  // Só item não conforme desta inspeção recebe tratativa; o limite vale por item.
+  const ok = data({ runs: [run({ id: 'r-nc' })] });
+  assert.throws(() => treat(ok, [{ itemId: 'i1', text: 'x' }]), /mudou enquanto você escrevia/);
+  assert.throws(() => treat(base, [{ itemId: 'i1', text: 'x'.repeat(301) }]), /até 300 caracteres/);
+  assert.throws(
+    () =>
+      treat(base, [
+        { itemId: 'i1', text: 'a' },
+        { itemId: 'i1', text: 'b' },
+      ]),
+    /tratado duas vezes/,
+  );
+
+  // Editar a inspeção mantém a tratativa do item que segue não conforme e a tira do que passou a conforme.
+  const edited = plan(treated, {
+    type: 'save_run',
+    id: 'r-nc',
+    workId: 'obra-1',
+    equipmentId: 'e1',
+    modelId: 'm-dia',
+    doneOn: TODAY,
+    answers: [
+      { itemId: 'i1', answer: 'nc', note: 'Sem a tampa' },
+      { itemId: 'i2', answer: 'c' },
+    ],
+  }).update.runs[0];
+  assert.equal(edited.answers[0].treatment?.text, 'Tampa recolocada');
+  assert.equal('treatment' in edited.answers[1], false);
+});
+
+test('checklist: "não se aplica" tira o checklist dos pendentes do período, e a inspeção vale mais que a marca', () => {
+  const weekly = model({ id: 'm-sem', name: 'Betoneira — semanal', frequency: 'weekly' });
+  const release = model({ id: 'm-lib', name: 'Liberação', frequency: 'once' });
+  const base = data({ models: [model(), weekly, release] });
+  const skip = (d: ChecklistData, modelId: string, note?: string) =>
+    plan(d, { type: 'skip_run', workId: 'obra-1', equipmentId: 'e1', modelId, ...(note !== undefined ? { note } : {}) });
+  assert.deepEqual(checklistCommandTarget({ type: 'skip_run', workId: 'obra-1', equipmentId: 'e1', modelId: 'm-dia' }), {
+    workId: 'obra-1',
+  });
+  assert.equal(checklistCommandNeedsAdmin({ type: 'skip_run', workId: 'obra-1', equipmentId: 'e1', modelId: 'm-dia' }), false);
+
+  const mark = skip(base, 'm-dia', '  Sem serviço  no dia ').insert.runs[0];
+  assert.equal(isSkippedRun(mark), true);
+  assert.deepEqual([mark.doneOn, mark.note, mark.answers.length, mark.source], [TODAY, 'Sem serviço no dia', 0, 'app']);
+  const marked = data({ models: base.models, runs: [mark] });
+  const due = checklistBoard(marked, TODAY)[0].dues.find(d => d.model.id === 'm-dia')!;
+  assert.deepEqual([due.status, due.run, due.periodRuns.length, due.skip?.id, due.lastDoneOn], ['skipped', null, 0, mark.id, null]);
+  // Fora dos devidos e dos pendentes; o semanal segue pendente.
+  const summary = checklistSummary(checklistBoard(marked, TODAY));
+  assert.deepEqual(summary.due.daily, { total: 0, pending: 0 });
+  assert.deepEqual(summary.due.weekly, { total: 1, pending: 1 });
+  assert.equal(summary.skipped, 1);
+  // No QR o operador ainda pode preencher, e a marca não conta como inspeção.
+  const mine = operatorDues(marked, 'e1', TODAY).find(d => d.modelId === 'm-dia')!;
+  assert.deepEqual([mine.status, mine.doneCount, mine.doneOn], ['skipped', 0, null]);
+  assert.equal(awaitsRun('skipped'), true);
+  assert.equal(awaitsRun('treated'), false);
+
+  // Uma marca por período; com inspeção feita não há o que marcar; a liberação não tem dia.
+  assert.throws(() => skip(marked, 'm-dia'), /já está marcado como não se aplica hoje/);
+  assert.throws(() => skip(data({ models: base.models, runs: [run()] }), 'm-dia'), /já foi preenchido hoje/);
+  assert.throws(() => skip(base, 'm-lib'), /A liberação não tem dia/);
+  assert.equal(skip(marked, 'm-sem').insert.runs[0].frequency, 'weekly');
+  assert.throws(() => skip(data({ models: base.models, equipment: [equipment({ active: false })] }), 'm-dia'), /desativado/);
+
+  // A inspeção feita depois vale mais que a marca; a marca não se edita como inspeção e sai por exclusão.
+  const filled = plan(marked, {
+    type: 'save_run',
+    workId: 'obra-1',
+    equipmentId: 'e1',
+    modelId: 'm-dia',
+    doneOn: TODAY,
+    answers: answersOk,
+  });
+  const after = data({ models: base.models, runs: [mark, filled.insert.runs[0]] });
+  assert.equal(checklistBoard(after, TODAY)[0].dues.find(d => d.model.id === 'm-dia')!.status, 'done');
+  assert.throws(
+    () =>
+      plan(marked, { type: 'save_run', id: mark.id, workId: 'obra-1', equipmentId: 'e1', modelId: 'm-dia', doneOn: TODAY, answers: [] }),
+    /marca "não se aplica"/,
+  );
+  assert.deepEqual(plan(marked, { type: 'delete_run', id: mark.id }).deleteRuns, [mark.id]);
+  // A marca de ontem não vale hoje.
+  const yesterday = data({ models: base.models, runs: [{ ...mark, doneOn: '2026-11-10' }] });
+  assert.equal(checklistBoard(yesterday, TODAY)[0].dues.find(d => d.model.id === 'm-dia')!.status, 'pending');
 });

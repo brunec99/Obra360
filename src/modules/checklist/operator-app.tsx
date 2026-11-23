@@ -6,6 +6,7 @@ import {
   FREQUENCY_DONE,
   FREQUENCY_LABEL,
   FREQUENCY_PERIOD,
+  awaitsRun,
   formatChecklistDay,
   type OperatorChecklistDue,
   type OperatorChecklistView,
@@ -75,12 +76,18 @@ function Shell({ eyebrow, title, children }: { eyebrow: string; title: string; c
 }
 
 function DueCard({ due, onFill }: { due: OperatorChecklistDue; onFill: () => void }) {
-  const pending = due.status === 'pending';
-  const tone = pending
-    ? 'border-amber-300 bg-amber-50 text-amber-900'
-    : due.status === 'nonconforming'
-      ? 'border-red-300 bg-red-50 text-red-900'
-      : 'border-emerald-300 bg-emerald-50 text-emerald-900';
+  // "Não se aplica" (marcado pelo TST) também espera a inspeção: quem for usar o equipamento preenche.
+  const pending = awaitsRun(due.status);
+  const tone =
+    due.status === 'pending'
+      ? 'border-amber-300 bg-amber-50 text-amber-900'
+      : due.status === 'skipped'
+        ? 'border-slate-300 bg-slate-100 text-slate-700'
+        : due.status === 'nonconforming'
+          ? 'border-red-300 bg-red-50 text-red-900'
+          : due.status === 'treated'
+            ? 'border-sky-300 bg-sky-50 text-sky-900'
+            : 'border-emerald-300 bg-emerald-50 text-emerald-900';
   return (
     <li className={`flex items-center justify-between gap-3 rounded-xl border p-3 ${tone}`}>
       <div className="min-w-0">
@@ -88,9 +95,11 @@ function DueCard({ due, onFill }: { due: OperatorChecklistDue; onFill: () => voi
           {FREQUENCY_LABEL[due.frequency]} · {due.name}
         </p>
         <p className="text-xs">
-          {pending
-            ? `pendente ${FREQUENCY_PERIOD[due.frequency]}`
-            : `feito em ${formatChecklistDay(due.doneOn!)}${due.doneBy ? ` por ${due.doneBy}` : ''}${due.doneCompany ? ` (${due.doneCompany})` : ''}${due.status === 'nonconforming' ? ' · com não conformidade' : ''}`}
+          {due.status === 'skipped'
+            ? `marcado como não se aplica ${FREQUENCY_DONE[due.frequency]}. Se for usar o equipamento, preencha.`
+            : pending
+              ? `pendente ${FREQUENCY_PERIOD[due.frequency]}`
+              : `feito em ${formatChecklistDay(due.doneOn!)}${due.doneBy ? ` por ${due.doneBy}` : ''}${due.doneCompany ? ` (${due.doneCompany})` : ''}${due.status === 'nonconforming' ? ' · com não conformidade' : due.status === 'treated' ? ' · não conformidade tratada pelo técnico de segurança' : ''}`}
         </p>
         {!pending && due.doneCount > 1 && (
           <p className="text-xs">
@@ -349,7 +358,7 @@ export function OperatorChecklist({ token }: { token: string }) {
 
   const { view } = state;
   const eyebrow = `${view.work.name || 'Obra'} · Checklist de equipamentos`;
-  const filling = modelId ? view.dues.find(due => due.modelId === modelId && (due.status === 'pending' || due.canRepeat)) : undefined;
+  const filling = modelId ? view.dues.find(due => due.modelId === modelId && (awaitsRun(due.status) || due.canRepeat)) : undefined;
 
   if (filling)
     return (

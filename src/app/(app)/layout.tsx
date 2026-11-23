@@ -121,7 +121,10 @@ export default async function AppLayout({ children }: Readonly<{ children: React
         Ir para o conteúdo
       </a>
       <SidebarWrapper>{navigation}</SidebarWrapper>
-      <div className="flex h-screen min-w-0 flex-1 flex-col overflow-y-auto">
+      {/* `relative`: os elementos invisíveis de posição absoluta (`sr-only`, como o campo de arquivo das fotos)
+          ficam presos a esta área, que é a que rola. Sem isso eles se prendiam ao documento e, ao receber o
+          foco, o navegador rolava o documento inteiro: a tela ficava em branco (23/11/2026, checklist). */}
+      <div className="relative flex h-screen min-w-0 flex-1 flex-col overflow-y-auto">
         <TopBar
           start={
             <div className="flex shrink-0 items-center gap-1 md:hidden">

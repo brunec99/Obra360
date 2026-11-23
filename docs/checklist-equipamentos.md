@@ -14,6 +14,58 @@ os TSTs criam os modelos na própria tela.
 
 **Atualização de 11/11/2026 (noite):** a migração foi aplicada no `takt-hub` pela CLI do Supabase, a pedido do usuário, e conferida no catálogo (tabela, RLS ligada, grant para `service_role`, sem acesso de `anon`). A tela ainda não foi aberta logada em produção.
 
+## Tratativa do TST, "não se aplica", página recolhida, câmera e a tela em branco na foto (23/11/2026)
+
+**Pedido:** dois e-mails da responsável de SST na conversa do Cloudflare Access. O usuário mandou "termine" e "mande por email".
+
+De 19/11/2026 (manhã), que tinham ficado para depois:
+
+1. "Itens NC: incluir campo de tratativa para preenchimento do TST (exemplo, quando o item é NC o TST deve colocar um texto com a manutenção realizada ou agendada)."
+2. "Tem dias que não temos serviço em balancim e ele fica aparecendo como pendente, neste caso conseguimos colocar uma opção de não se aplica para o dia?"
+3. "Manter página limpa: manter recolhido" (print de "Últimas inspeções" e "Modelos de checklist").
+
+De 23/11/2026:
+
+4. "Quando realizamos a solicitação para anexo da foto dos equipamentos ele fica nesta página, tanto celular quanto computador" (print da tela logada do checklist toda em branco).
+5. "A opção de tirar a foto e não somente abrir a galeria do celular."
+6. "Quando algum item seja não conforme o TST valide a liberação com justificativa, por exemplo: NC falta de manual (cobrado da empresa a entrega do documento com prazo xx)." Tratado junto com o item 1: é a mesma tratativa.
+
+**Situação em 23/11/2026:** implementado, validado localmente e enviado ao `main`. **Não há migração:** nada mudou no banco. E-mail contando a mudança enviado à equipe de SST depois da publicação.
+
+### Decisões tomadas na implementação (do Claude; o usuário pediu "termine" sem ver as regras antes)
+
+- **A tratativa é por item não conforme** e é o que valida a não conformidade (itens 1 e 6 são um só). Com todos os itens tratados, o checklist sai do vermelho e fica azul, "tratada pelo TST". Não há um botão separado de "liberar": escrever a justificativa de cada item é a liberação. A inspeção e a descrição do operador não mudam.
+- **Escreve a tratativa quem já registra inspeção pela tela** (TST e administrador). Os demais leem.
+- **A tratativa não manda e-mail** e não aparece para o operador além da frase "não conformidade tratada pelo técnico de segurança" no cartão do QR.
+- **"Não se aplica" é por período do checklist**, não só por dia: "hoje" no diário, "nesta semana" no semanal, "neste mês" no mensal. A liberação fica de fora (não tem dia). Só pela tela logada, por TST e administrador; o motivo é opcional e vem sugerido "Sem serviço no dia".
+- **A marca não trava o equipamento:** se alguém preencher depois (QR ou tela), a inspeção vale mais que a marca. O checklist marcado sai dos devidos e dos pendentes nos cartões e nos dashboards.
+- **Recolhidas ficam "Últimas inspeções" e "Modelos de checklist"**, as duas do print. O quadro dos equipamentos fica aberto: é o trabalho do dia. A escolha não é lembrada: toda vez que a tela abre, as duas vêm recolhidas ("manter recolhido"). O título do histórico avisa quando há não conformidade sem tratativa.
+- **Sem migração:** a tratativa vai dentro da resposta do item, no JSON `answers` que já existe; a marca "não se aplica" é um registro em `checklist_runs` **sem respostas** (toda inspeção de verdade tem ao menos uma, porque o modelo exige ao menos um item), com o motivo em `note`.
+
+### Como funciona
+
+- **Tratativa** (`ChecklistRunAnswer.treatment = { text, by, byName, at }`, até 300 caracteres por item):
+  - Comando `treat_run { id, treatments: [{ itemId, text }] }`, de TST e administrador (`checklistCommandNeedsAdmin` é falso). Só aceita item não conforme da inspeção; texto igual ao guardado mantém autor e hora; texto vazio tira a tratativa; nada mudou, nada grava.
+  - `save_run` na edição mantém a tratativa do item que segue não conforme e a descarta do que deixou de ser.
+  - `openNonConformities(run)` conta as não conformidades sem tratativa. Situação nova `treated` em `ChecklistStatus`; `nonconforming` passou a significar "há não conformidade sem tratativa". `ChecklistSummary` ganhou `treated`.
+  - Tela: quadro **Tratativa do TST** em "Últimas inspeções → Ver respostas e tratar" e acima do formulário ao abrir uma inspeção com não conformidade. O cartão do topo virou **Não conformidade sem tratativa**, com "N tratadas pelo TST no período" embaixo.
+- **Não se aplica** (`isSkippedRun(run)`: registro sem respostas):
+  - Comando `skip_run { workId, equipmentId, modelId, note? }`: grava a marca de hoje. Recusa equipamento desativado, checklist fora do QR, liberação, período já preenchido e período já marcado. Desfaz-se com `delete_run` da marca.
+  - `checklistBoard`: `periodRuns`, `run` e `lastDoneOn` só olham inspeções de verdade; `due.skip` traz a marca; situação `skipped` quando só há a marca. `checklistSummary` tira o marcado de `due.total` e de `pending` e conta em `skipped`. `awaitsRun(status)` diz se o checklist ainda espera inspeção (pendente ou marcado).
+  - Tela: link **Não se aplica hoje / nesta semana / neste mês** embaixo do checklist pendente (pergunta o motivo) e **Desfazer** embaixo do marcado, que fica cinza. A marca aparece em "Últimas inspeções" como "Não se aplica: motivo", sem "Ver respostas" nem lápis, só a lixeira.
+  - QR: o checklist marcado aparece cinza, "marcado como não se aplica hoje. Se for usar o equipamento, preencha.", com o botão Preencher.
+  - Dashboards (`buildChecklistBlock`): a marca não conta como inspeção do período.
+- **Página recolhida:** `showHistory` e `showModels` em `ChecklistOverview`, falsos ao abrir. "Novo checklist" abre a seção dos modelos.
+- **Câmera** (`PhotoPicker`, dividido entre a tela logada e o QR): em tela de toque (`pointer-coarse`) são dois botões, **Câmera** (`capture="environment"`) e **Galeria**; no computador, um só, "Adicionar".
+- **Tela em branco ao anexar foto (defeito):** o campo de arquivo é invisível (`sr-only`, posição absoluta). Sem ancestral posicionado, ele ficava preso ao documento e não à área que rola (`div` de `overflow-y-auto` do layout logado). Com a tela rolada, ele ficava abaixo da janela; ao receber o foco depois da escolha da foto, o navegador rolava o **documento** para mostrá-lo, e a casca de altura fixa saía da vista: tela toda em branco, sem erro. Correção em dois lugares: o rótulo do botão de foto ficou `relative`, e a área rolável de `src/app/(app)/layout.tsx` também, o que protege os outros campos invisíveis das telas logadas (terminalidade, medições, longo prazo).
+
+### Validação de 23/11/2026
+
+- `tests/checklist.test.ts`: 2 testes novos (tratativa: assinatura, texto igual não reassina, vazio remove, item errado e limite recusados, edição mantém; "não se aplica": marca, cartões, QR, recusas, inspeção vale mais, exclusão, marca de ontem não vale hoje).
+- Sequência do `ci.yml` local: tipos, lint, Prettier, testes, validação das migrações, build e e2e.
+- Navegador (`next dev` com as rotas do checklist respondidas pelas regras reais em memória), em 1.440 px e em celular de 390 px com toque. O defeito foi **reproduzido antes da correção** (no celular, depois de escolher a foto o documento rolou 773 px e a tela ficou em branco) e **não se repete depois**. Conferido também: as duas seções abrem recolhidas; "Não se aplica hoje" tira o checklist dos devidos e "Desfazer" devolve; a liberação não tem a opção; "Câmera" só aparece no toque; inspeção com não conformidade e foto gravada; tratativa salva muda o checklist para "tratada pelo TST" e o histórico para "1 não conforme, tratada"; sem rolagem horizontal.
+- **Não validado:** uso em produção, a câmera num celular de verdade (o navegador de teste só simula o toque) e o nome de quem tratou vindo do perfil real (no teste de navegador o nome não é enviado).
+
 ## Empresa do operador e preenchimento repetido no dia (20/11/2026)
 
 **Pedido:** mensagem da responsável de SST em 20/11/2026, "mais ajustes para aba checklist":
@@ -224,6 +276,7 @@ A equipe da obra relatou: "quando pessoal que não tem login acessa com QR code,
 
 ## Pendente
 
+- **Tratativa, "não se aplica", câmera e tela em branco (23/11/2026):** conferir em produção com a equipe de SST: anexar foto pelo computador e pelo celular (a tela não pode mais ficar em branco), "Câmera" num celular de verdade, uma tratativa real e um "não se aplica" no balancim; ouvir a equipe sobre as regras decididas na implementação.
 - **Empresa do operador e preenchimento repetido (20/11/2026):** conferir em produção com um QR real (duas pessoas no mesmo dia, cada uma com a sua empresa) e ouvir a equipe de SST sobre as regras decididas na implementação (empresa em texto livre, repetição em todas as periodicidades, trava de 1 minuto).
 - **Local, liberação e aviso ao TST (17/11/2026):** conferir logado em produção, conferir um e-mail real de não conformidade e marcar os TSTs de cada obra (sem TST marcado, ninguém é avisado).
 - **Cloudflare Access (17/11/2026):** a AIRON Labs respondeu no mesmo dia que liberou `/checklist/*`, `/api/publico/*`, `/_next/static/*` e os ícones, e que testou de fora sem login. Falta o teste da obra: ler um QR num celular sem login e enviar um checklist com foto. Avisar a AIRON Labs antes de criar outra rota em `/api/publico/` (tudo ali fica aberto à internet).

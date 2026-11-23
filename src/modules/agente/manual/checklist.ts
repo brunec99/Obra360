@@ -76,7 +76,7 @@ export const sections: ManualSection[] = [
 
 1. (Admin) Em **Modelos de checklist**, clique em **Novo checklist**, preencha nome, tipo e periodicidade e escreva os itens. "Colar vários itens de uma vez" aceita a lista da ficha em papel, um item por linha. As setas mudam a ordem.
 2. (Admin) Em **Equipamentos da obra**, cadastre cada equipamento com a identificação e o tipo. Um tipo sem modelo aparece com o aviso "Nenhum checklist para o tipo".
-3. No quadro, clique no checklist do equipamento: âmbar é **pendente** no período, verde é **feito**, vermelho é **feito com não conformidade**. Responda os itens e clique em **Registrar inspeção**. "Marcar os demais como conforme" preenche o que ficou em branco. Na tela logada dá para anexar **até 4 fotos**, escrever o **nome do operador** e a **empresa** em que ele trabalha e colher a **assinatura** dele no quadro (tudo opcional ali; quem assina precisa ter o nome escrito).
+3. No quadro, clique no checklist do equipamento: âmbar é **pendente** no período, verde é **feito**, vermelho é **feito com não conformidade sem tratativa**, azul é **não conformidade tratada pelo TST** e cinza é **não se aplica**. Responda os itens e clique em **Registrar inspeção**. "Marcar os demais como conforme" preenche o que ficou em branco. Na tela logada dá para anexar **até 4 fotos**, escrever o **nome do operador** e a **empresa** em que ele trabalha e colher a **assinatura** dele no quadro (tudo opcional ali; quem assina precisa ter o nome escrito).
 4. Clicar num checklist já feito abre a inspeção mais recente para conferir ou corrigir. Se outra pessoa usou o equipamento, **Registrar outra inspeção**, no alto do formulário, abre uma inspeção nova do mesmo checklist (desde 20/11/2026).
 
 ### Checklists do QR: incluir e tirar checklists de um equipamento (16/11/2026)
@@ -111,7 +111,7 @@ O modelo pode pedir o nº do equipamento ou o pavimento a quem preenche, a perio
 - Não se registra inspeção com data futura.
 - A inspeção guarda os itens como estavam no dia: editar o modelo depois não muda o histórico.
 - Modelo e equipamento não são excluídos, são **desativados** (saem do quadro, o histórico fica) e podem ser reativados.
-- A tela carrega as inspeções dos últimos 120 dias (mais as liberações, de qualquer data) e lista as 30 mais recentes.
+- A tela carrega as inspeções dos últimos 120 dias (mais as liberações, de qualquer data) e lista as 30 mais recentes. "Últimas inspeções" e "Modelos de checklist" abrem **recolhidos** (desde 23/11/2026): clique no título para abrir. A tratativa do TST nas não conformidades e o "não se aplica" estão na seção "checklist-tratativa-nao-se-aplica".
 
 ### O que ainda não existe
 
@@ -150,5 +150,40 @@ Preenchimento sem internet, foto presa a um item específico, impressão da insp
 - **Liberação:** na **Periodicidade** do modelo há a opção **Liberação (uma única vez)**. Esse checklist fica **pendente de liberação** até ser preenchido e depois fica feito para sempre: não volta a ser cobrado e não aceita outra inspeção, nem pela tela nem pelo QR (a mensagem diz o dia em que foi registrada). A própria liberação pode ser editada ou excluída por TST e admin; excluída, volta a ficar pendente. Se o modelo também pede o local, a liberação é uma por nº de equipamento ou pavimento. Quando há liberações, a tela mostra o cartão **Liberações pendentes**.
 - **Aviso ao TST:** quando uma inspeção **nova** é registrada com algum item não conforme, pelo QR ou pela tela, os **TSTs que têm a obra** recebem um **e-mail** com o equipamento, o checklist, o local, quem preencheu (com a empresa), os itens não conformes com a descrição e o link da tela. Quem registrou a inspeção não recebe o próprio aviso. Editar uma inspeção antiga não envia outro e-mail. O e-mail sai pela fila do Takt Hub, em até cerca de 5 minutos. Se a obra não tiver ninguém marcado como TST, ninguém é avisado; por isso, no QR, a confirmação só diz "o técnico de segurança foi avisado por e-mail" quando o aviso saiu, e nos outros casos manda avisar o técnico pessoalmente.
 - Depende da migração 0053; sem ela, o resto da aba segue normal e gravar um modelo com a opção de local ou com a periodicidade Liberação responde "Aplique a migração 0053_checklist_location_release.sql".`,
+  },
+  {
+    id: 'checklist-tratativa-nao-se-aplica',
+    title: 'Checklist de equipamentos: tratativa do TST, não se aplica e fotos',
+    summary:
+      'Aba 3.2: tratativa do TST nos itens não conformes, "Não se aplica hoje" para equipamento sem uso, seções recolhidas e câmera.',
+    keywords: [
+      'tratativa',
+      'tratar não conformidade',
+      'justificativa da não conformidade',
+      'liberar com justificativa',
+      'não se aplica',
+      'sem serviço no dia',
+      'equipamento sem uso',
+      'balancim',
+      'tirar foto',
+      'câmera',
+      'galeria',
+      'recolhido',
+      'checklist',
+    ],
+    screen: 'checklist',
+    body: `## Checklist de equipamentos (aba 3.2): tratativa do TST, "não se aplica" e fotos (23/11/2026)
+
+- **Tratativa:** numa inspeção com item não conforme, o TST (ou o administrador) abre **Últimas inspeções → Ver respostas e tratar**, ou clica no checklist vermelho do quadro, e escreve em **Tratativa do TST** o que foi feito ou combinado para cada item (por exemplo, "cobrada da empresa a entrega do manual, prazo dia 30"). **Salvar tratativa** grava com o nome de quem tratou e a hora. Com todos os itens tratados, o checklist sai do vermelho e fica azul, "tratada pelo TST": o equipamento segue liberado com a justificativa. O cartão do topo conta só as não conformidades **sem tratativa**. Apagar o texto e salvar tira a tratativa.
+- **Não se aplica:** no dia em que o equipamento não é usado (sem serviço em balancim, por exemplo), o TST clica em **Não se aplica hoje** (ou "nesta semana", "neste mês") embaixo do checklist pendente e escreve o motivo, que é opcional. O checklist fica cinza e sai da conta de pendentes. Vale só para aquele período; **Desfazer** devolve a pendente. Se alguém preencher mesmo assim (pelo QR ou pela tela), a inspeção vale mais que a marca. A liberação não tem essa opção.
+- **Fotos no celular:** o formulário tem **Câmera** (abre a câmera na hora) e **Galeria**. No computador é um botão só, "Adicionar".
+
+### Cores do quadro
+
+Âmbar é pendente, verde é feito, vermelho é não conformidade sem tratativa, azul é não conformidade tratada pelo TST e cinza é não se aplica.
+
+### Quem pode
+
+Escrever a tratativa e marcar "não se aplica" é de quem registra inspeção pela tela: técnicos de segurança (TST) e administradores. Os demais só leem. O operador, pelo QR, não marca "não se aplica" nem escreve tratativa.`,
   },
 ];
