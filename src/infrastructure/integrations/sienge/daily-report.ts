@@ -111,7 +111,8 @@ export async function listDailyReportTypes(): Promise<SiengeDailyTypes> {
 }
 
 /** Locais do empreendimento no Sienge. Devolve `null` quando o usuário de API não tem a consulta liberada
- * (403, o caso de hoje): o diário segue sem a lista e o local é ligado digitando o código. */
+ * (403; foi o caso até a liberação de 24/11/2026): o diário segue sem a lista e o local é ligado digitando o
+ * código. */
 export async function listSites(buildingId: number): Promise<SiengeOption[] | null> {
   const key = `sites:${buildingId}`;
   const hit = cached<SiengeOption[] | null>(key);

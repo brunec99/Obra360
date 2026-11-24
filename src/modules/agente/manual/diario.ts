@@ -232,8 +232,8 @@ Um diário que ainda é rascunho pode ser excluído por quem preenche; as fotos 
   },
   {
     id: 'diario-ligacoes-sienge',
-    title: 'Diário de Obra: ligações com o Sienge e o que ainda falta liberar',
-    summary: 'Usuário, local e tipo de equipe do Sienge; o que ainda falta liberar.',
+    title: 'Diário de Obra: ligações com o Sienge e o que ainda falta',
+    summary: 'Usuário, local e tipo de equipe do Sienge; o que ainda falta.',
     keywords: [
       'ligações com o sienge',
       'usuário do sienge',
@@ -265,7 +265,7 @@ Cada pessoa informa, uma vez, o próprio **código de usuário do Sienge**. Ele 
 
 Cada local da obra (a lista de "Locais da obra", a mesma da Linha de Balanço e do curto prazo) é ligado ao **local do Sienge** correspondente. Vale para as atividades e, principalmente, para as fotos: foto de local não ligado não entra no Relatório Fotográfico do Sienge.
 
-Hoje o local do Sienge é informado **pelo código**, digitado, porque a consulta que traria a lista de locais do Sienge ainda não está liberada (veja abaixo).
+O local do Sienge é escolhido numa **lista com os locais cadastrados no Sienge** para o empreendimento (liberada em 24/11/2026). No **Atmos**, os 19 locais com correspondente claro já foram ligados (subsolo, térreo, mezanino, 2º ao 15º pavimento, caixa d'água e cobertura); halls, fachadas e equipamentos ficam para quem conhece a obra escolher, porque o Sienge não tem um local igual.
 
 ### 4. Empresa do histograma × tipo de equipe do Sienge
 
@@ -274,7 +274,7 @@ O Sienge recebe a mão de obra por **tipo de equipe** (são 57 tipos cadastrados
 ## O que ainda falta (situação em 24/11/2026)
 
 - O envio ao Sienge foi testado com diários de teste no **Atmos** (obra piloto), excluídos em seguida. O primeiro diário de verdade pela tela ainda não foi feito.
-- Falta o Sienge liberar, no usuário de integração, a **lista de locais** do empreendimento (por isso o código do local é digitado) e as **tarefas do planejamento** do Sienge (por isso as atividades entram como avulsas).
+- As atividades entram no Sienge como **avulsas**. A consulta às tarefas do planejamento do Sienge já está liberada, mas ligar a atividade a essas tarefas fica para uma próxima etapa.
 - **Fora desta etapa:** corrigir só uma parte de um diário já enviado (hoje é excluir e reabrir), sugestão automática do clima e a assistente ler ou preencher o diário.
 
 Se algo disso já estiver diferente na tela, vale a tela: esta lista é a situação do dia em que o módulo foi criado.`,

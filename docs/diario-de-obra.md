@@ -84,8 +84,8 @@ passam a servir também para gravar. As chamadas contam no painel de consumo e a
 | `POST /construction-daily-report` | cria o diário, numa chamada | **liberada e validada** com gravação real no Atmos (o empreendimento de teste 1000 recusa por não estar "em andamento") |
 | `POST /construction-daily-report/{buildingId}/{id}/attachments` (multipart, campo `file`) | uma foto por chamada | **liberada e validada**, com as duas correções descritas abaixo |
 | `DELETE /construction-daily-report/{buildingId}/{id}` | excluir do Sienge antes de reabrir (admin) | **liberada e validada** |
-| `GET /sites?buildingId=` | locais da obra no Sienge | **não liberada (403)**: pedida ao Gabriel por e-mail em 24/11/2026; sem ela o código do local é digitado |
-| `GET /building-projects/.../tasks` | tarefas do planejamento do Sienge | **não liberada (403)**, embora estivesse no pedido de 24/11 (reforçado no mesmo e-mail); não é usada nesta etapa |
+| `GET /sites?buildingId=` | locais da obra no Sienge (lista nas ligações) | **liberada em 24/11/2026** (pedida ao Gabriel por e-mail no mesmo dia); o Atmos tem 21 locais |
+| `GET /building-projects/.../tasks` | tarefas do planejamento do Sienge | **liberada em 24/11/2026**; não é usada nesta etapa |
 | empreendimentos e orçamento | ligação da obra (já existente) | liberadas |
 
 ### Testes reais no Sienge (24/11/2026)
@@ -218,11 +218,14 @@ Em 24/11/2026, no branch `diario-de-obra`:
 
 - **Publicar** (merge do PR #10 no `main`). A 0059 já está aplicada.
 - **Primeiro diário de verdade pela tela**, no Atmos, com quem preenche hoje no Sienge.
-- **Liberação de `GET /sites`** no usuário de API do Sienge (lista de locais; hoje o código é digitado):
-  pedida ao Gabriel por e-mail em 24/11/2026, junto com o reforço de `GET /building-projects/.../tasks`.
 - **Liberar o módulo** para quem preenche em cada obra (Configurações → Usuários → Módulos) e pedir a
   cada pessoa o código de usuário do Sienge.
-- **Ligar os locais** da obra piloto aos locais do Sienge e as empresas do histograma aos tipos de equipe.
+- **Ligar os locais que faltam.** No Atmos, os 19 locais com correspondente claro no Sienge foram ligados
+  direto no banco em 24/11/2026 (`lob_locals.sienge_site_id`: Subsolo 01 → 3 Subsolo, Térreo → 4,
+  Mezanino → 5, 2º a 15º pavto → 6 a 19, Caixa de água → 20 Caixa d'água, Cobertura → 21). Os 29 restantes
+  (halls, fachadas, equipamentos) não têm local igual no Sienge e ficam para a equipe da obra escolher no
+  painel. As demais obras ligadas ao Sienge (Blentt, Brizz, Essenza, Mozine) têm locais com outras grafias
+  e ainda não foram ligadas. Também falta ligar as empresas do histograma aos tipos de equipe (só admin).
 - **Testar no celular real**, com e sem sinal.
 - Conferir os textos do manual da assistente e do tour com a tela publicada (foram escritos junto com
   ela, a partir do contrato e do modelo).
