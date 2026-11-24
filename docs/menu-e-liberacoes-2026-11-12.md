@@ -24,6 +24,7 @@
 | aba 5, terminalidade | 2.1 | `terminalidade` |
 | aba 7, histograma | 2.2 | `histograma` |
 | aba 8, produtividade | 2.3 | `produtividade` |
+| (não existia; criado em 24/11/2026) Diário de Obra | 2.4 | `diario` |
 | aba 6, segurança do trabalho | 3.1 | `seguranca` |
 | aba 9, checklist de equipamentos | 3.2 | `checklist` |
 
@@ -47,3 +48,7 @@
 - Revogar na grade (Configurações → Usuários → Módulos) quem não deve ter segurança, checklist ou o quadro: hoje todos os não-admins têm os dois de SST.
 - Conferir, com um usuário não-admin real, o menu e o desvio para o Dashboard de quem não tem o módulo.
 - Dúvidas de texto que ficaram como estavam: o cartão "Restrições vencidas" dos dashboards fala das restrições impeditivas dos vagões (não do Quadro de Restrições) e pode confundir; o botão "Criar pendência" e os cards seguem chamados de "pendência".
+
+## Atualização de 24/11/2026: item 2.4, Diário de Obra
+
+O grupo **2 · Controles de obra** ganhou o item **2.4 · Diário de Obra** (`/obras/{obraId}/diario`, com modo de campo em `/campo/diario`), liberado por pessoa desde o nascimento: `diario` em `RESTRICTED_SECTIONS`, `/api/diario` nas APIs restritas e coluna "Diário de Obra" em Configurações → Usuários → Módulos, entre Produtividade e Checklist de equipamentos. Nenhuma migração de liberação: o módulo nasce sem ninguém marcado, fora os administradores. O código ainda não foi publicado e a migração do módulo (`0059_daily_report.sql`) foi criada e **não aplicada**. Ver [Diário de Obra](diario-de-obra.md).

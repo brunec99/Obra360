@@ -29,7 +29,8 @@ export interface HeadcountData {
   entries: HeadcountEntry[];
 }
 
-export type HeadcountResponse = ({ available: true; canEdit: boolean } & HeadcountData) | { available: false };
+/** `sentDiaryDays`: dias cujo Diário de Obra (2.4) já foi enviado ao Sienge; a tela avisa ao editar esses dias. */
+export type HeadcountResponse = ({ available: true; canEdit: boolean; sentDiaryDays?: string[] } & HeadcountData) | { available: false };
 
 export const HEADCOUNT_LIMITS = { name: 80, note: 300, quantity: 500, copy: 400 } as const;
 

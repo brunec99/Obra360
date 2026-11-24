@@ -41,6 +41,7 @@ export const sections: ManualSection[] = [
       'aba 2.1',
       'aba 2.2',
       'aba 2.3',
+      'aba 2.4',
       'aba 3.1',
       'aba 3.2',
       '1.1',
@@ -50,6 +51,7 @@ export const sections: ManualSection[] = [
       '2.1',
       '2.2',
       '2.3',
+      '2.4',
       '3.1',
       '3.2',
       'quadro de restrições',
@@ -80,6 +82,7 @@ Ao abrir uma obra, a barra lateral mostra o nome dela, o **Dashboard da obra** n
   - **2.1 Terminalidade** — a lista de pendências por pavimento, apartamento e empreiteiro, com fotos de antes e depois, PDF e modo de campo para o celular.
   - **2.2 Histograma de mão de obra** — o efetivo diário da obra.
   - **2.3 Controle de produtividade** — a produção do dia por serviço e equipe e a produção por homem-dia.
+  - **2.4 Diário de Obra** (desde 24/11/2026) — o diário do dia (clima, atividades, mão de obra, equipamentos, ocorrências e fotos), enviado ao Sienge por botão; tem modo de campo para o celular.
 - **3 · SST** (segurança do trabalho):
   - **3.1 Vistoria de segurança** (o módulo "Segurança do trabalho") — a vistoria dos técnicos de segurança (TST): apontamentos de risco com foto, finalizados com a foto da correção, PDF e modo de campo. Só TST e admin lançam e finalizam; os demais que têm o módulo consultam.
   - **3.2 Checklist de equipamentos** — inspeções diária, semanal e mensal dos equipamentos; o operador preenche pelo link ou QR do equipamento, sem login.
@@ -107,7 +110,7 @@ Em uma linha: antiga aba 1 = 1.1; antiga aba 2 = 1.4 (quadro) e botão na 1.1 (v
 
 ## O que aparece para cada pessoa
 
-Nem todo mundo vê todas as abas. **Abertos a todos** que têm acesso à obra ficam só a lista de obras, a aba **0 "Dashboard da obra"** (cada quadro só aparece para quem pode abrir o módulo de origem) e as **Configurações da obra**. Todo o resto são **módulos liberados por pessoa**: longo prazo, vagões, médio prazo, **curto prazo** e **terminalidade** (estes dois desde 08/11/2026; antes eram abertos a todos), histograma, controle de produtividade, **Quadro de Restrições (1.4)**, **Segurança do trabalho (a Vistoria de segurança, 3.1)** e **Checklist de equipamentos (3.2)** (estes três desde 12/11/2026; antes a segurança era aberta a todos para consulta e o quadro vinha junto com o módulo Vagões), e as telas de apoio Modelo federado, Arquivos IFC, Dívidas e Integrações. Eles aparecem só para administradores, desenvolvedores e quem o administrador liberou módulo a módulo em Configurações → Usuários → Módulos. Quem já usava em 12/11/2026 foi mantido (todo não-admin ganhou segurança e checklist; quem tinha Vagões ganhou o Quadro de Restrições); usuário novo começa sem nenhum. Se uma aba não aparece para você, é isso: peça ao administrador para liberar o módulo. Abrir o endereço de uma aba não liberada leva ao Dashboard da obra. O link ou QR do operador do Checklist de equipamentos continua sem login e não depende de módulo. Além disso, cada pessoa só vê as obras que um administrador liberou para ela, e o papel (consulta, TST, planejador, gestor ou admin) decide o que pode editar.
+Nem todo mundo vê todas as abas. **Abertos a todos** que têm acesso à obra ficam só a lista de obras, a aba **0 "Dashboard da obra"** (cada quadro só aparece para quem pode abrir o módulo de origem) e as **Configurações da obra**. Todo o resto são **módulos liberados por pessoa**: longo prazo, vagões, médio prazo, **curto prazo** e **terminalidade** (estes dois desde 08/11/2026; antes eram abertos a todos), histograma, controle de produtividade, **Diário de Obra (2.4, desde 24/11/2026)**, **Quadro de Restrições (1.4)**, **Segurança do trabalho (a Vistoria de segurança, 3.1)** e **Checklist de equipamentos (3.2)** (estes três desde 12/11/2026; antes a segurança era aberta a todos para consulta e o quadro vinha junto com o módulo Vagões), e as telas de apoio Modelo federado, Arquivos IFC, Dívidas e Integrações. Eles aparecem só para administradores, desenvolvedores e quem o administrador liberou módulo a módulo em Configurações → Usuários → Módulos. Quem já usava em 12/11/2026 foi mantido (todo não-admin ganhou segurança e checklist; quem tinha Vagões ganhou o Quadro de Restrições); usuário novo começa sem nenhum. Se uma aba não aparece para você, é isso: peça ao administrador para liberar o módulo. Abrir o endereço de uma aba não liberada leva ao Dashboard da obra. O link ou QR do operador do Checklist de equipamentos continua sem login e não depende de módulo. Além disso, cada pessoa só vê as obras que um administrador liberou para ela, e o papel (consulta, TST, planejador, gestor ou admin) decide o que pode editar.
 
 ## Ajuda dentro do sistema
 

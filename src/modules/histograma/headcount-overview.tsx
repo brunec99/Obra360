@@ -271,7 +271,7 @@ export function HeadcountOverview({ workId }: { workId: string }) {
       </>
     );
 
-  const { entries, canEdit } = state.data;
+  const { entries, canEdit, sentDiaryDays } = state.data;
   const days = launchedDays(entries);
   const lastDay = days.at(-1);
   const firstDay = days[0];
@@ -384,6 +384,14 @@ export function HeadcountOverview({ workId }: { workId: string }) {
 
       {/* Folha do dia */}
       <section data-tour="headcount-day" className="panel mb-6 p-5" aria-labelledby="hc-day">
+        {sentDiaryDays.includes(day) && (
+          <div className="mb-4">
+            <Callout tone="warning">
+              O Diário de Obra deste dia já foi enviado ao Sienge. O que você mudar aqui vale para o histograma, mas não altera o diário que
+              está no Sienge.
+            </Callout>
+          </div>
+        )}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 id="hc-day" className="text-base font-bold text-slate-900">

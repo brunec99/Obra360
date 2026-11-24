@@ -5,7 +5,7 @@
 -- de ajustes do bootstrap. Monta do zero as 32 tabelas, as funções commit_planning e
 -- planning_snapshot, os gatilhos de imutabilidade e o bucket privado 'ifc' do Storage.
 --
--- GERADO AUTOMATICAMENTE — não edite à mão. Fonte: 44 migrações, de 0001_init.sql a 0044_lob_costs.sql.
+-- GERADO AUTOMATICAMENTE — não edite à mão. Fonte: 59 migrações, de 0001_init.sql a 0059_daily_report.sql.
 -- Para regenerar depois de criar uma migração nova:  npm run bootstrap:sql
 --
 -- COMO USAR: só num projeto Supabase VAZIO (recém-criado). Abra o SQL Editor do projeto, cole o
@@ -7017,6 +7017,706 @@ create index if not exists lob_cost_items_service_idx on lob_cost_items (service
 -- explícito porque no projeto takt-hub a exposição automática de tabelas novas está desligada.
 alter table lob_cost_items enable row level security;
 grant select, insert, update, delete on lob_cost_items to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ===== 0045_headcount.sql =====
+
+-- Aba 7, Histograma de mão de obra (11/11/2026): o efetivo diário da obra, no formato da planilha
+-- "ATR Histograma - Todas as obras" usada até então — Obra, Data, Empresa, Função, Número de funcionários
+-- e Observação —, uma linha por empresa × função × dia. Fica FORA do snapshot e do commit_planning, como a
+-- terminalidade (0028) e a segurança (0040): a ausência desta tabela derruba só a aba 7. Não reescreve
+-- commit_planning e pode ser rodada de novo.
+
+-- `company` e `role` são texto livre, já na grafia que a aplicação escolheu (a tela sugere as já usadas e
+-- o comando devolve a grafia existente para "ATR " = "ATR"). A unicidade impede a linha em dobro que a
+-- planilha deixava passar: o mesmo dia, empresa e função só existe uma vez por obra, e lançar de novo
+-- edita a quantidade. `origin` separa o que foi lançado no sistema do histórico importado da planilha.
+-- Excluir a obra leva o efetivo junto (delete_work apaga a linha de works).
+create table if not exists headcount_entries (
+  id text primary key,
+  work_id text not null references works(id) on delete cascade,
+  worked_on date not null,
+  company text not null check (length(trim(company)) > 0),
+  role text not null check (length(trim(role)) > 0),
+  quantity integer not null check (quantity > 0 and quantity <= 500),
+  note text not null default '',
+  origin text not null default 'app' check (origin in ('app', 'planilha')),
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (work_id, worked_on, company, role)
+);
+create index if not exists headcount_entries_work_day_idx on headcount_entries (work_id, worked_on);
+
+-- Mesmo contrato das demais tabelas: RLS ligada sem política e acesso só pelo servidor. Grant explícito,
+-- porque no takt-hub a exposição automática de tabelas novas está desligada.
+alter table headcount_entries enable row level security;
+grant select, insert, update, delete on headcount_entries to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ===== 0046_production.sql =====
+
+-- Aba 8, Controle de produtividade (11/11/2026): o lançamento diário de serviço × empreiteiro × equipe ×
+-- produção, no formato da planilha "ATR - Controle da produção" usada até então — Obra, Serviço,
+-- Empreiteiro, Data, Qtd profissionais, Qtd ajudantes, Produção, Unid. e Obs. Fica FORA do snapshot e do
+-- commit_planning, como a terminalidade (0028), a segurança (0040) e o histograma (0045): a ausência desta
+-- tabela derruba só a aba 8. Não reescreve commit_planning e pode ser rodada de novo.
+
+-- `service` e `contractor` são texto livre, já na grafia que a aplicação escolheu. `quantity` nula quer
+-- dizer "equipe lançada, produção ainda não medida" — na planilha isso aparecia como vazio ou "0,00", e é
+-- mais da metade das linhas. Não há unicidade: o mesmo serviço e empreiteiro pode ter duas frentes no dia
+-- (trechos diferentes na observação). `origin` separa o lançado no sistema do histórico da planilha.
+-- Excluir a obra leva os lançamentos junto (delete_work apaga a linha de works).
+create table if not exists production_entries (
+  id text primary key,
+  work_id text not null references works(id) on delete cascade,
+  worked_on date not null,
+  service text not null check (length(trim(service)) > 0),
+  contractor text not null check (length(trim(contractor)) > 0),
+  professionals integer not null default 0 check (professionals >= 0 and professionals <= 200),
+  helpers integer not null default 0 check (helpers >= 0 and helpers <= 200),
+  quantity numeric(14, 3) check (quantity is null or quantity > 0),
+  unit text not null default '' check (unit in ('', 'm²', 'm³', 'm', 'kg', 'un', 'vb', 't')),
+  note text not null default '',
+  origin text not null default 'app' check (origin in ('app', 'planilha')),
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (professionals + helpers > 0),
+  check (quantity is null or unit <> '')
+);
+create index if not exists production_entries_work_day_idx on production_entries (work_id, worked_on);
+
+-- Mesmo contrato das demais tabelas: RLS ligada sem política e acesso só pelo servidor. Grant explícito,
+-- porque no takt-hub a exposição automática de tabelas novas está desligada.
+alter table production_entries enable row level security;
+grant select, insert, update, delete on production_entries to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ===== 0047_equipment_checklist.sql =====
+
+-- Aba 9, Checklist de equipamentos (11/11/2026): a inspeção diária, semanal e mensal dos equipamentos da
+-- obra, no grupo SST. Fica FORA do snapshot e do commit_planning, como a segurança (0040): a ausência
+-- destas tabelas derruba só a aba 9. Não reescreve commit_planning e pode ser rodada de novo.
+-- Quem grava é o tipo TST (`profiles.tst`, migração 0040) e os administradores; a aplicação confere.
+
+-- O modelo (a ficha): lista única para todas as obras, como os tipos de apontamento da segurança — a
+-- equipe de TSTs é a mesma. `equipment_type` liga o modelo aos equipamentos das obras (comparação sem
+-- acento e sem maiúsculas, feita na aplicação). `items` é a lista ordenada [{ id, text }]. Desativar tira
+-- o modelo do quadro sem apagar o histórico.
+create table if not exists checklist_models (
+  id text primary key,
+  name text not null check (length(trim(name)) > 0),
+  equipment_type text not null check (length(trim(equipment_type)) > 0),
+  frequency text not null check (frequency in ('daily', 'weekly', 'monthly')),
+  items jsonb not null default '[]'::jsonb check (jsonb_typeof(items) = 'array'),
+  active boolean not null default true,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- O equipamento da obra ("Betoneira 01"). Excluir a obra leva os equipamentos e as inspeções junto.
+create table if not exists checklist_equipment (
+  id text primary key,
+  work_id text not null references works(id) on delete cascade,
+  name text not null check (length(trim(name)) > 0),
+  equipment_type text not null check (length(trim(equipment_type)) > 0),
+  active boolean not null default true,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists checklist_equipment_work_idx on checklist_equipment (work_id);
+
+-- A inspeção: um modelo preenchido num equipamento num dia. `answers` é [{ itemId, text, answer, note }],
+-- com o texto do item como estava no dia; `model_name` e `frequency` também são do dia. Um modelo só é
+-- preenchido uma vez por equipamento por dia (preencher de novo edita).
+create table if not exists checklist_runs (
+  id text primary key,
+  work_id text not null references works(id) on delete cascade,
+  equipment_id text not null references checklist_equipment(id) on delete cascade,
+  model_id text not null references checklist_models(id),
+  model_name text not null,
+  frequency text not null check (frequency in ('daily', 'weekly', 'monthly')),
+  done_on date not null,
+  answers jsonb not null check (jsonb_typeof(answers) = 'array'),
+  note text not null default '',
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (equipment_id, model_id, done_on)
+);
+create index if not exists checklist_runs_work_day_idx on checklist_runs (work_id, done_on);
+
+-- Mesmo contrato das demais tabelas: RLS ligada sem política e acesso só pelo servidor. Grant explícito,
+-- porque no takt-hub a exposição automática de tabelas novas está desligada.
+alter table checklist_models enable row level security;
+alter table checklist_equipment enable row level security;
+alter table checklist_runs enable row level security;
+grant select, insert, update, delete on checklist_models, checklist_equipment, checklist_runs to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ===== 0048_checklist_operator.sql =====
+
+-- Aba 9, Checklist de equipamentos (12/11/2026): preenchimento pelo operador, sem login, pelo QR colado no
+-- equipamento, com nome, assinatura desenhada e fotos. Só acrescenta colunas e um bucket: não reescreve
+-- commit_planning e pode ser rodada de novo. Sem ela a aba 9 segue lendo, mas a gravação de inspeção e o
+-- link do operador respondem "aplique a migração 0048".
+
+-- O link secreto do equipamento: quem tem o endereço preenche os checklists pendentes daquele equipamento,
+-- e só isso. Cada linha que já existe recebe um valor próprio (o default é volátil, avaliado por linha).
+-- "Gerar novo link" na tela troca o valor e a etiqueta antiga deixa de valer.
+alter table checklist_equipment
+  add column if not exists public_token text not null default replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+create unique index if not exists checklist_equipment_public_token_idx on checklist_equipment (public_token);
+
+-- A inspeção ganha quem operou (nome digitado), a assinatura (arquivo PNG no bucket e a hora em que foi
+-- colhida), as fotos ([{ id, path }], até 4) e a origem: 'app' (TST ou admin logado) ou 'link' (operador
+-- pelo QR; `created_by` fica 'qr').
+alter table checklist_runs add column if not exists operator_name text not null default '';
+alter table checklist_runs add column if not exists signature_path text;
+alter table checklist_runs add column if not exists signed_at timestamptz;
+alter table checklist_runs add column if not exists photos jsonb not null default '[]'::jsonb;
+alter table checklist_runs add column if not exists source text not null default 'app';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'checklist_runs_source_check') then
+    alter table checklist_runs add constraint checklist_runs_source_check check (source in ('app', 'link'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'checklist_runs_photos_check') then
+    alter table checklist_runs add constraint checklist_runs_photos_check check (jsonb_typeof(photos) = 'array');
+  end if;
+end $$;
+
+-- Bucket privado `checklist`: `<obra>/<inspeção>/<foto>.jpg` e `<obra>/<inspeção>/assinatura-<id>.png`. Os
+-- arquivos sobem pelo servidor (chave de serviço), nunca direto do navegador: o operador não tem sessão.
+-- O bloco só age onde as colunas de limite existem (o Supabase real), para a validação local em PGlite.
+insert into storage.buckets (id, name, public) values ('checklist', 'checklist', false) on conflict (id) do nothing;
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'storage' and table_name = 'buckets' and column_name = 'allowed_mime_types') then
+    execute $q$update storage.buckets set file_size_limit = 2097152, allowed_mime_types = array['image/jpeg', 'image/png'] where id = 'checklist'$q$;
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';
+
+-- ===== 0049_restrictions_sst_access.sql =====
+
+-- Quadro de Restrições, Segurança do trabalho e Checklist de equipamentos liberados por pessoa (12/11/2026).
+-- Até aqui a segurança (aba 6, agora 3.1) e o checklist (aba 9, agora 3.2) eram abertos a todos que tinham a
+-- obra, e o Kanban de pendências ia junto com o módulo `vagoes`. O usuário pediu os três nas liberações
+-- (profiles.module_access, da 0031). Para ninguém perder o acesso no deploy, como na 0042:
+--   * todo perfil que não é admin ganha `seguranca` e `checklist`;
+--   * quem já tinha `vagoes` ganha `restricoes` (o quadro, agora com item próprio no menu: 1.4).
+-- O admin revoga em lote, em Configurações → Usuários → Módulos, de quem não deve ter. Admin vê todos os
+-- módulos e fica de fora. Só dados, nenhuma coluna nova. Pode ser rodada de novo, mas devolve os módulos a
+-- quem o admin já tiver revogado: rode uma vez.
+--
+-- Aplique ANTES de publicar o código: o código novo sem esta migração tira as três telas de todos os
+-- não-admins; o código antigo ignora as seções novas na lista.
+update profiles
+set module_access = module_access || array(
+  select section
+  from unnest(array['seguranca', 'checklist']) as section
+  where not (section = any(module_access))
+)
+where role <> 'admin'
+  and not (module_access @> array['seguranca', 'checklist']);
+
+update profiles
+set module_access = module_access || array['restricoes']
+where role <> 'admin'
+  and module_access @> array['vagoes']
+  and not (module_access @> array['restricoes']);
+
+-- ===== 0050_weekly_summary.sql =====
+
+-- Resumo semanal por e-mail (12/11/2026, modelo aprovado "Dashboards completos e resumo semanal", regra 18).
+-- Todo sábado, às 08:00 de Brasília, o servidor do Obra 360 enfileira na fila de e-mail do Takt Hub
+-- (takt.email_enqueue, modelo 'obra360.resumo_semanal') o placar da semana que acabou: quais obras cumpriram o
+-- planejamento (curto prazo) e os processos de histograma e de produtividade. Recebe quem é admin e tem esta
+-- chave ligada.
+--
+-- Só uma coluna em `profiles`, como a `tst` da 0040: o `commit_planning` não a conhece e não a altera. Quem a
+-- grava é a rota POST /api/dashboard/resumo-semanal, só para admin (Configurações → Usuários, linha de admin).
+-- Nasce desligada para todos: ninguém passa a receber e-mail só por a migração ter sido aplicada.
+--
+-- Independente da ordem do deploy: sem ela, o agendador não envia a ninguém e a chave avisa que falta a 0050;
+-- o envio avulso ("Enviar o resumo agora para mim") não depende dela. Pode ser rodada de novo.
+alter table profiles add column if not exists weekly_summary boolean not null default false;
+
+comment on column profiles.weekly_summary is
+  'Admin que recebe o resumo semanal por e-mail aos sábados (0050). Gravada só pela rota /api/dashboard/resumo-semanal.';
+
+-- ===== 0051_access_usage.sql =====
+
+-- Acessos ao Obra 360 (15/11/2026, modelo aprovado "Aba Acessos no Dashboard geral", regra 18). O navegador conta o
+-- tempo ativo em cada tela (aba visível e uso nos últimos 5 minutos, regra 4) e manda ao servidor a cada minuto
+-- (`POST /api/acessos`); a aba "Acessos" do Dashboard geral, só para admin, lê daqui quem entrou, em quais módulos e
+-- por quanto tempo.
+--
+-- Fica FORA do snapshot e do commit_planning, como a segurança (0040): não reescreve commit_planning e pode ser
+-- rodada de novo. Sem ela o sistema segue normal: o registro falha em silêncio e a aba avisa que falta a 0051.
+--
+-- O que NÃO fica gravado (regra 8): IP, localização, nome do aparelho e o que foi digitado ou visto na tela.
+
+-- Uma entrada no sistema (regra 5): abre quando a pessoa usa o sistema depois de 30 minutos sem uso. `seconds` é o
+-- tempo ativo somado de todas as telas da sessão.
+create table if not exists access_sessions (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references profiles(id) on delete cascade,
+  started_at timestamptz not null,
+  last_at timestamptz not null,
+  seconds integer not null default 0 check (seconds >= 0)
+);
+create index if not exists access_sessions_profile_idx on access_sessions (profile_id, last_at desc);
+create index if not exists access_sessions_last_idx on access_sessions (last_at);
+
+-- O tempo ativo de uma sessão numa tela, num dia (Brasília), numa obra e num aparelho (regras 6 e 8). `work_id` sem
+-- chave estrangeira de propósito: excluir a obra não apaga o histórico de uso (como o custo da IA), e a tela mostra
+-- "Obra excluída". Telas fora das obras e o modo de campo sem `?obra=` gravam `work_id` nulo.
+create table if not exists access_usage (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references access_sessions(id) on delete cascade,
+  profile_id uuid not null references profiles(id) on delete cascade,
+  day date not null,
+  work_id text,
+  screen text not null check (length(screen) between 1 and 40),
+  field boolean not null default false,
+  device text not null check (device in ('desktop', 'mobile')),
+  seconds integer not null default 0 check (seconds >= 0),
+  first_at timestamptz not null,
+  last_at timestamptz not null
+);
+create unique index if not exists access_usage_key_idx
+  on access_usage (session_id, day, coalesce(work_id, ''), screen, field, device);
+create index if not exists access_usage_day_idx on access_usage (day);
+create index if not exists access_usage_profile_idx on access_usage (profile_id, last_at desc);
+
+-- Grava um minuto (ou o que o navegador acumulou) de uma pessoa numa tela. Chamada só pelo servidor, com a chave de
+-- serviço, depois de conferir a sessão. Regras:
+-- - Sessão nova quando a última da pessoa terminou há mais de 30 minutos (regra 5).
+-- - Nunca soma mais que o relógio: o tempo de cada registro é limitado ao que passou desde o registro anterior da
+--   mesma pessoa (+2 s de folga para a rede), o que cobre duas abas abertas ao mesmo tempo. O primeiro registro de
+--   uma sessão vale no máximo 120 s, o que o navegador junta entre dois envios.
+-- - As gravações da mesma pessoa entram em fila (trava por pessoa), para duas abas não abrirem duas sessões.
+-- - Guarda de 13 meses (regra 15): o que passou disso sai aqui mesmo, pelo índice de `last_at`.
+create or replace function record_access(
+  p_profile uuid,
+  p_work text,
+  p_screen text,
+  p_field boolean,
+  p_device text,
+  p_seconds integer,
+  p_at timestamptz default now()
+) returns void
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_day date := (p_at at time zone 'America/Sao_Paulo')::date;
+  v_session access_sessions%rowtype;
+  v_seconds integer := least(greatest(coalesce(p_seconds, 0), 0), 300);
+begin
+  if v_seconds = 0 then
+    return;
+  end if;
+  perform pg_advisory_xact_lock(hashtext('access_usage:' || p_profile::text));
+  select * into v_session from access_sessions where profile_id = p_profile order by last_at desc limit 1;
+  if not found or v_session.last_at < p_at - interval '30 minutes' then
+    v_seconds := least(v_seconds, 120);
+    insert into access_sessions (profile_id, started_at, last_at, seconds)
+    values (p_profile, p_at - make_interval(secs => v_seconds), p_at, 0)
+    returning * into v_session;
+  else
+    v_seconds := least(v_seconds, greatest(0, ceil(extract(epoch from (p_at - v_session.last_at)))::integer + 2));
+  end if;
+  insert into access_usage (session_id, profile_id, day, work_id, screen, field, device, seconds, first_at, last_at)
+  values (v_session.id, p_profile, v_day, nullif(p_work, ''), p_screen, coalesce(p_field, false), p_device, v_seconds, p_at, p_at)
+  on conflict (session_id, day, coalesce(work_id, ''), screen, field, device)
+  do update set seconds = access_usage.seconds + excluded.seconds, last_at = greatest(access_usage.last_at, excluded.last_at);
+  update access_sessions
+  set last_at = greatest(last_at, p_at), seconds = seconds + v_seconds
+  where id = v_session.id;
+  delete from access_sessions where last_at < p_at - interval '13 months';
+end;
+$$;
+
+-- A leitura da aba numa ida só (um valor jsonb, sem o limite de linhas da API): o uso do período, as sessões que
+-- esse uso toca, o último registro de cada pessoa (de qualquer data, para "Último acesso") e o primeiro dia guardado
+-- ("medindo desde"). Linhas como listas, para a resposta sair menor que objetos com nomes repetidos.
+create or replace function access_report(p_from date, p_to date)
+returns jsonb
+language sql
+stable
+set search_path = public
+as $$
+  with u as (
+    select * from access_usage where day between p_from and p_to and seconds > 0
+  )
+  select jsonb_build_object(
+    'usage', coalesce((
+      select jsonb_agg(jsonb_build_array(session_id, profile_id, day, work_id, screen, field, device, seconds, last_at))
+      from u
+    ), '[]'::jsonb),
+    'sessions', coalesce((
+      select jsonb_agg(jsonb_build_array(s.id, s.profile_id, s.started_at, s.last_at, s.seconds))
+      from access_sessions s
+      where s.id in (select session_id from u)
+    ), '[]'::jsonb),
+    'last', coalesce((
+      select jsonb_agg(jsonb_build_array(l.profile_id, l.last_at, l.work_id, l.screen, l.field, l.device))
+      from (
+        select distinct on (profile_id) profile_id, last_at, work_id, screen, field, device
+        from access_usage
+        where seconds > 0
+        order by profile_id, last_at desc
+      ) l
+    ), '[]'::jsonb),
+    'since', (select min(day) from access_usage)
+  );
+$$;
+
+-- Mesmo contrato das demais tabelas: RLS ligada sem política e acesso só pelo servidor. Grant explícito, porque no
+-- takt-hub a exposição automática de tabelas novas está desligada; as funções saem do `public` (que as recebe por
+-- padrão) e ficam só com a chave de serviço.
+alter table access_sessions enable row level security;
+alter table access_usage enable row level security;
+grant select, insert, update, delete on access_sessions, access_usage to service_role;
+revoke all on function record_access(uuid, text, text, boolean, text, integer, timestamptz) from public, anon, authenticated;
+grant execute on function record_access(uuid, text, text, boolean, text, integer, timestamptz) to service_role;
+revoke all on function access_report(date, date) from public, anon, authenticated;
+grant execute on function access_report(date, date) to service_role;
+
+comment on table access_sessions is 'Entradas no Obra 360 (0051): sessão nova depois de 30 min sem uso. Gravada só por record_access.';
+comment on table access_usage is 'Tempo ativo por sessão, dia, obra, tela e aparelho (0051). Gravado só por record_access; guarda de 13 meses.';
+
+notify pgrst, 'reload schema';
+
+-- ===== 0052_checklist_equipment_models.sql =====
+
+-- Aba 3.2, Checklist de equipamentos (16/11/2026): escolher, equipamento por equipamento, os checklists que
+-- o QR mostra. Pedido da equipe de SST: "incluir e desativar os checklists que estão vinculados no QR code".
+-- O equipamento continua recebendo sozinho os modelos ativos do tipo dele; estas duas listas guardam só a
+-- exceção. `hidden_model_ids`: modelos do tipo que o admin tirou deste equipamento. `extra_model_ids`:
+-- modelos de outro tipo que o admin incluiu nele. Vazias = o comportamento de antes (só o tipo).
+-- Só acrescenta colunas: não reescreve commit_planning e pode ser rodada de novo. Sem ela a aba segue igual,
+-- e só a gravação da escolha responde "aplique a migração 0052".
+alter table checklist_equipment add column if not exists extra_model_ids text[] not null default '{}';
+alter table checklist_equipment add column if not exists hidden_model_ids text[] not null default '{}';
+
+notify pgrst, 'reload schema';
+
+-- ===== 0053_checklist_location_release.sql =====
+
+-- Aba 3.2, Checklist de equipamentos (17/11/2026): dois pedidos da equipe de SST.
+--
+-- 1. "Incluir opção de colocar o número do equipamento ou pavimento no checklist." O modelo passa a poder
+--    pedir o local a quem preenche (`checklist_models.asks_location`), e a inspeção guarda o que foi escrito
+--    (`checklist_runs.location`). Com local, o mesmo checklist é preenchido mais de uma vez no período, uma
+--    por local ("Rede U, piso a piso": um por pavimento). Por isso a unicidade deixa de ser
+--    (equipamento, modelo, dia) e passa a ser (equipamento, modelo, dia, local); sem local (''), vale o
+--    mesmo de antes. A aplicação compara o local sem acento e sem maiúsculas antes de gravar.
+--
+-- 2. "Incluir opção de liberação de equipamento no campo de Periodicidade [...] que seja feito uma única
+--    vez." A periodicidade ganha o valor 'once' (Liberação), no modelo e na inspeção.
+--
+-- Só acrescenta colunas e alarga duas regras: nenhuma linha existente muda (location = '' e
+-- asks_location = false). Não reescreve commit_planning e pode ser rodada de novo. Sem ela a aba segue
+-- igual, e só a gravação que usa o local ou a liberação responde "aplique a migração 0053".
+
+alter table checklist_models add column if not exists asks_location boolean not null default false;
+alter table checklist_runs add column if not exists location text not null default '';
+
+alter table checklist_models drop constraint if exists checklist_models_frequency_check;
+alter table checklist_models add constraint checklist_models_frequency_check
+  check (frequency in ('daily', 'weekly', 'monthly', 'once'));
+alter table checklist_runs drop constraint if exists checklist_runs_frequency_check;
+alter table checklist_runs add constraint checklist_runs_frequency_check
+  check (frequency in ('daily', 'weekly', 'monthly', 'once'));
+
+-- A unicidade nova entra antes de a antiga sair: em nenhum momento a tabela fica sem a regra.
+create unique index if not exists checklist_runs_spot_day_idx on checklist_runs (equipment_id, model_id, done_on, location);
+alter table checklist_runs drop constraint if exists checklist_runs_equipment_id_model_id_done_on_key;
+
+notify pgrst, 'reload schema';
+
+-- ===== 0054_checklist_company_repeat.sql =====
+
+-- Aba 3.2, Checklist de equipamentos (20/11/2026): dois pedidos da equipe de SST.
+--
+-- 1. "Incluir no checklist além do nome do colaborador o nome da empresa que o mesmo trabalha." A inspeção
+--    guarda a empresa do operador (`checklist_runs.operator_company`), ao lado do nome. Pelo QR é
+--    obrigatória; na tela logada, opcional.
+--
+-- 2. "Permitir o preenchimento duplicado do mesmo equipamento, pois acontece do equipamento ser usado por
+--    mais de uma pessoa no dia." A unicidade (equipamento, modelo, dia, local) sai: o mesmo checklist aceita
+--    mais de uma inspeção no dia. No lugar dela fica um índice comum, para as mesmas buscas. A liberação
+--    (periodicidade 'once') segue única, pela regra da aplicação.
+--
+-- Só acrescenta uma coluna e afrouxa uma regra: nenhuma linha existente muda (operator_company = ''). Não
+-- reescreve commit_planning e pode ser rodada de novo. Sem ela, o checklist pelo QR responde "ainda não está
+-- disponível" (a empresa é obrigatória ali) e a segunda inspeção do dia é recusada.
+
+alter table checklist_runs add column if not exists operator_company text not null default '';
+
+create index if not exists checklist_runs_spot_idx on checklist_runs (equipment_id, model_id, done_on);
+drop index if exists checklist_runs_spot_day_idx;
+-- Banco que nunca recebeu a 0053 ainda tem a unicidade original da 0047.
+alter table checklist_runs drop constraint if exists checklist_runs_equipment_id_model_id_done_on_key;
+
+notify pgrst, 'reload schema';
+
+-- ===== 0055_portal_sso_uso_unico.sql =====
+
+-- Entrada pelo Portal Inteligência da ATR (login único): o token do Portal vale UMA vez.
+--
+-- O token chega na barra de endereço (/portal-login?token=...), então pode sobrar no histórico. Sem esta
+-- marca, quem o achasse dentro dos 5 minutos de validade entraria de novo. Mesmo desenho dos outros
+-- sistemas da ATR (função `consumir_token_sso` do pacote padrão), com nome próprio, porque este projeto
+-- do Supabase é dividido com o Takt Hub e outros sistemas: nada aqui pode colidir com o que é deles.
+--
+-- Guarda o SHA-256 da chave de uso único calculada pelo kit (emissor + app + id do token), nunca o token.
+-- Sem policy DE PROPÓSITO: só o servidor do Obra 360 (chave de serviço) chama a função. RLS ligada +
+-- nenhuma policy = negado para anon e authenticated.
+
+create table if not exists public.obra360_sso_token_usado (
+  token_hash text primary key,
+  usado_em   timestamptz not null default now(),
+  expira_em  timestamptz not null
+);
+
+comment on table public.obra360_sso_token_usado is
+  'Obra 360: tokens do Portal Inteligência já trocados por sessão (SHA-256). Impede reuso dentro da '
+  'validade. [rls-sem-policy-proposital] Quem escreve é public.obra360_consumir_token_sso, com service_role.';
+
+alter table public.obra360_sso_token_usado enable row level security;
+revoke all on table public.obra360_sso_token_usado from anon, authenticated;
+
+create index if not exists obra360_sso_token_usado_expira on public.obra360_sso_token_usado (expira_em);
+
+-- TRUE na primeira vez, FALSE em qualquer repetição. A atomicidade vem do `on conflict do nothing` na
+-- chave primária: duas chamadas simultâneas com o mesmo token não recebem TRUE as duas.
+create or replace function public.obra360_consumir_token_sso(p_token_hash text, p_expira_em timestamptz)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if p_token_hash is null or pg_catalog.length(p_token_hash) = 0 then
+    return false;
+  end if;
+
+  -- Limpeza oportunista: a janela é de 5 minutos, a tabela fica com algumas dezenas de linhas.
+  delete from public.obra360_sso_token_usado where expira_em < pg_catalog.now() - interval '1 hour';
+
+  insert into public.obra360_sso_token_usado (token_hash, expira_em)
+  values (p_token_hash, p_expira_em)
+  on conflict (token_hash) do nothing;
+
+  return found;
+end $$;
+
+revoke all on function public.obra360_consumir_token_sso(text, timestamptz) from public;
+revoke all on function public.obra360_consumir_token_sso(text, timestamptz) from anon, authenticated;
+grant execute on function public.obra360_consumir_token_sso(text, timestamptz) to service_role;
+
+-- ===== 0056_lob_calendar.sql =====
+
+-- Aba 1, calendário de dias úteis da Linha de Balanço, POR OBRA (23/11/2026, retorno de quem vem do
+-- Prevision): os dias da semana trabalhados e os dias sem trabalho (feriados e recessos). Uma linha
+-- por obra, gravada só quando alguém configura o calendário. Obra SEM linha usa o padrão, segunda a
+-- sexta sem feriados, que era a regra fixa do sistema: aplicar esta migração não muda nenhuma data
+-- de nenhuma obra. As durações dos blocos (lob_activities.duration_days) continuam em dias úteis e
+-- não são convertidas.
+--
+-- Fica FORA do snapshot e do commit_planning, como as tabelas da 0038 e da 0044: a ausência desta
+-- tabela derruba só a gravação do calendário (a leitura segue com o padrão). Não reescreve
+-- commit_planning e pode ser rodada de novo.
+--
+-- Exclusão de obra: `on delete cascade` a partir de works, então o delete_work da 0037 (que apaga a
+-- obra no fim) leva o calendário junto, sem reescrever aquela função.
+create table if not exists lob_calendars (
+  work_id text primary key references works(id) on delete cascade,
+  -- Dias da semana trabalhados: 0 = domingo … 6 = sábado. Ao menos um.
+  weekdays smallint[] not null default '{1,2,3,4,5}'::smallint[]
+    check (cardinality(weekdays) between 1 and 7 and weekdays <@ '{0,1,2,3,4,5,6}'::smallint[]),
+  -- Dias sem trabalho (feriados e recessos). O teto é o mesmo da aplicação.
+  holidays date[] not null default '{}'::date[] check (cardinality(holidays) <= 1500),
+  updated_by text not null,
+  updated_at timestamptz not null default now()
+);
+
+-- Mesmo contrato das demais tabelas: RLS ligada sem política e acesso só pelo servidor. O grant é
+-- explícito porque no projeto takt-hub a exposição automática de tabelas novas está desligada.
+alter table lob_calendars enable row level security;
+grant select, insert, update, delete on lob_calendars to service_role;
+
+notify pgrst, 'reload schema';
+
+-- ===== 0057_sienge_link.sql =====
+
+-- Ligação da obra com o empreendimento do Sienge (23/11/2026): o código do empreendimento de onde a
+-- visão Custos da Linha de Balanço busca o orçamento ("Buscar do Sienge"). Fica em work_settings, fora
+-- do snapshot, como a semana 1 e o local. Pode ser rodada de novo; não reescreve commit_planning. Sem
+-- ela, a seção "Orçamento do Sienge" das Configurações da obra avisa e a busca fica indisponível.
+alter table work_settings
+  add column if not exists sienge_building_id integer check (sienge_building_id is null or sienge_building_id > 0);
+
+-- A coluna nova só aparece na API depois que o PostgREST relê o esquema.
+notify pgrst, 'reload schema';
+
+-- ===== 0058_admin_all_works.sql =====
+
+-- Administrador vê todas as obras (24/11/2026). Até aqui a obra liberada era por pessoa também para o
+-- admin: quem cadastrava a obra era o único a enxergá-la, e outro admin que tentasse cadastrar a mesma
+-- obra recebia "Código de obra já utilizado." sem vê-la na lista (caso da Bioma, BIO).
+--
+-- A regra fica no banco, em `profiles.work_ids`, porque todo o sistema lê o acesso dali (rotas, recorte
+-- do snapshot, telas): o perfil de papel `admin` sempre contém todas as obras, por qualquer caminho de
+-- gravação (commit_planning, convite, primeiro login, SQL). Pode ser rodada de novo; não reescreve
+-- commit_planning nem delete_work.
+
+-- 1. Perfil admin gravado (novo, promovido ou com work_ids alterado) recebe as obras que faltam. A ordem
+--    que já estava é mantida. A obra em exclusão (`obra360.deleting_work`, posta por delete_work antes de
+--    tirá-la dos perfis) fica de fora, senão voltaria para a lista com a linha de `works` ainda existindo.
+create or replace function admin_profile_all_works() returns trigger language plpgsql as $$
+begin
+  if new.role = 'admin' then
+    new.work_ids := coalesce(new.work_ids, '{}') || array(
+      select w.id from works w
+      where not (w.id = any(coalesce(new.work_ids, '{}')))
+        and w.id is distinct from nullif(current_setting('obra360.deleting_work', true), '')
+      order by w.created_at, w.id
+    );
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists admin_profile_all_works on profiles;
+create trigger admin_profile_all_works
+  before insert or update on profiles
+  for each row execute function admin_profile_all_works();
+
+-- 2. Obra nova entra no perfil de todos os administradores, não só no de quem cadastrou.
+create or replace function admin_profiles_receive_work() returns trigger language plpgsql as $$
+begin
+  update profiles set work_ids = array_append(work_ids, new.id)
+  where role = 'admin' and not (new.id = any(work_ids));
+  return new;
+end $$;
+
+drop trigger if exists admin_profiles_receive_work on works;
+create trigger admin_profiles_receive_work
+  after insert on works
+  for each row execute function admin_profiles_receive_work();
+
+-- 3. Acerto dos administradores que já existem: a gravação passa pelo gatilho do item 1.
+update profiles set work_ids = work_ids where role = 'admin';
+
+-- ===== 0059_daily_report.sql =====
+
+-- Diário de Obra (2.4), 24/11/2026: o diário do dia é preenchido no Obra 360 e enviado ao Sienge pela API
+-- `construction-daily-report`, só quando a pessoa clica em "Enviar". Fica FORA do snapshot e do
+-- commit_planning, como o histograma (0045) e a terminalidade (0028): a ausência destas tabelas derruba só
+-- o módulo do diário. Não reescreve commit_planning e pode ser rodada de novo.
+
+-- Um diário por obra e dia (a unicidade abaixo). A mão de obra NÃO fica aqui: é o histograma do dia
+-- (`headcount_entries`), que o diário lê e grava. Jornada/clima (`shifts`), atividades, ocorrências e
+-- equipamentos vão em jsonb porque só existem dentro do diário e são gravados sempre juntos, com a versão.
+-- `version` sobe a cada gravação: a aplicação atualiza com `where version = <lida>` e recusa a gravação de
+-- quem leu uma versão antiga. `status = 'sent'` trava o diário; `sienge_building_id` e `sienge_id` guardam
+-- o empreendimento e o número do diário no Sienge na hora do envio (a ligação da obra pode mudar depois, e
+-- a exclusão no Sienge precisa do par usado no envio). `last_error` é a última recusa do Sienge, já no
+-- texto que a tela mostra. Excluir a obra leva os diários junto (delete_work apaga a linha de works).
+create table if not exists daily_reports (
+  id text primary key,
+  work_id text not null references works(id) on delete cascade,
+  report_date date not null,
+  status text not null default 'draft' check (status in ('draft', 'sent')),
+  shifts jsonb not null default '[]'::jsonb,
+  rainfall numeric(6,2) check (rainfall is null or (rainfall >= 0 and rainfall < 9999.99)),
+  notes text not null default '',
+  tasks jsonb not null default '[]'::jsonb,
+  events jsonb not null default '[]'::jsonb,
+  equipments jsonb not null default '[]'::jsonb,
+  sienge_building_id integer,
+  sienge_id integer,
+  sent_at timestamptz,
+  sent_by text,
+  last_error text not null default '',
+  version integer not null default 1 check (version >= 1),
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_by text not null,
+  updated_at timestamptz not null default now(),
+  unique (work_id, report_date)
+);
+
+-- Fotos no bucket privado `diario`: a imagem comprimida no navegador e uma miniatura, ambas JPEG, em
+-- `<obra>/<diário>/<foto>.jpg` e `<foto>-thumb.jpg`. Apagar o diário apaga as linhas (os arquivos, a
+-- aplicação remove). O local é o cadastro da obra (`lob_locals`); excluir o local só desliga a foto dele.
+-- `sienge_status` acompanha o envio foto a foto: o diário é criado no Sienge primeiro e cada foto sobe
+-- depois, como anexo, então uma foto pode falhar sozinha (`error`, com a mensagem) e ser reenviada.
+create table if not exists daily_report_photos (
+  id text primary key,
+  report_id text not null references daily_reports(id) on delete cascade,
+  work_id text not null references works(id) on delete cascade,
+  storage_path text not null,
+  thumb_path text not null,
+  description text not null default '',
+  local_id text references lob_locals(id) on delete set null,
+  show_in_reports boolean not null default true,
+  sienge_status text not null default 'pending' check (sienge_status in ('pending', 'sent', 'error')),
+  sienge_error text not null default '',
+  created_by text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists daily_report_photos_report_idx on daily_report_photos (report_id);
+
+-- Ligação empresa do histograma → tipo de equipe do Sienge. É GLOBAL (sem obra): a mesma empreiteira
+-- trabalha em várias obras e o tipo de equipe do Sienge é um cadastro da empresa inteira. A chave é o
+-- nome normalizado da empresa (`headcountKey`: sem acento, minúsculo), para "GGP " e "ggp" serem a mesma
+-- linha; `company` guarda a grafia para mostrar.
+create table if not exists sienge_crew_links (
+  company_key text primary key check (length(trim(company_key)) > 0),
+  company text not null,
+  crew_type_id integer not null check (crew_type_id > 0),
+  updated_by text not null,
+  updated_at timestamptz not null default now()
+);
+
+-- Local da obra → código do local no Sienge (sem ele a foto não entra no Relatório Fotográfico de lá).
+-- A coluna entra em `lob_locals` porque o cadastro de locais é um só para a obra inteira.
+alter table lob_locals add column if not exists sienge_site_id integer check (sienge_site_id is null or sienge_site_id > 0);
+
+-- Código de usuário do Sienge de cada pessoa: vai como responsável do diário. Vazio = ainda não informou.
+alter table profiles add column if not exists sienge_user_code text not null default '';
+
+-- Mesmo contrato das demais tabelas: RLS ligada sem política (navegador não lê nada) e acesso só pelo
+-- servidor. Grant explícito, porque no takt-hub a exposição automática de tabelas novas está desligada.
+alter table daily_reports enable row level security;
+alter table daily_report_photos enable row level security;
+alter table sienge_crew_links enable row level security;
+grant select, insert, update, delete on daily_reports, daily_report_photos, sienge_crew_links to service_role;
+
+-- Bucket privado das fotos do diário, com os mesmos limites da terminalidade (JPEG até 2 MB): o próprio
+-- Storage recusa o resto, porque a URL assinada de envio aceitaria qualquer arquivo. O bloco só age onde
+-- as colunas de limite existem (o Supabase real), para a validação local em PGlite seguir rodando.
+insert into storage.buckets (id, name, public) values ('diario', 'diario', false) on conflict (id) do nothing;
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'storage' and table_name = 'buckets' and column_name = 'allowed_mime_types') then
+    execute $q$update storage.buckets set file_size_limit = 2097152, allowed_mime_types = array['image/jpeg'] where id = 'diario'$q$;
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
 

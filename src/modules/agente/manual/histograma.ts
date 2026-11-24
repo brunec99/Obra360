@@ -40,6 +40,7 @@ export const sections: ManualSection[] = [
 
 - O módulo é liberado por pessoa, por um administrador (Configurações → Usuários → Módulos).
 - Quem tem o módulo e a obra **lança, edita e exclui**. O papel **consulta** só visualiza.
+- Desde 24/11/2026 a **mão de obra do Diário de Obra (aba 2.4)** são estas mesmas linhas: o que se lança no diário aparece aqui, e o que se lança aqui já vem no diário do dia. É um lançamento só.
 
 ### O que a tela mostra
 

@@ -15,6 +15,7 @@ import { sections as seguranca } from './seguranca';
 import { sections as histograma } from './histograma';
 import { sections as checklist } from './checklist';
 import { sections as produtividade } from './produtividade';
+import { sections as diario } from './diario';
 import { sections as apoioBim } from './apoio-bim';
 import { sections as agente } from './agente';
 
@@ -40,6 +41,7 @@ export const MANUAL_SECTIONS: readonly ManualSection[] = [
   ...seguranca,
   ...histograma,
   ...produtividade,
+  ...diario,
   ...checklist,
   ...apoioBim,
   ...agente,
@@ -61,6 +63,8 @@ export const SCREEN_LABEL: Readonly<Record<string, string>> = {
   terminalidade: 'Aba 2.1 · Terminalidade',
   histograma: 'Aba 2.2 · Histograma de mão de obra',
   produtividade: 'Aba 2.3 · Controle de produtividade',
+  // 24/11/2026: o diário do dia, enviado ao Sienge por botão.
+  diario: 'Aba 2.4 · Diário de Obra',
   seguranca: 'Aba 3.1 · Segurança do trabalho (Vistoria de segurança)',
   checklist: 'Aba 3.2 · Checklist de equipamentos',
   federacao: 'Apoio · Modelo federado',
@@ -206,6 +210,8 @@ const SCREEN_NAMES: Readonly<Record<string, readonly string[]>> = {
   seguranca: ['seguranca do trabalho', 'aba 3.1', 'tst', 'vistoria de seguranca'],
   histograma: ['histograma', 'aba 2.2', 'efetivo', 'mao de obra'],
   produtividade: ['controle de produtividade', 'produtividade', 'aba 2.3', 'controle da producao'],
+  // Só o nome inteiro: "diario" sozinho casaria com "efetivo diario" e "checklist diario".
+  diario: ['diario de obra', 'aba 2.4'],
   checklist: ['checklist de equipamentos', 'checklist', 'aba 3.2', 'inspecao de equipamento'],
   federacao: ['modelo federado', 'federacao', 'federado'],
   ifc: ['arquivos ifc', 'ifc'],

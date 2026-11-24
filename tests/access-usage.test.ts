@@ -34,6 +34,9 @@ test('o endereço diz a tela e a obra; impressão e rotas desconhecidas não con
   assert.deepEqual(screenOfPath('/obras/w-1/configuracoes'), { screen: 'configuracoes', workId: 'w-1', field: false });
   assert.deepEqual(screenOfPath('/campo/seguranca', 'w-2'), { screen: 'seguranca', workId: 'w-2', field: true });
   assert.deepEqual(screenOfPath('/campo/terminalidade'), { screen: 'terminalidade', workId: null, field: true });
+  // 24/11/2026: Diário de Obra (2.4), com modo de campo.
+  assert.deepEqual(screenOfPath('/obras/w-1/diario'), { screen: 'diario', workId: 'w-1', field: false });
+  assert.deepEqual(screenOfPath('/campo/diario', 'w-2'), { screen: 'diario', workId: 'w-2', field: true });
   assert.deepEqual(screenOfPath('/campo/seguranca', 'x y'), { screen: 'seguranca', workId: null, field: true });
   for (const path of [
     '/',

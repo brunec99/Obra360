@@ -16,7 +16,8 @@ export const RESTRICTED_MODULE_MESSAGE = 'Módulo não liberado para você. Peç
 /** Seções da obra liberadas por pessoa. Ficam abertas `dashboard` e `configuracoes`. `restricoes` (o Kanban, antes
  * dentro de `vagoes`), `seguranca` e `checklist` entraram em 12/11/2026, a pedido do usuário. Curto prazo e
  * terminalidade entraram aqui em 08/11/2026, a pedido do usuário; quem já os usava foi mantido (migração 0042).
- * O histograma (aba 7) e o controle de produtividade (aba 8) nasceram aqui em 11/11/2026. */
+ * O histograma (aba 7) e o controle de produtividade (aba 8) nasceram aqui em 11/11/2026, e o Diário de Obra
+ * (2.4), em 24/11/2026. */
 export const RESTRICTED_SECTIONS = [
   'longo-prazo',
   'vagoes',
@@ -26,6 +27,7 @@ export const RESTRICTED_SECTIONS = [
   'terminalidade',
   'histograma',
   'produtividade',
+  'diario',
   'seguranca',
   'checklist',
   'federacao',
@@ -47,6 +49,8 @@ export const RESTRICTED_API_PREFIXES = [
   '/api/terminalidade',
   '/api/histograma',
   '/api/produtividade',
+  // 24/11/2026. O modo de campo (`/campo/diario`, fora do proxy) lê e grava por estas mesmas rotas.
+  '/api/diario',
   // 12/11/2026. `/api/seguranca/campo` (modo de campo, fora do proxy) e `/api/checklist/arquivos` vão junto.
   // O link do operador do checklist fica em `/api/publico/`, fora do proxy, e não depende de módulo.
   '/api/seguranca',
@@ -112,6 +116,9 @@ export const MODULES: readonly ModuleInfo[] = [
   { section: 'histograma', label: 'Histograma', hint: 'Efetivo diário por empresa e função', group: 'Planejamento' },
   // 11/11/2026: aba 8, liberada por pessoa; quem tem o módulo lança, o papel consulta só visualiza.
   { section: 'produtividade', label: 'Produtividade', hint: 'Serviço, equipe e produção por homem-dia', group: 'Planejamento' },
+  // 24/11/2026: aba 2.4, liberada por pessoa; quem tem o módulo preenche e envia ao Sienge, o papel consulta só
+  // visualiza, e só o admin exclui do Sienge e reabre.
+  { section: 'diario', label: 'Diário de Obra', hint: 'Diário do dia, com fotos e envio ao Sienge', group: 'Planejamento' },
   // Liberado por pessoa desde 12/11/2026; TST e admins registram, o cadastro é do admin. O QR do operador não passa por aqui.
   { section: 'checklist', label: 'Checklist de equipamentos', hint: 'Inspeção diária, semanal e mensal', group: 'Planejamento' },
   { section: 'federacao', label: 'Modelo federado', hint: 'Modelos IFC combinados', group: 'Apoio' },
@@ -138,6 +145,7 @@ const SECTION_APIS: Record<string, readonly string[]> = {
   terminalidade: ['/api/terminalidade'],
   histograma: ['/api/histograma'],
   produtividade: ['/api/produtividade'],
+  diario: ['/api/diario'],
   seguranca: ['/api/seguranca'],
   checklist: ['/api/checklist'],
   federacao: ['/api/ifc'],

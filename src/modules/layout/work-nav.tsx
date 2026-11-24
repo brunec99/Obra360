@@ -91,6 +91,15 @@ export const WORK_TABS = [
     label: 'Controle de produtividade',
     hint: 'Serviço · Equipe · Produção por homem-dia',
   },
+  // 24/11/2026: o diário do dia, preenchido aqui e enviado ao Sienge por botão. Liberado por pessoa.
+  {
+    section: 'diario',
+    group: 'controles',
+    number: '2.4',
+    short: 'Diário',
+    label: 'Diário de Obra',
+    hint: 'Clima · Atividades · Envio ao Sienge',
+  },
   // Liberadas por pessoa desde 12/11/2026 (antes, abertas a todos para consulta); TST e admin gravam.
   {
     section: 'seguranca',

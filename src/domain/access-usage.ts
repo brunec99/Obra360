@@ -41,6 +41,7 @@ export const ACCESS_SCREENS: readonly AccessScreen[] = [
   { key: 'terminalidade', number: '2.1', label: 'Terminalidade', group: 'ctrl' },
   { key: 'histograma', number: '2.2', label: 'Histograma', group: 'ctrl' },
   { key: 'produtividade', number: '2.3', label: 'Produtividade', group: 'ctrl' },
+  { key: 'diario', number: '2.4', label: 'Diário de Obra', group: 'ctrl' },
   { key: 'seguranca', number: '3.1', label: 'Vistoria de segurança', group: 'sst' },
   { key: 'checklist', number: '3.2', label: 'Checklist de equipamentos', group: 'sst' },
   { key: 'federacao', label: 'Modelo federado', group: 'adm' },
@@ -63,7 +64,7 @@ export const screenLabel = (key: string): string => {
 /** Ordem do menu, para desempatar e para a lista de módulos sem uso. */
 export const screenOrder = (key: string): number => SCREEN_ORDER.get(key) ?? ACCESS_SCREENS.length;
 /** Telas com modo de campo no celular (`/campo/…`). */
-export const FIELD_SCREENS = new Set(['seguranca', 'terminalidade']);
+export const FIELD_SCREENS = new Set(['seguranca', 'terminalidade', 'diario']);
 
 /** Regra 8: computador ou celular/tablet, pelo navegador. */
 export type AccessDevice = 'desktop' | 'mobile';
@@ -77,7 +78,7 @@ export interface AccessTarget {
   screen: string;
   /** A obra da tela; `null` nas telas fora das obras e no modo de campo sem `?obra=`. */
   workId: string | null;
-  /** Modo de campo (`/campo/seguranca`, `/campo/terminalidade`). */
+  /** Modo de campo (`/campo/seguranca`, `/campo/terminalidade`, `/campo/diario`). */
   field: boolean;
 }
 const WORK_SCREENS = new Set(ACCESS_SCREENS.filter(screen => !screen.outside).map(screen => screen.key));

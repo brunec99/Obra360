@@ -6,6 +6,7 @@ import { steps as configuracoes } from './pages/configuracoes';
 import { steps as curtoPrazo } from './pages/curto-prazo';
 import { steps as dashboard } from './pages/dashboard';
 import { steps as dashboardGeral } from './pages/dashboard-geral';
+import { steps as diario } from './pages/diario';
 import { steps as dividas } from './pages/dividas';
 import { steps as federacao } from './pages/federacao';
 import { steps as ifc } from './pages/ifc';
@@ -46,6 +47,7 @@ export type TourKey =
   | 'seguranca'
   | 'histograma'
   | 'produtividade'
+  | 'diario'
   | 'checklist'
   | 'planejamento'
   | 'restricoes'
@@ -87,6 +89,7 @@ const pages: Record<TourKey, TourStep[]> = {
   seguranca,
   histograma,
   produtividade,
+  diario,
   checklist,
   planejamento,
   restricoes,
@@ -118,6 +121,9 @@ export function resolveTourKey(pathname: string): TourKey | null {
   if (/^\/obras\/[^/]+\/seguranca$/.test(pathname)) return 'seguranca';
   if (/^\/obras\/[^/]+\/histograma$/.test(pathname)) return 'histograma';
   if (/^\/obras\/[^/]+\/produtividade$/.test(pathname)) return 'produtividade';
+  // 24/11/2026: Diário de Obra (2.4). O modo de campo (`/campo/diario`) é a mesma tela e tem os mesmos alvos.
+  if (/^\/obras\/[^/]+\/diario$/.test(pathname)) return 'diario';
+  if (/^\/campo\/diario\/?$/.test(pathname)) return 'diario';
   if (/^\/obras\/[^/]+\/checklist$/.test(pathname)) return 'checklist';
   if (/^\/obras\/[^/]+\/vagoes$/.test(pathname)) return 'planejamento';
   if (/^\/obras\/[^/]+\/restricoes$/.test(pathname)) return 'restricoes';
