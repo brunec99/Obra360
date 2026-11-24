@@ -442,6 +442,25 @@ Com mais de três obras o detalhe não sai: ele empurraria o comparativo de toda
 
 **Continua em aberto do levantamento:** lista de cards do Quadro de Restrições, efetivo por dia e por função, itens e tratativa das inspeções do checklist, tarefas do Gantt de legalização, os vários cronogramas do mês no médio prazo e a aba Acessos.
 
+## Restrições pelo chat (24/11/2026)
+
+Pedido do usuário: "quero que a Claudia consiga cadastrar restrições com base no chat direto do curto, médio ou longo prazo. Ela deve, antes de cadastrar, consultar se existe algo, para evitar duplicadas."
+
+**Comportamento entregue.** Na conversa da Claudia (gaveta da obra e janela geral do admin), em qualquer tela, a pessoa relata o que trava um serviço e pede a restrição. A Claudia consulta o Quadro de Restrições (aba 1.4), responde "já existe" quando há card em aberto do mesmo assunto, e só então monta uma proposta com o chip "Restrição". O clique em "Aplicar" cria os cards em "A fazer".
+
+- **Ferramentas novas** (`src/application/use-cases/agent-restriction-tools.ts`): `listar_restricoes` (cards em aberto ou todos, com `busca` por assunto; apelidos `r:…`) e `propor_restricoes` (até 20 itens: título, descrição, tarefa do plano do mês `t:…` ou serviço da Linha de Balanço pelo nome, entrega, tempo de execução, responsável). Entram na Claudia da obra e, com `obra`, na Claudia geral.
+- **Duplicadas, em duas camadas.** O prompt manda chamar `listar_restricoes` antes de propor. E a própria `propor_restricoes` confere de novo, sem depender do modelo: título igual ao de um card em aberto (sem acento, caixa e artigos) fica sempre de fora; título parecido (`titleSimilarity` ≥ 0,6: radicais em comum, com número diferente contando como outro lugar) só entra com `criar_mesmo_parecida`, que o prompt reserva para depois de a pessoa confirmar; mesma tarefa ou serviço de origem com título próximo também conta como parecido; itens repetidos na mesma proposta são barrados. Card concluído ou cancelado não bloqueia.
+- **Ela continua sem gravar.** A proposta leva `pendingCommands` (comandos `create_card` do quadro) e `commands` vazio. A tela manda cada um a `POST /api/pendencias/commands`, a mesma rota do botão "Nova restrição": módulo liberado, responsável com acesso à obra, origem existente, entrega recalculada da origem, linha "criou a pendência" e e-mail ao responsável. Não há "Desfazer": o card se exclui no quadro.
+- **Ligação.** Tarefa do plano vivo mais recente do mês (não aceita tarefa-resumo) ou serviço da Linha de Balanço com bloco lançado: a entrega é a véspera útil do início. Sem ligação, a restrição é avulsa e exige a data; se a pessoa não disser, a Claudia pergunta. Responsável padrão: quem pediu. Tempo de execução padrão: 0.
+- **Acesso.** O quadro é lido só quando uma das duas ferramentas é chamada (`src/infrastructure/agent/restrictions.ts`), e só para quem tem o módulo `restricoes`; sem ele, a ferramenta responde que o quadro não está liberado. Perfil de consulta também aplica esta proposta, como no quadro (regra 1 da lista de pendência).
+- **Tela.** `ProposalCardView` ganhou o chip "Restrição"; `runProposalStep` grava os passos da proposta (planejamento e quadro); aplicar dispara `obra360:restricoes-mudaram`, e a tela do quadro, se aberta, relê.
+
+**Decisões.** Sem tipo de origem novo: restrição vinda do curto prazo nasce avulsa, com a linha da semana citada na descrição (o quadro só liga a médio e longo prazo, e mudar isso pediria migração). A Claudia só cria; mover, editar, comentar e concluir ficam no quadro. Sem migração.
+
+**Validação (24/11/2026).** `tests/agent-restriction-tools.test.ts` (12 testes: listagem, busca, acesso, avulsa, ligada, duplicada igual e parecida, confirmação, repetição na proposta, responsável ambíguo, limite, e o comando passando pelo `planPendingCommand` real). Sequência do CI verde. Teste real com o modelo (`node --import tsx scripts/agent-smoke.ts --apenas restricao`, Sonnet 5.5, quadro de mentira): na restrição repetida ela chamou `listar_restricoes`, mostrou o card existente e não propôs; na nova, chamou `listar_restricoes` e depois `propor_restricoes`, com o comando correto. Custo: US$ 0,02 a 0,05 por pergunta.
+
+**Não verificado.** O clique em "Aplicar" no navegador com o banco real (a gravação usa a rota do quadro, já em produção, mas o caminho da tela não foi exercitado logado) e o e-mail ao responsável a partir de uma proposta.
+
 ## Próximas etapas
 
 - **Ferramentas de detalhe dos controles** (levantamento de 23/11/2026): ferramentas próprias para a lista de cards do Quadro de Restrições, o histograma por dia e por função, as inspeções do checklist e as tarefas da legalização; `listar_tarefas_mes` com escolha do cronograma do mês; leitura da aba Acessos.

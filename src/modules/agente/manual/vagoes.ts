@@ -433,6 +433,10 @@ O **histórico de mudanças** aparece na própria conversa, como linhas do siste
 
 Um card pode ter várias checklists, cada uma com título e itens que se marcam como feitos. O card mostra quantos itens já foram marcados no total.
 
+## Criar pela Claudia
+
+Desde 24/11/2026 dá para pedir à Claudia, na conversa aberta em qualquer tela da obra (curto, médio ou longo prazo), que cadastre uma restrição: ela consulta o quadro antes, avisa se já existe card em aberto igual ou parecido (e não cria outro sem você confirmar que é outra restrição) e monta uma proposta com o botão "Aplicar". O card nasce em "A fazer", avulso ou ligado a uma tarefa do plano do mês ou a um serviço da Linha de Balanço, com o mesmo e-mail ao responsável. Ela só cria: mover, editar, comentar e concluir continuam aqui no quadro.
+
 ## Quem pode excluir
 
 Só quem criou o card ou um administrador exclui. Para tirar um card do caminho sem apagar a história, use "Cancelado", com o motivo.

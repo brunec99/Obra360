@@ -2,7 +2,7 @@
  * Teste de fumaça do agente de IA contra a API real da Anthropic (27/10/2026; dúvida de uso em 29/10/2026).
  *
  * Uso:
- *   node --import tsx scripts/agent-smoke.ts [--env-file .env.local] [--apenas leitura|pergunta|duvida|geral]
+ *   node --import tsx scripts/agent-smoke.ts [--env-file .env.local] [--apenas leitura|pergunta|duvida|geral|restricao]
  *                                            [--pergunta "texto"] [--duvida "texto"] [--tela curto-prazo]
  *                                            [--geral "texto"]
  *
@@ -38,7 +38,9 @@ async function main() {
   const envFile = option('--env-file', '.env.local');
   const only = option('--apenas', '');
   // O passo geral só roda quando pedido: é a Claudia dos admins e custa mais que os outros.
-  const runs = (step: 'leitura' | 'pergunta' | 'duvida' | 'geral') => (step === 'geral' ? only === 'geral' : !only || only === step);
+  // O passo das restrições (24/11/2026) também: são duas perguntas, uma que repete um card do quadro e uma nova.
+  const runs = (step: 'leitura' | 'pergunta' | 'duvida' | 'geral' | 'restricao') =>
+    step === 'geral' || step === 'restricao' ? only === step : !only || only === step;
   const globalQuestion = option(
     '--geral',
     'Compare o PPC das obras nas últimas 4 semanas. Na obra pior, o que do plano do mês está atrasado e quantas pendências de terminalidade estão abertas?',
@@ -103,7 +105,51 @@ async function main() {
     weekOne: WEEK_ONE,
     longTermPlan,
     newId: () => `prop-${++seq}`,
+    // Quadro de Restrições de mentira: um card em aberto sobre o projeto de fachada, para a pergunta repetida.
+    restrictions: async () => ({
+      ok: true,
+      value: {
+        cards: [
+          {
+            id: 'aaaa1111-0000',
+            workId: WORK,
+            title: 'Aprovar projeto de fachada com o cliente',
+            status: 'doing',
+            origin: 'manual',
+            dueDate: '2026-11-20',
+            leadTimeDays: 10,
+            responsibleId: 'u-ana',
+            orderIndex: 1,
+            createdBy: 'u-planner',
+            createdAt: '2026-10-01T12:00:00.000Z',
+            updatedAt: '2026-10-01T12:00:00.000Z',
+          },
+        ],
+        people: [
+          { id: 'u-planner', name: 'Paula Planejadora' },
+          { id: 'u-ana', name: 'Ana Souza' },
+        ],
+        tasks: [],
+        services: [],
+      },
+    }),
   };
+  if (runs('restricao')) {
+    const repeated = 'A fachada está parada porque o cliente ainda não aprovou o projeto. Cadastre uma restrição disso para 30/11.';
+    let started = Date.now();
+    const first = await answerQuestion({ briefing, config, question: repeated, history: [], toolContext, screen });
+    report('RESTRIÇÃO REPETIDA', started, first);
+    if (first.toolCalls[0] !== 'listar_restricoes') console.log('\nATENÇÃO: não consultou o quadro antes.');
+    if (first.proposals.length) console.log('\nATENÇÃO: propôs uma restrição que já existe no quadro.');
+    const fresh =
+      'O reboco do 5º não saiu por falta de argamassa. Cadastre uma restrição avulsa de compra de argamassa para 06/11/2026, comigo, com 3 dias úteis de execução.';
+    started = Date.now();
+    const second = await answerQuestion({ briefing, config, question: fresh, history: [], toolContext, screen });
+    report('RESTRIÇÃO NOVA', started, second);
+    if (second.toolCalls[0] !== 'listar_restricoes') console.log('\nATENÇÃO: não consultou o quadro antes.');
+    if (!second.proposals.some(p => p.kind === 'restricao')) console.log('\nATENÇÃO: não montou a proposta de restrição.');
+    for (const proposal of second.proposals) console.log('comandos do quadro:', JSON.stringify(proposal.pendingCommands));
+  }
   if (runs('pergunta')) {
     const started = Date.now();
     report('PERGUNTA', started, await answerQuestion({ briefing, config, question, history: [], toolContext, screen }));

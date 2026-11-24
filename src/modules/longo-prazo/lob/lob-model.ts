@@ -149,7 +149,7 @@ export function blendOnSurface(hex: string, alpha: number, surface: string = CHA
   return `#${mix(1)}${mix(3)}${mix(5)}`;
 }
 /** Mesma regra da Linha de Balanço dos vagões: texto escuro sobre as cores claras da paleta (amarelo,
- * verde-água, rosa), branco sobre as outras. `alpha` considera a parte ainda não medida do bloco,
+ * verde-água, rosa), branco sobre as outras. `alpha` considera a parte já medida do bloco,
  * desenhada a 42%: sobre ela quase toda cor fica clara e o texto precisa ser escuro. */
 export function inkOn(fill: string, alpha = 1) {
   const effective = alpha < 1 ? blendOnSurface(fill, alpha) : fill;

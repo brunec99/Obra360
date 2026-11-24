@@ -24,6 +24,7 @@ import { useToast } from '@/modules/layout/toast';
 import { formatDate, formatTimestamp } from '@/shared/format';
 import { DEVIATION_COLORS, deviationText } from './lob-model';
 import { PredecessorPicker } from './predecessor-picker';
+import { ServiceRestrictions, type ServiceRestrictionsState } from './service-restrictions';
 
 /** Painel "Atividade selecionada" (acima do gráfico desde 11/11/2026, a pedido do usuário; antes era lateral) da Linha de Balanço (modelo de 04/11/2026, tela 1): tudo o
  * que um bloco tem se edita aqui, campo a campo, e cada campo grava sozinho ao sair ou no Enter.
@@ -137,6 +138,8 @@ export function LobActivityPanel({
   onClose,
   onSelect,
   onCreatePending,
+  restrictions,
+  workId,
 }: {
   activity: LobActivity;
   data: LobData;
@@ -151,6 +154,10 @@ export function LobActivityPanel({
   /** "Criar pendência" do serviço deste bloco (Lista de pendência da aba 2). Ausente para quem não
    * abre a aba 2: aí o botão não aparece. */
   onCreatePending?: (serviceId: string) => void;
+  /** Cards do Quadro de Restrições ligados a serviços (24/11/2026). Ausente para quem não tem o quadro
+   * liberado: aí a lista não aparece. */
+  restrictions?: ServiceRestrictionsState;
+  workId: string;
 }) {
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -367,6 +374,16 @@ export function LobActivityPanel({
             </dd>
           </dl>
           <p className="mt-1 text-[11px] text-slate-400">Equipe e unidade valem para o serviço inteiro, em todos os locais.</p>
+          {restrictions && service && (
+            <ServiceRestrictions
+              state={restrictions}
+              serviceId={service.id}
+              serviceName={service.name}
+              workId={workId}
+              today={today}
+              titleClassName={sectionTitle}
+            />
+          )}
           {onCreatePending && service && (
             <button
               type="button"

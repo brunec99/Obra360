@@ -9,6 +9,8 @@ import { addDays, startOfWeek } from '../../domain/validation';
 import { canEditWeek } from '../../domain/week-lock';
 import { weekNumberFrom } from '../../domain/week-numbering';
 import { findManualSections, manualIndex, renderManual } from '../../modules/agente/manual';
+import type { PendingCommand } from '../../domain/pending-board';
+import { isRestrictionTool, RESTRICTION_TOOL_SPECS, runRestrictionTool, type RestrictionLoader } from './agent-restriction-tools';
 import type { Command, FulfillmentItem } from './commands';
 
 /** Ferramentas do agente de IA (27/10/2026). O modelo nunca grava: as ferramentas de leitura devolvem
@@ -23,7 +25,7 @@ export interface AgentToolSpec {
   description: string;
   input_schema: Record<string, unknown>;
 }
-export type ProposalKind = 'levar' | 'criar' | 'apontar';
+export type ProposalKind = 'levar' | 'criar' | 'apontar' | 'restricao';
 export interface AgentProposal {
   id: string;
   kind: ProposalKind;
@@ -31,6 +33,10 @@ export interface AgentProposal {
   /** Uma linha por comando, para a tela listar o que vai acontecer. */
   lines: string[];
   commands: Command[];
+  /** Só na proposta de restrições (24/11/2026): comandos do Quadro de Restrições, que a tela manda a
+   * `POST /api/pendencias/commands` depois dos `commands` (vazios nesse caso). */
+  pendingCommands?: PendingCommand[];
+  /** Vazio na proposta de restrições, que não é de uma semana. */
   weekStart: string;
   /** Pedidos que ficaram de fora e por quê (linha já levada, apelido não achado). */
   skipped: string[];
@@ -47,6 +53,8 @@ export interface ToolContext {
   weekOne?: string;
   longTermPlan?: LongTermPlanDocument;
   newId: () => string;
+  /** Lê o Quadro de Restrições da obra sob demanda (24/11/2026); só `runAgentToolAsync` usa. */
+  restrictions?: RestrictionLoader;
 }
 export interface ToolOutcome {
   /** O que o modelo lê de volta. */
@@ -154,6 +162,7 @@ export const AGENT_TOOL_SPECS: AgentToolSpec[] = [
       additionalProperties: false,
     },
   },
+  ...RESTRICTION_TOOL_SPECS,
   {
     name: 'consultar_manual',
     description:
@@ -599,4 +608,17 @@ export function runAgentTool(name: string, input: unknown, ctx: ToolContext): To
     default:
       return { result: `Ferramenta "${name}" não existe.`, error: true };
   }
+}
+
+/** Como `runAgentTool`, mais as duas ferramentas do Quadro de Restrições (24/11/2026), que leem o quadro
+ * pelo carregador do contexto e por isso são assíncronas. É a entrada que o laço do modelo usa. */
+export async function runAgentToolAsync(name: string, input: unknown, ctx: ToolContext): Promise<ToolOutcome> {
+  if (!isRestrictionTool(name)) return runAgentTool(name, input, ctx);
+  return runRestrictionTool(name, input, {
+    workId: ctx.workId,
+    today: ctx.today,
+    actor: ctx.actor,
+    newId: ctx.newId,
+    load: ctx.restrictions,
+  });
 }

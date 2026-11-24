@@ -24,6 +24,7 @@ import { AGENT } from '@/modules/agente/agent-identity';
 import { isManualScreen } from '@/modules/agente/manual';
 import { recordUsage, saveInsight, type StoredInsight } from '@/infrastructure/agent/ledger';
 import { budgetState, loadLedger } from '@/infrastructure/agent/budget';
+import { createRestrictionLoader } from '@/infrastructure/agent/restrictions';
 import { answerQuestion, generateReading, isAgentModelError, type ChatTurn } from '@/infrastructure/agent/chat';
 
 export const runtime = 'nodejs';
@@ -48,13 +49,13 @@ const round6 = (usd: number) => Math.round(usd * 1_000_000) / 1_000_000;
 
 // ─── Acesso e dossiê ───────────────────────────────────────────────────────────
 
-type Access = { profile: User; levels: BriefingLevel[] };
+type Access = { profile: User; levels: BriefingLevel[]; developer: boolean; modules: string[] };
 async function authorize(workId: string): Promise<Access | NextResponse> {
   const { profile, developer, modules } = await getRouteAccess();
   if (!profile) return fail('Perfil não provisionado.', 403);
   if (!profile.workIds.includes(workId)) return fail('Você não tem acesso a esta obra.', 403);
   const levels = ALL_LEVELS.filter(level => hasSectionAccess(SECTION_OF[level], { developer, modules }));
-  return { profile, levels };
+  return { profile, levels, developer, modules };
 }
 
 /** Plano de longo prazo da obra; sem tabela, sem linha ou com erro, fica de fora do dossiê. */
@@ -293,6 +294,8 @@ export async function POST(request: NextRequest) {
     weekOne: context.weekOne,
     longTermPlan: context.longTermPlan,
     newId: () => crypto.randomUUID(),
+    // Quadro de Restrições (24/11/2026): lido só se a pergunta chamar listar_restricoes ou propor_restricoes.
+    restrictions: createRestrictionLoader(workId, { developer: access.developer, modules: access.modules }),
   };
   try {
     const result = await answerQuestion({ briefing, config: chatConfig, question, history, toolContext, screen });

@@ -306,6 +306,8 @@ test('GLOBAL_TOOL_SPECS: as sete ferramentas da obra com `obra`, as novas e as d
       'propor_levar',
       'propor_criar_linhas',
       'propor_apontar',
+      'listar_restricoes',
+      'propor_restricoes',
       'consultar_manual',
       'panorama_obras',
       'resumo_obra',

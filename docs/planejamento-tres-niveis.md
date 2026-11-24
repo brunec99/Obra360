@@ -2217,3 +2217,23 @@ Ficaram de fora, por não terem datas no relatório: "Impermeabilização de par
 - As dependências são deduzidas; o relatório não traz as reais.
 - O avanço das atividades em andamento é o financeiro do relatório, não o físico.
 
+## Linha de Balanço: preenchimento invertido (24/11/2026)
+
+Pedido do usuário: "no longo prazo, vamos inverter. Atividades passadas ficam transparentes e atividades futuras preenchidas."
+
+- **Antes:** a parte medida do bloco era cheia e a parte a fazer, transparente (42%).
+- **Agora:** a parte **medida fica transparente** (42%) e a parte **a fazer fica cheia**. Serviço concluído aparece todo transparente; serviço futuro, todo cheio; no bloco em andamento, a esquerda (feito) é transparente e a direita (falta) é cheia.
+- **Decisão:** "passada" foi lida como "já medida", não como "anterior a hoje": o gráfico sempre desenhou a medição dentro do bloco, e assim um bloco antigo que não foi medido continua cheio, com o contorno vermelho de atraso, que é o que precisa chamar a atenção. Contornos (atraso, caminho crítico, seleção), selos de desvio e a linha de base não mudaram.
+- **Arquivos:** `src/modules/longo-prazo/lob/lob-chart.tsx` (desenho e cor do rótulo, que agora considera a parte medida à esquerda), texto "Como funciona" em `lob-view.tsx` e a seção da Linha de Balanço no manual da Claudia.
+- **Validação:** gráfico renderizado com dados de exemplo (concluídos, em andamento, atrasados e futuros) e conferido por imagem; sequência do CI verde. **Não verificado:** tela logada em produção.
+
+## Linha de Balanço: linhas vermelhas, restrições do serviço e janela de detalhes (24/11/2026)
+
+Pedidos do usuário, na mesma sessão: "ao clicar na tarefa do longo prazo, deve aparecer quais são as restrições"; "devem aparecer as restrições por meio de linhas vermelhas finas; ao clicar duas vezes, abrir um menu de detalhes como acontece no médio prazo".
+
+- **Linhas vermelhas finas** (`DependencyLinks` em `lob-chart.tsx`): com um bloco selecionado, o gráfico liga cada predecessora a ele e ele a cada sucessora, com seta no destino. Só as dependências do selecionado, entre blocos visíveis; somem durante o arrasto.
+- **Restrições do serviço** (`service-restrictions.tsx`): o painel do bloco lista os cards do Quadro de Restrições ligados ao serviço (`origin: longo_prazo`), com sinal de prazo, coluna, entrega, "começar até", responsável e link para o card. Lê `GET /api/pendencias` ao abrir a visão, ao voltar à aba e quando um card é criado; só para quem tem o módulo `restricoes`.
+- **Duplo clique** (`onOpen` do gráfico, `ActivityDetailsDialog` em `lob-view.tsx`): abre o mesmo painel numa janela modal.
+- **Decisão (interpretação):** "restrições por linhas" foi lido como o que prende o bloco no cronograma, isto é, as dependências; as restrições do Quadro entram como lista no painel e na janela. Se a intenção era marcar no gráfico as datas das restrições do Quadro, é ajuste a fazer.
+- **Validação:** gráfico renderizado com dependências e bloco selecionado, conferido por imagem; sequência do CI verde. **Não verificado:** duplo clique, janela e lista de restrições na tela logada (dependem do navegador e do banco).
+

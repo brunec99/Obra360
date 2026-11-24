@@ -36,7 +36,7 @@ ${N} é a assistente de planejamento do Obra 360. Ela fica no botão com o nome 
 
 1. **Leitura de ${N}** — um texto curto, escrito pela inteligência artificial, sobre a situação da obra: os pontos mais importantes com nomes e números, as correlações entre os níveis, o que fazer esta semana e os dados que faltam.
 2. **Radar** — os achados automáticos do sistema sobre os dados da obra, com um chip de gravidade ("Alerta", "Atenção", "Positivo", "Info") e o nível de origem ("Longo", "Médio", "Curto" ou "Cruzado", quando o achado compara dois níveis). Cada achado tem um título, uma explicação e, em "Ver itens", a lista do que foi encontrado. O Radar é feito por regras fixas e **funciona mesmo sem a inteligência artificial configurada**.
-3. **Conversa** — onde você pergunta sobre a obra, pede edições na planilha da semana e tira dúvidas sobre o sistema.
+3. **Conversa** — onde você pergunta sobre a obra, pede edições na planilha da semana, pede para cadastrar restrições no Quadro de Restrições e tira dúvidas sobre o sistema.
 4. **O que o agente leu** — o dossiê em texto que ela recebeu: tudo o que ela sabe da obra vem dali. Abra para conferir de onde saiu um número.
 
 No rodapé fica o uso de IA do mês ("Uso de IA no mês: X de Y · esta obra: … · modelo").
@@ -47,12 +47,12 @@ Para **administradores**, desde 08/11/2026, o botão está em **toda tela do sis
 
 ${N} recebe um **dossiê** montado pelo sistema a partir dos três níveis do planejamento da obra aberta: o longo prazo (plano macro, Linha de Balanço, medições, vagões e restrições vencidas), o médio prazo (plano do mês vivo, linha de base, tarefas vencidas e abaixo do alvo, vínculos, equipes sobrecarregadas) e o curto prazo (planilha semanal: PPC da semana e das últimas oito, tendência, Pareto de causas, linhas que repetem falha, empreiteiros com PPC baixo, linhas sem apontamento e os "Não" da semana anterior que não foram levados adiante). Ela só lê os níveis que **você** pode abrir: se o médio prazo (ou, desde 08/11/2026, o curto prazo) não está liberado para você, ele não entra no dossiê nem nas respostas, e o painel diz "Níveis lidos: curto", por exemplo.
 
-No painel da obra ela **não lê** a lista de pendências da Terminalidade, os apontamentos da Segurança do trabalho, o Quadro de Restrições (aba 1.4), o histograma de mão de obra (2.2), o controle de produtividade (2.3), o checklist de equipamentos (3.2), o Gantt de legalização, os modelos IFC, as dívidas nem as fotos: sobre essas telas ela só explica como usar. Do longo prazo ela lê o plano do Planejador (serviço por pavimentos); a Linha de Balanço por serviço × local, com o IDP, só a geral lê. E ela vê apenas a obra que está aberta; para falar de outra obra, abra a outra obra e abra o painel de novo. A ${N} geral dos administradores lê também a terminalidade, a segurança do trabalho, os vagões, as configurações e os números dos controles (Quadro de Restrições, histograma, produtividade, checklist e legalização) de qualquer obra, e compara as obras.
+No painel da obra ela **não lê** a lista de pendências da Terminalidade, os apontamentos da Segurança do trabalho, o histograma de mão de obra (2.2), o controle de produtividade (2.3), o checklist de equipamentos (3.2), o Gantt de legalização, os modelos IFC, as dívidas nem as fotos: sobre essas telas ela só explica como usar. O **Quadro de Restrições (aba 1.4)** ela lê card a card e nele propõe restrições novas, desde 24/11/2026, para quem tem o quadro liberado. Do longo prazo ela lê o plano do Planejador (serviço por pavimentos); a Linha de Balanço por serviço × local, com o IDP, só a geral lê. E ela vê apenas a obra que está aberta; para falar de outra obra, abra a outra obra e abra o painel de novo. A ${N} geral dos administradores lê também a terminalidade, a segurança do trabalho, os vagões, as configurações e os números dos controles (Quadro de Restrições, histograma, produtividade, checklist e legalização) de qualquer obra, e compara as obras.
 
 ## O que ela não faz
 
 - **Nunca grava nada sozinha.** Toda edição que ela sugere vira uma proposta com o botão "Aplicar"; só o seu clique grava, pelo mesmo caminho da planilha.
-- Não edita o plano do mês nem o plano de longo prazo (só a planilha da semana).
+- Não edita o plano do mês nem o plano de longo prazo: só a planilha da semana e, no Quadro de Restrições, só cria cards (não move, não edita, não conclui).
 - Não cadastra obra, usuário, equipe, não muda permissão nem libera módulo.
 - Não clica por você: quando a dúvida é de uso, ela explica o passo a passo e você faz na tela.
 - Não inventa número: se o dado não está no dossiê ou nas listas que ela consulta, ela diz que não tem.`,
@@ -105,7 +105,7 @@ O Radar e a leitura são refeitos por trás sempre que você aplica uma proposta
   {
     id: 'agente-conversa-e-propostas',
     title: 'Conversa: perguntar, pedir edições e aplicar propostas',
-    summary: 'Como perguntar, o que ela lista e propõe (levar, criar, apontar), os botões Aplicar e Descartar, Desfazer e limites.',
+    summary: 'Como perguntar, o que ela propõe (levar, criar, apontar, cadastrar restrição sem duplicar), Aplicar, Descartar e limites.',
     keywords: [
       'perguntar',
       'conversa',
@@ -116,6 +116,10 @@ O Radar e a leitura são refeitos por trás sempre que você aplica uma proposta
       'levar para a semana',
       'criar linhas',
       'apontar pela ia',
+      'cadastrar restrição pelo chat',
+      'criar restrição pela claudia',
+      'restrição duplicada',
+      'já existe no quadro',
       'não gravou',
       'desfazer proposta',
       'tentar de novo',
@@ -138,19 +142,31 @@ Ela responde com base no dossiê e, quando precisa de detalhe, consulta listas d
 
 ## Pedir uma edição
 
-Ela edita só a **planilha da semana (curto prazo)**, e sempre por proposta. Três tipos:
+Ela edita a **planilha da semana (curto prazo)** e cadastra cards no **Quadro de Restrições (aba 1.4)**, sempre por proposta. Na planilha, três tipos:
 
 - **Levar** — "Leve para a semana atual os Não da semana passada": cria na semana de destino uma linha igual (mesma atividade, empresa, equipe, período deslocado), sem apontamento; a linha de origem não muda. Se já existe linha igual no destino, ela fica de fora, e a proposta diz por quê.
 - **Criar** — "Crie na semana atual as tarefas do plano do mês previstas para esta semana": linhas novas a partir das tarefas do plano do mês (nome, equipe, empresa e período vêm da tarefa, recortados para dentro da semana) ou escritas por você (nome, empresa, equipe, início e fim).
 - **Apontar** — "Aponte como Sim as linhas X e Y" ou "Aponte Não por falta de mão de obra na linha Z": Sim, ou Não com uma causa da lista fechada da planilha e justificativa opcional. Se a causa que você disser couber em mais de uma da lista ("falta", "produtividade"), ela pergunta qual.
 
-Cada proposta aparece como um **cartão**: chip "Levar", "Criar" ou "Apontar", título ("Levar 3 linhas para a semana 44"), uma linha por mudança (as 10 primeiras abertas; "Ver as outras N" mostra o resto) e, quando houver, "Ficaram de fora: …" com o motivo de cada item não incluído. Até 60 linhas por proposta.
+## Cadastrar restrições pelo chat (desde 24/11/2026)
+
+De qualquer tela da obra — curto, médio ou longo prazo — conte o que está travando ou vai travar um serviço e peça para cadastrar: "A linha da alvenaria do 5º não saiu por falta de bloco; cadastre uma restrição de compra para sexta", "Crie uma restrição para a tarefa de instalações do 3º: falta o projeto revisado", "Cadastre que a fachada depende da aprovação do cliente".
+
+- **Ela consulta antes.** Primeiro ela procura no Quadro de Restrições o que já existe sobre o assunto. Se houver card em aberto igual ou parecido, ela **não cria outro**: mostra o card (título, coluna, responsável, entrega) e pergunta se é a mesma restrição. Só propõe um novo se você confirmar que é outra. A conferência é repetida pelo sistema na hora de montar a proposta: título igual a um card em aberto sempre fica de fora, com o motivo em "Ficaram de fora".
+- **Ligação.** A restrição pode travar uma **tarefa do plano do mês** ou um **serviço da Linha de Balanço** (com bloco lançado); aí a entrega não é digitada, é o dia útil anterior ao início da tarefa ou do serviço, e acompanha o cronograma. Sem ligação ela é **avulsa** e precisa da **data de entrega**: se você não disser, ela pergunta.
+- **Responsável e tempo de execução.** O responsável é quem você indicar (precisa ter acesso à obra); sem indicar, é você. O tempo de execução em dias úteis é opcional (sem ele, 0).
+- O cartão vem com o chip **"Restrição"** e o título "Criar N restrições no Quadro de Restrições", até 20 por proposta. Ao **Aplicar**, os cards nascem na coluna "A fazer", com a linha "criou a pendência" no histórico e o e-mail ao responsável, como no botão "Nova restrição". Para desfazer, exclua o card no quadro (quem criou ou um admin).
+- Precisa ter o **Quadro de Restrições liberado** para você (grade de usuários em Configurações). Quem tem perfil de consulta também aplica esta proposta, como no quadro. Ela **não** move, edita, conclui nem comenta cards: isso é na aba 1.4.
+
+## O cartão da proposta
+
+Cada proposta aparece como um **cartão**: chip "Levar", "Criar", "Apontar" ou "Restrição", título ("Levar 3 linhas para a semana 44"), uma linha por mudança (as 10 primeiras abertas; "Ver as outras N" mostra o resto) e, quando houver, "Ficaram de fora: …" com o motivo de cada item não incluído. Até 60 linhas por proposta.
 
 ## Aplicar e Descartar
 
 **Nada é gravado até você clicar em "Aplicar".** Aplicar roda as mudanças pelo mesmo caminho da planilha, com as mesmas permissões: aparece "Aplicando 2 de 5…", depois o chip "Aplicada" e um aviso de sucesso ("3 linhas levadas para a semana de 02/11/2026"). Se uma mudança falhar, a proposta mostra o erro e quantas já entraram, e o botão vira **"Tentar de novo"**, que continua de onde parou sem repetir o que já gravou. **"Descartar"** marca o cartão como "Descartada" e não grava nada.
 
-Uma proposta aplicada é uma gravação normal da planilha: para voltar, use o **"Desfazer"** da aba Cronograma de curto prazo (ou Ctrl+Z nela), ou corrija as células na própria planilha.
+Uma proposta de linhas aplicada é uma gravação normal da planilha: para voltar, use o **"Desfazer"** da aba Cronograma de curto prazo (ou Ctrl+Z nela), ou corrija as células na própria planilha.
 
 Quem tem perfil de **consulta** vê a conversa e as listas, mas não recebe propostas de edição e, se alguma aparecer, vê "Só quem edita a obra pode aplicar." Levar e criar linhas numa **semana encerrada para edição** só é permitido ao admin, como na planilha; apontar é livre para quem edita a obra.
 
@@ -252,7 +268,7 @@ No alto da janela, o chip de **contexto** mostra a obra e a tela da página em q
 
 De qualquer obra: o **curto prazo** (planilha da semana, PPC e causas), o **médio prazo** (plano do mês e restrições), o **longo prazo** (plano macro e Linha de Balanço com as medições), os **vagões** (restrições e pendências), a **terminalidade** (pendências por apartamento), a **segurança do trabalho** (apontamentos dos TSTs) e as **configurações da obra** (semana 1, locais e equipes). Para comparar, ela usa o **panorama das obras**, com os mesmos números do Dashboard geral, e só depois abre o detalhe das obras que a pergunta pede.
 
-É pelo panorama que ela lê também os **quadros de controles** de cada obra: a **Linha de Balanço** (IDP) e a **legalização** (marcos e tarefas atrasadas), o **Quadro de Restrições** (cards em aberto, vencidos e com começo atrasado), o **histograma de mão de obra** (efetivo médio, dias lançados no período e a **data do último lançamento**), o **controle de produtividade** (dias lançados, produção medida e a data do último lançamento) e o **checklist de equipamentos** (vencidos hoje e não conformidades do período). Desses cinco ela tem os **números do período**, não a lista linha a linha. Quando a pergunta é sobre **até três obras**, vem também o detalhe: as cinco empresas com mais homens-dia no histograma, os serviços medidos com a produção por homem-dia, os equipamentos com checklist vencido hoje (até seis), os cards do Quadro de Restrições por coluna e por responsável, e a entrega contratual × prevista da legalização. O efetivo de um dia por função, o texto e a conversa de um card, e os itens de uma inspeção continuam na aba de cada um. Os **chips cinza** embaixo da resposta mostram o que ela consultou.
+É pelo panorama que ela lê também os **quadros de controles** de cada obra: a **Linha de Balanço** (IDP) e a **legalização** (marcos e tarefas atrasadas), o **Quadro de Restrições** (cards em aberto, vencidos e com começo atrasado), o **histograma de mão de obra** (efetivo médio, dias lançados no período e a **data do último lançamento**), o **controle de produtividade** (dias lançados, produção medida e a data do último lançamento) e o **checklist de equipamentos** (vencidos hoje e não conformidades do período). Desses cinco ela tem os **números do período**, não a lista linha a linha. Quando a pergunta é sobre **até três obras**, vem também o detalhe: as cinco empresas com mais homens-dia no histograma, os serviços medidos com a produção por homem-dia, os equipamentos com checklist vencido hoje (até seis), os cards do Quadro de Restrições por coluna e por responsável, e a entrega contratual × prevista da legalização. Os cards do Quadro de Restrições ela também lista um a um (título, coluna, origem, entrega, responsável). O efetivo de um dia por função, a conversa e as checklists de um card, e os itens de uma inspeção continuam na aba de cada um. Os **chips cinza** embaixo da resposta mostram o que ela consultou.
 
 Ela **não lê**: o conteúdo das fotos (só sabe quantas há e o que a descrição diz), os PDFs, os modelos IFC, os usuários e acessos e os dados de uso de IA. Não gera PDF nem planilha e não manda mensagem a ninguém; sobre essas telas ela explica como usar.
 
@@ -260,7 +276,7 @@ Exemplos: "Qual foi a última vez que cada obra preencheu o histograma?", "Quais
 
 ## Edições
 
-As mesmas três da planilha da semana: **levar** linhas, **criar** linhas e **apontar**, em qualquer obra e de qualquer tela. O cartão da proposta mostra **a obra** e **nada é gravado sem "Aplicar"**; as regras são as da planilha daquela obra (seção "Conversa: perguntar, pedir edições e aplicar propostas"). Pendências da terminalidade e apontamentos de segurança ela só lê.
+As mesmas da ${N} da obra: na planilha da semana, **levar** linhas, **criar** linhas e **apontar**; e, desde 24/11/2026, **cadastrar restrições** no Quadro de Restrições (ela consulta o quadro antes e não cria duplicada), em qualquer obra e de qualquer tela. O cartão da proposta mostra **a obra** e **nada é gravado sem "Aplicar"**; as regras são as da planilha daquela obra (seção "Conversa: perguntar, pedir edições e aplicar propostas"). Pendências da terminalidade e apontamentos de segurança ela só lê.
 
 ## A aba "Obra"
 

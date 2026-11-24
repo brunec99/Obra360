@@ -54,6 +54,9 @@ export async function sendPendingCommand(command: PendingCommand, workId: string
   );
 }
 
+/** Disparado na janela quando cards são criados fora da tela do quadro (proposta da Claudia aplicada). */
+export const PENDING_CHANGED_EVENT = 'obra360:restricoes-mudaram';
+
 export const errorText = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 
 const toState = (response: PendingResponse): PendingState => {
@@ -130,6 +133,14 @@ export function usePending(workId: string) {
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
     };
+  }, [refresh]);
+  // A Claudia criou cards por uma proposta aplicada (24/11/2026): a tela do quadro, se aberta, relê.
+  useEffect(() => {
+    const onChanged = () => {
+      if (latest.current.status === 'ready') void refresh();
+    };
+    window.addEventListener(PENDING_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(PENDING_CHANGED_EVENT, onChanged);
   }, [refresh]);
   /** Lança o erro do servidor (mensagem pronta para o usuário); em caso de sucesso, a tela já atualiza. */
   const execute = useCallback<PendingExecute>(
