@@ -205,7 +205,7 @@ Antes de enviar, a tela confere o diário e mostra o que impede e o que vai fica
 
 ### O que não impede, mas fica de fora
 
-- Sem o seu **usuário do Sienge** informado, o diário vai sem responsável.
+- Sem o seu **usuário do Sienge** informado, o diário vai com o usuário da integração (SIENGEAPI) como responsável.
 - Empresa **sem tipo de equipe do Sienge**: a mão de obra dela não segue (continua no histograma).
 - Atividade com local **sem código do Sienge**: vai sem local.
 - Foto sem local ligado ao Sienge: fica fora do Relatório Fotográfico.
@@ -273,9 +273,8 @@ O Sienge recebe a mão de obra por **tipo de equipe** (são 57 tipos cadastrados
 
 ## O que ainda falta (situação em 24/11/2026)
 
-- **Nenhum diário foi gravado no Sienge de verdade ainda.** O envio está programado; a tentativa no empreendimento de teste foi recusada porque aquela obra não está "em andamento". O primeiro envio real será na obra piloto, o **Atmos**.
+- O envio ao Sienge foi testado com diários de teste no **Atmos** (obra piloto), excluídos em seguida. O primeiro diário de verdade pela tela ainda não foi feito.
 - Falta o Sienge liberar, no usuário de integração, a **lista de locais** do empreendimento (por isso o código do local é digitado) e as **tarefas do planejamento** do Sienge (por isso as atividades entram como avulsas).
-- Falta confirmar, no primeiro envio real, os valores de turno e clima que o Sienge aceita.
 - **Fora desta etapa:** corrigir só uma parte de um diário já enviado (hoje é excluir e reabrir), sugestão automática do clima e a assistente ler ou preencher o diário.
 
 Se algo disso já estiver diferente na tela, vale a tela: esta lista é a situação do dia em que o módulo foi criado.`,

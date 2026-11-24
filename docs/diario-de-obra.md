@@ -5,10 +5,12 @@ preenchido no Obra 360 e enviado ao Sienge pela API REST `construction-daily-rep
 do dia. A obra piloto é o Atmos (empreendimento 32 do Sienge), que já tem 368 diários lançados à mão no
 Sienge.
 
-**Situação:** código do módulo escrito em 24/11/2026 e gravado no branch `diario-de-obra` (commit local,
-**sem push e sem publicação**; o `main` não tem o diário). **A migração `0059_daily_report.sql` foi criada e não foi aplicada**: sem ela a tela responde
-"indisponível" e as demais seguem normais. **Nenhum diário foi gravado no Sienge de verdade ainda** (ver
-"Integração com o Sienge"). O módulo nasce sem ninguém liberado, fora os administradores.
+**Situação (24/11/2026, fim do dia):** código no branch `diario-de-obra`, em revisão no PR #10, **ainda não
+publicado** (o `main` não tem o diário). **A migração `0059_daily_report.sql` foi aplicada no `takt-hub` em
+24/11/2026**, numa transação, e conferida (tabelas, RLS, grant para `service_role`, bucket `diario` privado,
+leitura pela API REST). **A integração com o Sienge foi validada com gravações reais no Atmos** (diários de
+teste criados e excluídos em seguida; ver "Testes reais no Sienge"). O módulo nasce sem ninguém liberado,
+fora os administradores.
 
 ## O que a tela faz
 
@@ -77,16 +79,40 @@ passam a servir também para gravar. As chamadas contam no painel de consumo e a
 | Chamada ao Sienge | Para quê | Situação em 24/11/2026 |
 | --- | --- | --- |
 | `GET /construction-daily-report` (lista, por empreendimento e datas) | achar o diário de um dia | liberada (leitura conferida) |
-| `GET /construction-daily-report/{buildingId}/{id}` (detalhe) | usada só no levantamento; o código não a chama nesta etapa | liberada (leitura conferida) |
+| `GET /construction-daily-report/{buildingId}/{id}` (detalhe) | usada nos testes; o código não a chama nesta etapa | liberada (leitura conferida) |
 | `GET /construction-daily-report/types` | tipos de ocorrência (11), de equipe (57) e de equipamento (4) | liberada (leitura conferida) |
-| `POST /construction-daily-report` | cria o diário, numa chamada | **não devolveu 403, mas nenhum diário foi gravado**: a tentativa no empreendimento de teste (1000) foi recusada porque a obra não está "em andamento" |
-| `POST /construction-daily-report/{buildingId}/{id}/attachments` (multipart, campo `file`) | uma foto por chamada | **não exercitada** (depende de um diário criado) |
-| `DELETE /construction-daily-report/{buildingId}/{id}` | excluir do Sienge antes de reabrir (admin) | **não exercitada** |
-| `GET /sites?buildingId=` | locais da obra no Sienge | **não liberada no usuário de API**: sem ela o código do local é digitado |
-| `GET /building-projects/.../tasks` | tarefas do planejamento do Sienge | **não liberada**; não é usada nesta etapa |
+| `POST /construction-daily-report` | cria o diário, numa chamada | **liberada e validada** com gravação real no Atmos (o empreendimento de teste 1000 recusa por não estar "em andamento") |
+| `POST /construction-daily-report/{buildingId}/{id}/attachments` (multipart, campo `file`) | uma foto por chamada | **liberada e validada**, com as duas correções descritas abaixo |
+| `DELETE /construction-daily-report/{buildingId}/{id}` | excluir do Sienge antes de reabrir (admin) | **liberada e validada** |
+| `GET /sites?buildingId=` | locais da obra no Sienge | **não liberada (403)**: pedida ao Gabriel por e-mail em 24/11/2026; sem ela o código do local é digitado |
+| `GET /building-projects/.../tasks` | tarefas do planejamento do Sienge | **não liberada (403)**, embora estivesse no pedido de 24/11 (reforçado no mesmo e-mail); não é usada nesta etapa |
 | empreendimentos e orçamento | ligação da obra (já existente) | liberadas |
 
-O levantamento de 24/11/2026 foi só de leitura, mais a tentativa de gravação recusada descrita acima.
+### Testes reais no Sienge (24/11/2026)
+
+Autorizados pelo usuário. Seis diários de teste no **Atmos (empreendimento 32), na data de 22/11/2026**
+(domingo, sem diário), criados pelo próprio código do módulo e **excluídos em seguida** (nº 370 a 375; a
+consulta da data volta vazia depois de cada um). O Sienge não reaproveita o número: o próximo diário do
+Atmos sai com o nº 376. O que ficou confirmado:
+
+1. **Turno e clima em inglês** são aceitos e gravados em português: `Morning/Afternoon/Night` viram
+   "Manhã/Tarde/Noite"; `Fine/Light rain/Heavy rain/Unworkable` viram "Aberto/Chuva leve/Chuva
+   Forte/Impraticável".
+2. Atividade avulsa com `siteId`, ocorrência, equipe por tipo (`crewTypeId`, origem "type") e equipamento
+   por tipo entram como enviados.
+3. **Sem `responsibleId`, o Sienge grava "SIENGEAPI"** (o usuário da integração) como responsável.
+4. **O local da foto vai em `locationId`.** A documentação diz `localId`, que o Sienge ignora em silêncio.
+   Com `locationId=10` a foto ficou em "6º Pavimento", o mesmo código que as atividades usam em `siteId`:
+   locais de atividade e de foto são o mesmo cadastro.
+5. **JPEG sem EXIF é recusado** com local ou no Relatório Fotográfico (422 "Só é possível marcar para mostrar
+   em relatório os tipos de arquivo: jpeg, jpg e png" e "Somente arquivos do tipo imagem podem ser salvos em
+   um Local"). O Sienge reconhece a imagem pelos primeiros bytes: o JPEG que a compressão gera
+   (`FF D8 FF DB`) é recusado com qualquer nome e qualquer tipo declarado; com o bloco EXIF (`FF D8 FF E1`)
+   passa. O envio agora insere um bloco EXIF mínimo, sem recomprimir (`withExifHeader`); validado com o
+   JPEG da compressão e com o do navegador (JFIF).
+6. **A consulta do anexo é lida em Latin-1.** Com o percentual de UTF-8, "compressão" virou "compressÃ£o".
+   A descrição agora vai em percentual de Latin-1 (`latin1QueryValue`) e o nome do arquivo sem acento;
+   validado com "Concretagem da laje – 6º pavimento, ação" (o travessão vira hífen).
 
 ### Mapa de campos (Obra 360 × Sienge)
 
@@ -94,21 +120,17 @@ O levantamento de 24/11/2026 foi só de leitura, mais a tentativa de gravação 
 | --- | --- | --- |
 | obra (`work_settings.sienge_building_id`) | `buildingId` | sem a ligação, o envio é impedido |
 | data do diário | `date` (`yyyy-MM-dd`) | |
-| código de usuário de quem envia (`profiles.sienge_user_code`) | `responsibleId` | sem ele o diário vai sem responsável (aviso) |
+| código de usuário de quem envia (`profiles.sienge_user_code`) | `responsibleId` | sem ele o Sienge grava "SIENGEAPI" (aviso na tela) |
 | índice pluviométrico (mm) | `rainfallIndex` | de 0 a menos de 9999,99; vazio não vai |
 | observações | `notes` | até 4.000 caracteres; vazio não vai |
-| turno (manhã, tarde, noite) | `shifts[].description` | hoje em inglês (`Morning`, `Afternoon`, `Night`): **a confirmar** |
+| turno (manhã, tarde, noite) | `shifts[].description` | em inglês (`Morning`, `Afternoon`, `Night`); confirmado |
 | início e fim do turno | `shifts[].startTime`, `finishTime` (`HH:mm`) | fim depois do início; ao menos um turno |
-| clima do turno | `shifts[].weatherCondition` | hoje em inglês (`Fine`, `Light rain`, `Heavy rain`, `Unworkable`): **a confirmar** |
+| clima do turno | `shifts[].weatherCondition` | em inglês (`Fine`, `Light rain`, `Heavy rain`, `Unworkable`); confirmado |
 | atividade (do curto prazo ou avulsa) | `detachedTasks[]`: `description`, `notes`, `quantity`, `unitOfMeasure`, `siteId` | descrição até 200; `siteId` só quando o local está ligado |
 | ocorrência | `events[]`: `eventTypeId`, `description` | |
 | mão de obra (histograma do dia, somada por empresa) | `crews[]`: `crewTypeId`, `quantity`, `assignment` | empresa sem tipo de equipe não segue (aviso); a função não vai |
 | equipamento | `equipments[]`: `equipmentTypeId`, `quantity`, `status` (`IN_USE`, `IDLE`, `OUT_OF_ORDER`) | |
-| foto (JPEG reduzido no aparelho) | anexo: `description`, `localId`, `showInReports` | descrição obrigatória; `localId` e `showInReports` só com o local ligado |
-
-A documentação do POST dá turno e clima em inglês, e a leitura devolve em português ("Manhã", "Aberto").
-Se o Sienge recusar o inglês, a troca é nas constantes `SIENGE_SHIFT` e `SIENGE_WEATHER` de
-`src/domain/sienge-daily-report.ts`.
+| foto (JPEG reduzido no aparelho) | anexo: `description`, `locationId`, `showInReports` | descrição obrigatória (vai em Latin-1); `locationId` e `showInReports` só com o local ligado; o JPEG recebe o bloco EXIF antes de subir |
 
 ### Ordem do envio
 
@@ -136,7 +158,7 @@ Se o Sienge recusar o inglês, a troca é nas constantes `SIENGE_SHIFT` e `SIENG
 | Manual da assistente e tour | `src/modules/agente/manual/diario.ts`, `src/modules/tour/pages/diario.ts` |
 | Testes | `tests/daily-report*.test.ts`, `tests/sienge-daily-report*.test.ts`, e os casos do diário em `tests/module-access.test.ts` e `tests/access-usage.test.ts` |
 
-### Banco (migração 0059, criada e não aplicada)
+### Banco (migração 0059, aplicada no `takt-hub` em 24/11/2026)
 
 - `daily_reports`: um diário por obra e dia, com turnos, atividades, ocorrências e equipamentos em jsonb,
   a situação (`draft` ou `sent`), o empreendimento e o número do diário no Sienge, a última recusa e a
@@ -182,17 +204,22 @@ Em 24/11/2026, no branch `diario-de-obra`:
 - **Histograma (2.2):** o dia cujo diário já foi enviado mostra o aviso de que mudar o efetivo ali não
   altera o diário que está no Sienge (`sentDiaryDays` em `GET /api/histograma`; sem a 0059 a lista vem
   vazia e o histograma segue normal). Testes do histograma passando.
-- **Não validado:** gravação num Supabase real (a 0059 não foi aplicada), envio real ao Sienge, o service
+- **Migração 0059 aplicada no `takt-hub`** (pelo pooler, numa transação): antes, nada da 0059 existia; depois, as
+  três tabelas com RLS ligada e todos os privilégios para `service_role`, as duas colunas novas, o bucket
+  `diario` privado (2 MB, só JPEG) e leitura pela API REST com a chave de serviço (a chave pública recebe
+  401). `anon` e `authenticated` ficaram só com REFERENCES, TRIGGER e TRUNCATE, como as demais tabelas.
+- **Sienge real:** ver "Testes reais no Sienge".
+- **Não validado:** a tela publicada gravando no Supabase real, o envio pela tela (os testes reais usaram
+  as funções do módulo direto), o service
   worker abrindo `/campo/diario` sem sinal a frio, a câmera do celular, Safari/iPhone e uso no celular
   real.
 
 ## Pendências
 
-- **Aplicar a migração 0059** no `takt-hub`, antes de publicar o código.
-- **Primeiro envio real**, no Atmos (empreendimento 32), para confirmar os valores de turno e clima (inglês
-  na documentação do POST, português na leitura), o anexo de foto e a exclusão.
-- **Pedir a liberação, no usuário de API do Sienge,** de `GET /sites` (lista de locais; hoje o código é
-  digitado) e de `GET /building-projects/.../tasks`.
+- **Publicar** (merge do PR #10 no `main`). A 0059 já está aplicada.
+- **Primeiro diário de verdade pela tela**, no Atmos, com quem preenche hoje no Sienge.
+- **Liberação de `GET /sites`** no usuário de API do Sienge (lista de locais; hoje o código é digitado):
+  pedida ao Gabriel por e-mail em 24/11/2026, junto com o reforço de `GET /building-projects/.../tasks`.
 - **Liberar o módulo** para quem preenche em cada obra (Configurações → Usuários → Módulos) e pedir a
   cada pessoa o código de usuário do Sienge.
 - **Ligar os locais** da obra piloto aos locais do Sienge e as empresas do histograma aos tipos de equipe.

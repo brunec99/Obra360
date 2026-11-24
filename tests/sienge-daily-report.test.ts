@@ -320,7 +320,7 @@ test('avisos: empresa sem tipo de equipe, atividade e foto sem local do Sienge, 
     '2 fotos sem local ligado ao Sienge: ficam fora do Relatório Fotográfico.',
     'Empresas sem tipo de equipe no Sienge (a mão de obra delas não segue): Beta Gesso, Zeta Pinturas.',
     '2 atividades com local sem código do Sienge: vão sem local.',
-    'Seu usuário do Sienge não foi informado: o diário vai sem responsável.',
+    'Seu usuário do Sienge não foi informado: o diário vai com o usuário da integração (SIENGEAPI) como responsável.',
   ]);
   const body = result.body!;
   assert.equal(body.responsibleId, undefined);

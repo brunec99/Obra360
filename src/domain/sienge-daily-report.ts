@@ -20,14 +20,14 @@ import { headcountKey, isOwnCompany } from './headcount';
  * e os mesmos avisos. Formato da especificação oficial (Swagger `construction-daily-report-v1`):
  *
  *   POST /construction-daily-report
- *   POST /construction-daily-report/{buildingId}/{id}/attachments?description=&localId=&showInReports=
- *        (multipart, campo `file`)
+ *   POST /construction-daily-report/{buildingId}/{id}/attachments?description=&locationId=&showInReports=
+ *        (multipart, campo `file`; a documentação diz `localId`, que o Sienge ignora — ver
+ *        `uploadDailyAttachment`)
  *
- * ATENÇÃO, ainda não confirmado com uma gravação real: a documentação do POST dá os valores de turno e de
- * clima em inglês ("Morning", "Fine"), mas a leitura (GET) devolve em português ("Manhã", "Aberto"). Se o
- * Sienge recusar o inglês, a troca é só nas duas constantes abaixo — os rótulos em português já existem em
- * `DAILY_SHIFT_LABEL` e `DAILY_WEATHER_LABEL` (`domain/daily-report.ts`). Nenhum outro ponto do sistema
- * escreve esses textos. */
+ * Turno e clima vão em inglês, como na documentação do POST. Confirmado com gravação real no Atmos em
+ * 24/11/2026: o Sienge aceitou "Morning/Afternoon/Night" e "Fine/Light rain/Heavy rain" e gravou
+ * "Manhã/Tarde/Noite" e "Aberto/Chuva leve/Chuva Forte", que é o que a leitura devolve. "Unworkable"
+ * (Impraticável) não foi testado. Nenhum outro ponto do sistema escreve esses textos. */
 export const SIENGE_SHIFT: Record<DailyShiftKey, string> = {
   morning: 'Morning',
   afternoon: 'Afternoon',
@@ -173,7 +173,8 @@ export function buildSiengeDailyReport(input: SiengeBuildInput): SiengeBuildResu
     );
 
   const responsibleId = support.siengeUserCode.trim();
-  if (!responsibleId) warnings.push('Seu usuário do Sienge não foi informado: o diário vai sem responsável.');
+  if (!responsibleId)
+    warnings.push('Seu usuário do Sienge não foi informado: o diário vai com o usuário da integração (SIENGEAPI) como responsável.');
 
   if (blocking.length || support.siengeBuildingId === null) return { body: null, blocking, warnings };
 

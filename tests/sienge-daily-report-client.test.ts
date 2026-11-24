@@ -10,7 +10,9 @@ import {
   listDailyReportTypes,
   listSites,
   normalizeDailyTypes,
+  latin1QueryValue,
   uploadDailyAttachment,
+  withExifHeader,
 } from '../src/infrastructure/integrations/sienge/daily-report';
 import type { SiengeDailyReportBody } from '../src/domain/sienge-daily-report';
 
@@ -279,24 +281,57 @@ test('anexo: POST multipart com o campo file em JPEG e a descrição, o local e 
   const [call] = calls;
   assert.equal(call.method, 'POST');
   assert.equal(path(call), '/construction-daily-report/32/901/attachments');
-  assert.deepEqual(query(call), { description: 'Laje do 5º pavimento', localId: '21', showInReports: 'true' });
+  // Consulta em percentual de Latin-1 ("º" = %BA), como o Sienge lê esta rota.
+  assert.equal(call.url.search, '?description=Laje%20do%205%BA%20pavimento&locationId=21&showInReports=true');
   assert.equal(call.headers['Content-Type'], undefined, 'o fetch monta o cabeçalho multipart com o limite das partes');
   assert.ok(call.body instanceof FormData);
   const file = (call.body as FormData).get('file');
   assert.ok(file instanceof File);
   assert.equal(file.type, 'image/jpeg');
   assert.equal(file.name, 'foto.jpg');
-  assert.deepEqual(Buffer.from(await file.arrayBuffer()), bytes);
+  // O JPEG sem EXIF ganha o bloco EXIF mínimo logo depois do início (o Sienge recusa sem ele).
+  assert.deepEqual(Buffer.from(await file.arrayBuffer()), withExifHeader(bytes));
+  assert.equal(
+    Buffer.from(await file.arrayBuffer())
+      .subarray(0, 4)
+      .toString('hex'),
+    'ffd8ffe1',
+  );
 
-  // Sem local ligado ao Sienge, `localId` e `showInReports` não entram na consulta.
+  // Sem local ligado ao Sienge, `locationId` e `showInReports` não entram na consulta.
   await uploadDailyAttachment(32, 901, { description: 'Sem local' }, { name: `${'a'.repeat(300)}.jpeg`, bytes });
-  assert.deepEqual(query(calls[1]), { description: 'Sem local' });
+  assert.equal(calls[1].url.search, '?description=Sem%20local');
   const long = (calls[1].body as FormData).get('file') as File;
   assert.equal(long.name.length, 100);
   assert.ok(long.name.endsWith('.jpg'));
 });
 
+test('EXIF no JPEG: insere o bloco mínimo sem recomprimir; o que já tem EXIF ou não é JPEG segue igual', () => {
+  const semExif = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 9, 9]);
+  const comExif = withExifHeader(semExif);
+  assert.equal(comExif.length, semExif.length + 24);
+  assert.equal(comExif.subarray(0, 4).toString('hex'), 'ffd8ffe1');
+  // Tamanho do segmento (22) e a marca "Exif\0\0", e o resto do arquivo intacto depois do bloco.
+  assert.equal(comExif.readUInt16BE(4), 22);
+  assert.equal(comExif.subarray(6, 12).toString('latin1'), 'Exif\0\0');
+  assert.deepEqual(comExif.subarray(26), semExif.subarray(2));
+  const jfif = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+  assert.equal(withExifHeader(jfif).subarray(0, 4).toString('hex'), 'ffd8ffe1');
+  const camera = Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x08, 1, 2]);
+  assert.equal(withExifHeader(camera), camera);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  assert.equal(withExifHeader(png), png);
+});
+
+test('consulta do anexo em Latin-1: acentos em um byte, tipográficos simplificados, o resto sem acento', () => {
+  assert.equal(latin1QueryValue('Concretagem da laje – 6º pavimento'), 'Concretagem%20da%20laje%20-%206%BA%20pavimento');
+  assert.equal(latin1QueryValue('ação “nova”'), 'a%E7%E3o%20%22nova%22');
+  assert.equal(latin1QueryValue('obra ✓ ok'), 'obra%20%20ok');
+  assert.equal(latin1QueryValue('a&b=c'), 'a%26b%3Dc');
+});
+
 test('nome do arquivo do anexo: até 100 caracteres, sem barra, sempre .jpg', () => {
+  assert.equal(attachmentFileName('compressão ação.jpg'), 'compressao acao.jpg');
   assert.equal(attachmentFileName('diario-2026-11-24-abcd1234.jpg'), 'diario-2026-11-24-abcd1234.jpg');
   assert.equal(attachmentFileName('pasta/sub\\foto.JPEG'), 'pasta-sub-foto.jpg');
   assert.equal(attachmentFileName(''), 'foto.jpg');

@@ -169,16 +169,69 @@ export async function deleteDailyReport(buildingId: number, id: number): Promise
 
 /** Nome de arquivo que o Sienge aceita: até 100 caracteres, sem barra, terminando em `.jpg`. Puro. */
 export function attachmentFileName(name: string): string {
+  // Sem acento: o Sienge lê o nome da parte do multipart como Latin-1 e grava "ã" como "Ã£".
   const clean = name
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7e]/g, '')
+    .replace(/[\\/:*?"<>|]/g, '-')
     .replace(/\s+/g, ' ')
     .trim();
   const stem = clean.replace(/\.jpe?g$/i, '') || 'foto';
   return `${stem.slice(0, FILE_NAME_MAX - 4)}.jpg`;
 }
 
+/** Bloco EXIF mínimo (APP1 com um IFD vazio), 24 bytes: `FF E1`, tamanho 22, "Exif\0\0", cabeçalho TIFF
+ * big-endian e zero entradas. */
+const EXIF_APP1 = Buffer.from([
+  0xff, 0xe1, 0x00, 0x16, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00,
+]);
+
+/** O Sienge reconhece o JPEG pelos primeiros bytes e só aceita com local, ou no Relatório Fotográfico, o
+ * que começa com o bloco EXIF (`FF D8 FF E1`, o das fotos de câmera). Confirmado com gravações reais no
+ * Atmos em 24/11/2026: o JPEG que começa direto pela tabela de quantização (`FF D8 FF DB`, o que a
+ * compressão gera) volta 422 ("Só é possível marcar para mostrar em relatório os tipos de arquivo: jpeg,
+ * jpg e png" e "Somente arquivos do tipo imagem podem ser salvos em um Local"), com qualquer nome e
+ * qualquer tipo declarado; o mesmo arquivo com EXIF passa. Por isso, sem recomprimir: insere o bloco EXIF
+ * mínimo logo depois do início do arquivo. Leitores de imagem aceitam o bloco em qualquer ordem entre os
+ * segmentos de aplicação. O que não é JPEG, ou já começa com EXIF, segue como está. Puro. */
+export function withExifHeader(bytes: Buffer): Buffer {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return bytes;
+  if (bytes[2] === 0xff && bytes[3] === 0xe1) return bytes;
+  return Buffer.concat([bytes.subarray(0, 2), EXIF_APP1, bytes.subarray(2)]);
+}
+
+/** Um valor da consulta do anexo em percentual de Latin-1 (ISO-8859-1). O Sienge decodifica a consulta
+ * dessa rota como Latin-1: com o percentual de UTF-8 de sempre, "compressão" virou "compressÃ£o"
+ * (confirmado no Atmos em 24/11/2026). Português cabe inteiro no Latin-1 (acentos, cedilha, "º", "ª");
+ * travessões e aspas tipográficas viram os simples, e o que mesmo assim não couber sai sem acento ou
+ * fica de fora. Puro. */
+export function latin1QueryValue(value: string): string {
+  const plain = value
+    .replace(/[\u2010-\u2015]/g, '-')
+    .replace(/[\u2018-\u201b]/g, "'")
+    .replace(/[\u201c-\u201f]/g, '"')
+    .replace(/\u2026/g, '...');
+  let out = '';
+  for (const char of plain) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code > 0xff) {
+      const base = char.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+      if (base && [...base].every(c => (c.codePointAt(0) ?? 0x100) <= 0x7e)) out += encodeURIComponent(base);
+      continue;
+    }
+    out += /[A-Za-z0-9\-_.~]/.test(char) ? char : `%${code.toString(16).toUpperCase().padStart(2, '0')}`;
+  }
+  return out;
+}
+
 /** Anexa uma foto (JPEG) ao diário: multipart com o campo `file`, e descrição, local e "mostrar nos
- * relatórios" na consulta. O Sienge aceita anexo também depois do envio do diário. */
+ * relatórios" na consulta. O Sienge aceita anexo também depois do envio do diário.
+ *
+ * O local vai como `locationId`, não `localId` como diz a documentação: o Sienge ignora `localId` em
+ * silêncio (a foto entra sem local) e grava o local com `locationId` (confirmado no Atmos em 24/11/2026:
+ * `locationId=10` virou "6º Pavimento", o mesmo código de local que as atividades usam em `siteId`). */
 export async function uploadDailyAttachment(
   buildingId: number,
   id: number,
@@ -186,11 +239,21 @@ export async function uploadDailyAttachment(
   file: { name: string; bytes: Buffer },
 ): Promise<void> {
   const form = new FormData();
-  form.append('file', new Blob([new Uint8Array(file.bytes)], { type: 'image/jpeg' }), attachmentFileName(file.name));
+  form.append('file', new Blob([new Uint8Array(withExifHeader(file.bytes))], { type: 'image/jpeg' }), attachmentFileName(file.name));
+  // A consulta vai pronta no caminho (sem `query`), para o percentual em Latin-1 não ser refeito em UTF-8.
+  const params = (
+    [
+      ['description', query.description],
+      ['locationId', query.localId],
+      ['showInReports', query.showInReports],
+    ] as const
+  )
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${latin1QueryValue(String(value))}`)
+    .join('&');
   await counted(contador =>
-    siengeRequest(contador, `${BASE}/${buildingId}/${id}/attachments`, {
+    siengeRequest(contador, `${BASE}/${buildingId}/${id}/attachments?${params}`, {
       method: 'POST',
-      query: { description: query.description, localId: query.localId, showInReports: query.showInReports },
       form,
       timeoutMs: UPLOAD_TIMEOUT_MS,
     }),
