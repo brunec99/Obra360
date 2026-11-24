@@ -7,6 +7,7 @@ import {
   type SiengeEnterprise,
   type SiengeSheetSummary,
 } from '@/domain/sienge-budget';
+import { enviarConsumo, novoContador, type ContadorSienge } from './consumo';
 
 /** Cliente da API do Sienge (23/11/2026), só leitura. Importado apenas por Route Handlers: a credencial
  * nunca entra em módulo do navegador.
@@ -64,7 +65,7 @@ function messageFor(status: number) {
   return 'O Sienge não conseguiu atender a consulta.';
 }
 
-async function request(path: string, query: Record<string, string | number> = {}): Promise<unknown> {
+async function request(contador: ContadorSienge, path: string, query: Record<string, string | number> = {}): Promise<unknown> {
   const config = siengeConfigFromEnv();
   if (!config) throw new SiengeError(SIENGE_NOT_CONFIGURED, 503);
   const url = new URL(`https://api.sienge.com.br/${config.subdomain}/public/api/v1${path}`);
@@ -73,6 +74,8 @@ async function request(path: string, query: Record<string, string | number> = {}
   let last: SiengeError | undefined;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     await throttle();
+    // Conta a tentativa antes do fetch (contrato consumo/1): nova tentativa também é chamada paga.
+    contador.conta();
     let response: Response;
     try {
       response = await fetch(url, {
@@ -106,10 +109,10 @@ async function request(path: string, query: Record<string, string | number> = {}
 }
 
 /** Percorre as páginas de uma rota REST do Sienge (`results` + `limit`/`offset`). */
-async function collect(path: string): Promise<unknown[]> {
+async function collect(contador: ContadorSienge, path: string): Promise<unknown[]> {
   const all: unknown[] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
-    const body = (await request(path, { limit: PAGE, offset: page * PAGE })) as { results?: unknown } | null;
+    const body = (await request(contador, path, { limit: PAGE, offset: page * PAGE })) as { results?: unknown } | null;
     const results = Array.isArray(body?.results) ? body.results : [];
     all.push(...results);
     if (results.length < PAGE) break;
@@ -118,19 +121,33 @@ async function collect(path: string): Promise<unknown[]> {
 }
 
 export async function listEnterprises(): Promise<SiengeEnterprise[]> {
-  return normalizeEnterprises(await collect('/enterprises'));
+  const contador = novoContador('empreendimentos');
+  try {
+    return normalizeEnterprises(await collect(contador, '/enterprises'));
+  } finally {
+    await enviarConsumo(contador);
+  }
 }
 
 /** Orçamento inteiro de um empreendimento: as unidades construtivas e os itens com valor de cada uma.
  * As unidades são lidas três de cada vez; o intervalo entre chamadas continua valendo para todas. */
 export async function fetchBudget(buildingId: number): Promise<SiengeBudget> {
-  const sheets = normalizeSheets(await collect(`/building-cost-estimations/${buildingId}/sheets`));
+  const contador = novoContador('orcamento');
+  try {
+    return await readBudget(contador, buildingId);
+  } finally {
+    await enviarConsumo(contador);
+  }
+}
+
+async function readBudget(contador: ContadorSienge, buildingId: number): Promise<SiengeBudget> {
+  const sheets = normalizeSheets(await collect(contador, `/building-cost-estimations/${buildingId}/sheets`));
   const summaries: SiengeSheetSummary[] = [];
   const linesBySheet = new Map<number, SiengeBudgetLine[]>();
   const queue = [...sheets];
   const worker = async () => {
     for (let sheet = queue.shift(); sheet; sheet = queue.shift()) {
-      const read = normalizeSheetItems(sheet, await collect(`/building-cost-estimations/${buildingId}/sheets/${sheet.id}/items`));
+      const read = normalizeSheetItems(sheet, await collect(contador, `/building-cost-estimations/${buildingId}/sheets/${sheet.id}/items`));
       summaries.push(read.summary);
       linesBySheet.set(sheet.id, read.lines);
     }

@@ -48,6 +48,8 @@ export interface SiengeBudget {
   total: number;
   /** Carimbo ISO da leitura no Sienge. */
   readAt: string;
+  /** A partir de quando o servidor faz nova leitura no Sienge (intervalo mínimo de 15 minutos). */
+  nextReadAt?: string;
 }
 
 /** Código de empreendimento do Sienge: inteiro positivo de até 9 dígitos. */
