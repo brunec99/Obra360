@@ -205,7 +205,7 @@ Antes de enviar, a tela confere o diário e mostra o que impede e o que vai fica
 
 ### O que não impede, mas fica de fora
 
-- Sem o seu **usuário do Sienge** informado, o diário vai com o usuário da integração (SIENGEAPI) como responsável.
+- Sem o seu **usuário do Sienge** ligado, o envio fica bloqueado (veja "Seu usuário do Sienge").
 - Empresa **sem tipo de equipe do Sienge**: a mão de obra dela não segue (continua no histograma).
 - Atividade com local **sem código do Sienge**: vai sem local.
 - Foto sem local ligado ao Sienge: fica fora do Relatório Fotográfico.
@@ -259,7 +259,11 @@ Em **Configurações da obra**, seção **"Orçamento do Sienge"**, o administra
 
 ### 2. Seu usuário do Sienge
 
-Cada pessoa informa, uma vez, o próprio **código de usuário do Sienge**. Ele fica guardado no cadastro dela e vai como **responsável** de todo diário que ela enviar.
+Cada pessoa liga, uma vez, o próprio **usuário do Sienge** (o login com que entra no Sienge, como JOAO.SILVA). Ele fica guardado no cadastro dela e vai como **responsável** de todo diário que ela enviar. **É obrigatório:** enquanto não estiver ligado, o diário mostra no alto o aviso "Ligue seu usuário do Sienge" e o envio fica bloqueado.
+
+Para facilitar, o aviso oferece **"Sou eu: …"** com os códigos do Sienge que parecem ser da pessoa (pelo nome e pelo e-mail) e uma lista com os usuários que já assinam diários no Sienge. Dá para trocar depois em "Ligações com o Sienge".
+
+Por que é obrigatório: o sistema fala com o Sienge por um usuário de integração. O Sienge registra esse usuário como quem cadastrou o diário ("SIENGEAPI"); o que mostra quem fez é o **responsável**. Sem o usuário de cada pessoa, todo diário sairia com o mesmo responsável.
 
 ### 3. Local da obra × local do Sienge
 

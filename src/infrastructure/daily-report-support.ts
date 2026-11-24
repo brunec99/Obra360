@@ -5,7 +5,9 @@ import type { User } from '@/domain/entities';
 import type { HeadcountEntry } from '@/domain/headcount';
 import { requireModuleAccess } from '@/infrastructure/auth/supabase-server';
 import { siengeConfigFromEnv, SiengeError } from '@/infrastructure/integrations/sienge/client';
-import { listDailyReportTypes, listSites } from '@/infrastructure/integrations/sienge/daily-report';
+import { listDailyReportTypes, listDailyResponsibles, listSites } from '@/infrastructure/integrations/sienge/daily-report';
+import { matchSiengeUsers } from '@/domain/sienge-daily-report';
+import { todayInSaoPaulo } from '@/infrastructure/clock';
 import { logRouteError } from '@/infrastructure/log';
 import {
   loadCompanyLinks,
@@ -42,17 +44,22 @@ export async function dailyBody(request: Request): Promise<Record<string, unknow
 }
 export const dailyText = (value: unknown) => (typeof value === 'string' ? value : '');
 
-type SiengeLists = Pick<DailySupport, 'siengeConfigured' | 'eventTypes' | 'crewTypes' | 'equipmentTypes' | 'sites' | 'supportError'>;
+type SiengeLists = Pick<
+  DailySupport,
+  'siengeConfigured' | 'eventTypes' | 'crewTypes' | 'equipmentTypes' | 'sites' | 'supportError' | 'siengeUsers'
+>;
 
 /** As listas do Sienge para a tela. Tudo aqui é opcional: sem as variáveis, sem empreendimento ligado ou
  * com o Sienge fora, as listas vêm vazias (`sites: null`) e `supportError` diz o porquê em uma frase.
- * Nunca lança. A lista de locais responder 403 (o caso de hoje) não é erro: `sites` vem nulo e a tela
- * liga o local pelo código. */
+ * Nunca lança. A lista de locais responder 403 (o caso até a liberação de 24/11/2026) não é erro: `sites`
+ * vem nulo e a tela liga o local pelo código. */
 export async function loadSiengeLists(buildingId: number | null, context: Record<string, unknown> = {}): Promise<SiengeLists> {
   const empty = { eventTypes: [] as SiengeOption[], crewTypes: [] as SiengeOption[], equipmentTypes: [] as SiengeOption[], sites: null };
+  const noUsers: string[] = [];
   if (!siengeConfigFromEnv())
     return {
       ...empty,
+      siengeUsers: noUsers,
       siengeConfigured: false,
       supportError: 'O Sienge não está configurado no servidor: as listas do Sienge não foram carregadas.',
     };
@@ -61,10 +68,14 @@ export async function loadSiengeLists(buildingId: number | null, context: Record
     logRouteError('diario loadSiengeLists', error, context);
     return `Não foi possível ler ${what} do Sienge.`;
   };
-  const [types, sites] = await Promise.allSettled([
+  const [types, sites, users] = await Promise.allSettled([
     listDailyReportTypes(),
     buildingId === null ? Promise.resolve(null) : listSites(buildingId),
+    listDailyResponsibles(todayInSaoPaulo()),
   ]);
+  // A lista de usuários é só sugestão: se falhar, a pessoa digita o código e nada é avisado.
+  if (users.status === 'rejected' && !(users.reason instanceof SiengeError))
+    logRouteError('diario listDailyResponsibles', users.reason, context);
   const errors: string[] = [];
   if (types.status === 'rejected') errors.push(reason(types.reason, 'os tipos de ocorrência, equipe e equipamento'));
   if (sites.status === 'rejected') errors.push(reason(sites.reason, 'os locais'));
@@ -72,6 +83,7 @@ export async function loadSiengeLists(buildingId: number | null, context: Record
   return {
     ...(types.status === 'fulfilled' ? types.value : empty),
     sites: sites.status === 'fulfilled' ? sites.value : null,
+    siengeUsers: users.status === 'fulfilled' ? users.value : noUsers,
     siengeConfigured: true,
     supportError: errors.join(' '),
   };
@@ -85,9 +97,10 @@ const distinct = (values: string[]) =>
 export async function loadDailySupport(
   workId: string,
   date: string,
-  profileId: string,
+  person: { id: string; name: string; email?: string | null },
   headcount: readonly HeadcountEntry[],
 ): Promise<DailySupport> {
+  const profileId = person.id;
   const siengeBuildingId = await loadSiengeBuildingId(workId);
   const [lists, locals, companyLinks, commitments, siengeUserCode] = await Promise.all([
     loadSiengeLists(siengeBuildingId, { actorId: profileId, workId }),
@@ -105,5 +118,6 @@ export async function loadDailySupport(
     roles: distinct(headcount.map(entry => entry.role)),
     commitments,
     siengeUserCode,
+    siengeUserMatches: siengeUserCode ? [] : matchSiengeUsers(person, lists.siengeUsers),
   };
 }

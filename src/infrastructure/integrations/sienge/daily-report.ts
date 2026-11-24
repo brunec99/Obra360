@@ -128,6 +128,26 @@ export async function listSites(buildingId: number): Promise<SiengeOption[] | nu
   }
 }
 
+/** Os códigos de usuário do Sienge que assinam diários (o responsável dos diários de todas as obras no
+ * último ano), em maiúsculas e sem o usuário da integração (SIENGEAPI). Servem de lista para cada pessoa
+ * escolher o próprio código em vez de digitar. Uma hora na memória do processo: muda pouco e custa algumas
+ * páginas. `today` é a data de hoje (`yyyy-MM-dd`). */
+export async function listDailyResponsibles(today: string): Promise<string[]> {
+  const hit = cached<string[]>('responsibles');
+  if (hit) return hit.value;
+  const from = new Date(`${today}T12:00:00Z`);
+  from.setUTCFullYear(from.getUTCFullYear() - 1);
+  const results = await counted(contador => collect(contador, BASE, { startDate: from.toISOString().slice(0, 10), endDate: today }));
+  const codes = new Set<string>();
+  for (const raw of results) {
+    const code = (raw as { responsibleId?: unknown } | null)?.responsibleId;
+    if (typeof code === 'string' && code.trim() && code.trim().toUpperCase() !== 'SIENGEAPI') codes.add(code.trim().toUpperCase());
+  }
+  const list = [...codes].sort((a, b) => a.localeCompare(b));
+  cache.set('responsibles', { until: Date.now() + 6 * CACHE_MS, value: list });
+  return list;
+}
+
 /** O número do diário que o Sienge já tem para o empreendimento na data, ou `null`. */
 export async function findDailyReportByDate(buildingId: number, date: string): Promise<number | null> {
   const results = await counted(contador => collect(contador, BASE, { buildingId, startDate: date, endDate: date }));

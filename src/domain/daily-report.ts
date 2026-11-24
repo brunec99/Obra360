@@ -266,8 +266,15 @@ export interface DailySupport {
   roles: string[];
   /** Compromissos do curto prazo da semana da data. */
   commitments: { id: string; name: string; supplier: string; localId: string | null }[];
-  /** Código de usuário do Sienge de quem está logado; vazio se ainda não informou. */
+  /** Código de usuário do Sienge de quem está logado; vazio se ainda não informou. Sem ele o envio é
+   * impedido: é o que liga a pessoa ao Sienge (vai como responsável do diário). */
   siengeUserCode: string;
+  /** Códigos que já assinam diários no Sienge (os responsáveis dos diários do último ano), para a pessoa
+   * escolher o dela numa lista em vez de digitar. Vazio quando o Sienge não respondeu. */
+  siengeUsers: string[];
+  /** Os códigos dessa lista que parecem ser de quem está logado (pelo nome e pelo e-mail), o mais provável
+   * primeiro; a tela oferece "Sou eu". */
+  siengeUserMatches: string[];
 }
 
 export interface DailyDaySummary {

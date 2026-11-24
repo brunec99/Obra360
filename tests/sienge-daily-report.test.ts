@@ -10,6 +10,7 @@ import {
   type SiengeOption,
 } from '../src/domain/daily-report';
 import {
+  matchSiengeUsers,
   SIENGE_SHIFT,
   SIENGE_WEATHER,
   buildSiengeDailyReport,
@@ -163,12 +164,13 @@ test('opcionais vazios ficam fora do corpo', () => {
         crews: [],
         photos: [],
       },
-      { siengeUserCode: '' },
+      { siengeUserCode: ' MARIA.SILVA ' },
     ),
   );
   assert.deepEqual(result.body, {
     buildingId: 32,
     date: '2026-11-23',
+    responsibleId: 'MARIA.SILVA',
     shifts: [{ description: SIENGE_SHIFT.night, startTime: '18:00', finishTime: '22:00', weatherCondition: SIENGE_WEATHER.unworkable }],
     detachedTasks: [{ description: 'Vigia' }],
   });
@@ -283,47 +285,52 @@ test('bloqueios: sem empreendimento, sem turno, hora inválida, foto sem descri�
   assert.match(buildSiengeDailyReport(input({ photos: [photo('p-1', { description: '' })] })).blocking[0], /^1 foto sem descrição/);
 
   // Os bloqueios se somam e os avisos continuam aparecendo.
-  const all = buildSiengeDailyReport(input({ report: report({ shifts: [] }) }, { siengeBuildingId: null, siengeUserCode: '' }));
-  assert.equal(all.blocking.length, 2);
+  const all = buildSiengeDailyReport(
+    input({ report: report({ shifts: [] }), photos: [photo('p-1', { localId: null })] }, { siengeBuildingId: null, siengeUserCode: '' }),
+  );
+  assert.equal(all.blocking.length, 3);
   assert.equal(all.warnings.length, 1);
+
+  // Sem o usuário do Sienge ligado o envio é impedido (decisão de 24/11/2026): o Sienge gravaria SIENGEAPI.
+  const noUser = buildSiengeDailyReport(input({}, { siengeUserCode: '  ' }));
+  assert.equal(noUser.body, null);
+  assert.deepEqual(noUser.blocking, [
+    'Ligue seu usuário do Sienge antes de enviar (em "Ligações com o Sienge"): ele vai como responsável do diário.',
+  ]);
 });
 
-test('avisos: empresa sem tipo de equipe, atividade e foto sem local do Sienge, usuário não informado', () => {
+test('avisos: empresa sem tipo de equipe, atividade e foto sem local do Sienge', () => {
   const result = buildSiengeDailyReport(
-    input(
-      {
-        report: report({
-          tasks: [
-            { id: 't-1', description: 'Escavação', quantity: 3, unit: 'm3', localId: 'loc-2', notes: '', commitmentId: null },
-            { id: 't-2', description: 'Forma', quantity: null, unit: '', localId: 'loc-apagado', notes: '', commitmentId: null },
-            { id: 't-3', description: 'Alvenaria', quantity: null, unit: '', localId: 'loc-1', notes: '', commitmentId: null },
-          ],
-        }),
-        crews: [
-          ...CREWS,
-          { company: 'Zeta Pinturas', role: 'Pintor', quantity: 2 },
-          { company: 'Beta Gesso', role: 'Gesseiro', quantity: 3 },
-          { company: 'beta gesso', role: 'Ajudante', quantity: 1 },
+    input({
+      report: report({
+        tasks: [
+          { id: 't-1', description: 'Escavação', quantity: 3, unit: 'm3', localId: 'loc-2', notes: '', commitmentId: null },
+          { id: 't-2', description: 'Forma', quantity: null, unit: '', localId: 'loc-apagado', notes: '', commitmentId: null },
+          { id: 't-3', description: 'Alvenaria', quantity: null, unit: '', localId: 'loc-1', notes: '', commitmentId: null },
         ],
-        photos: [
-          photo('p-1'),
-          photo('p-2', { localId: null, showInReports: false }),
-          photo('p-3', { localId: 'loc-2' }),
-          photo('p-4', { localId: null, siengeStatus: 'sent' }),
-        ],
-      },
-      { siengeUserCode: '  ' },
-    ),
+      }),
+      crews: [
+        ...CREWS,
+        { company: 'Zeta Pinturas', role: 'Pintor', quantity: 2 },
+        { company: 'Beta Gesso', role: 'Gesseiro', quantity: 3 },
+        { company: 'beta gesso', role: 'Ajudante', quantity: 1 },
+      ],
+      photos: [
+        photo('p-1'),
+        photo('p-2', { localId: null, showInReports: false }),
+        photo('p-3', { localId: 'loc-2' }),
+        photo('p-4', { localId: null, siengeStatus: 'sent' }),
+      ],
+    }),
   );
   assert.deepEqual(result.blocking, []);
   assert.deepEqual(result.warnings, [
     '2 fotos sem local ligado ao Sienge: ficam fora do Relatório Fotográfico.',
     'Empresas sem tipo de equipe no Sienge (a mão de obra delas não segue): Beta Gesso, Zeta Pinturas.',
     '2 atividades com local sem código do Sienge: vão sem local.',
-    'Seu usuário do Sienge não foi informado: o diário vai com o usuário da integração (SIENGEAPI) como responsável.',
   ]);
   const body = result.body!;
-  assert.equal(body.responsibleId, undefined);
+  assert.equal(body.responsibleId, 'BRUNO');
   assert.deepEqual(body.detachedTasks, [
     { description: 'Escavação', quantity: 3, unitOfMeasure: 'm3' },
     { description: 'Forma' },
@@ -366,4 +373,22 @@ test('parâmetros do anexo: local e relatório só com o local ligado ao Sienge'
   assert.deepEqual(siengePhotoQuery(photo('p-1', { localId: 'loc-2' }), LOCALS), { description: 'Concretagem' });
   assert.deepEqual(siengePhotoQuery(photo('p-1', { localId: null }), LOCALS), { description: 'Concretagem' });
   assert.deepEqual(siengePhotoQuery(photo('p-1', { localId: 'loc-apagado' }), LOCALS), { description: 'Concretagem' });
+});
+
+test('usuário do Sienge: sugere o código pelo primeiro nome ou pelo e-mail, o mais parecido primeiro', () => {
+  const codes = ['JENNEFER.SIATKOVSKI', 'JONATAN.SILVA', 'JORGE.PEREIRA', 'JORGE.SANTOS', 'ANA.SOUZA', 'ADMIN'];
+  assert.deepEqual(matchSiengeUsers({ name: 'Jennefer Siatkovski', email: 'jennefer.engenharia@atrincorporadora.com.br' }, codes), [
+    'JENNEFER.SIATKOVSKI',
+  ]);
+  // Nome cadastrado diferente ("Jonatam"), mas o e-mail acha.
+  assert.deepEqual(matchSiengeUsers({ name: 'Jonatam', email: 'jonatan.engenharia@atrincorporadora.com.br' }, codes), ['JONATAN.SILVA']);
+  // Dois Jorges: o que tem mais partes do nome vem antes.
+  assert.deepEqual(matchSiengeUsers({ name: 'Jorge Lucas Pereira', email: 'jorge.engenharia@atrincorporadora.com.br' }, codes), [
+    'JORGE.PEREIRA',
+    'JORGE.SANTOS',
+  ]);
+  // Acento e caixa não atrapalham; nome curto demais e "engenharia" do e-mail não contam.
+  assert.deepEqual(matchSiengeUsers({ name: 'Ána Micrute', email: 'ana.engenharia@x.com' }, codes), ['ANA.SOUZA']);
+  assert.deepEqual(matchSiengeUsers({ name: 'Zé', email: 'engenharia@x.com' }, codes), []);
+  assert.deepEqual(matchSiengeUsers({ name: 'Pedro', email: null }, codes), []);
 });

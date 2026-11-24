@@ -172,9 +172,11 @@ export function buildSiengeDailyReport(input: SiengeBuildInput): SiengeBuildResu
       `${plural(tasksWithoutSite, 'atividade', 'atividades')} com local sem código do Sienge: ${tasksWithoutSite === 1 ? 'vai' : 'vão'} sem local.`,
     );
 
+  // Sem o usuário do Sienge ligado, o Sienge gravaria o usuário da integração (SIENGEAPI) como responsável
+  // e todo diário pareceria feito pela mesma pessoa. Decisão do usuário (24/11/2026): ligar é obrigatório.
   const responsibleId = support.siengeUserCode.trim();
   if (!responsibleId)
-    warnings.push('Seu usuário do Sienge não foi informado: o diário vai com o usuário da integração (SIENGEAPI) como responsável.');
+    blocking.push('Ligue seu usuário do Sienge antes de enviar (em "Ligações com o Sienge"): ele vai como responsável do diário.');
 
   if (blocking.length || support.siengeBuildingId === null) return { body: null, blocking, warnings };
 
@@ -219,4 +221,38 @@ export function siengePhotoQuery(
   const siteId = photo.localId === null ? null : (locals.find(local => local.id === photo.localId)?.siengeSiteId ?? null);
   if (siteId === null) return { description };
   return { description, localId: siteId, showInReports: photo.showInReports };
+}
+
+/* ---------- usuário do Sienge de quem preenche ---------- */
+
+/** Partes do e-mail que não são nome (engenharia@, obra@, sst@...). */
+const NOT_NAME = new Set(['engenharia', 'obra', 'obras', 'sst', 'almoxarifado', 'contato', 'financeiro', 'adm', 'administrativo']);
+const tokens = (text: string) =>
+  text
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(token => token.length >= 3 && !NOT_NAME.has(token));
+
+/** Os códigos de usuário do Sienge que parecem ser da pessoa, o mais provável primeiro (no máximo 3). O
+ * código do Sienge costuma ser NOME.SOBRENOME ("JENNEFER.SIATKOVSKI"): exige que a primeira parte do código
+ * seja o primeiro nome da pessoa ou a primeira parte do e-mail ("jonatan.engenharia@" acha "JONATAN.SILVA",
+ * mesmo com o nome cadastrado como "Jonatam"), e cada outra parte que também bate soma pontos. Puro. */
+export function matchSiengeUsers(person: { name: string; email?: string | null }, codes: readonly string[]): string[] {
+  const nameTokens = tokens(person.name);
+  const emailTokens = tokens((person.email ?? '').split('@')[0] ?? '');
+  const firsts = new Set([nameTokens[0], emailTokens[0]].filter(Boolean));
+  const all = new Set([...nameTokens, ...emailTokens]);
+  if (!firsts.size) return [];
+  return codes
+    .map(code => {
+      const parts = tokens(code);
+      if (!parts.length || !firsts.has(parts[0])) return null;
+      return { code, score: 2 + parts.slice(1).filter(part => all.has(part)).length };
+    })
+    .filter((item): item is { code: string; score: number } => item !== null)
+    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
+    .slice(0, 3)
+    .map(item => item.code);
 }

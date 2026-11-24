@@ -54,7 +54,7 @@ import {
   ShiftsSection,
   TasksSection,
 } from './diary-sections';
-import { ConferencePanel, LinksPanel, LOCK_TEXT, SendDialog, type SendStep } from './diary-send';
+import { ConferencePanel, LinksPanel, LOCK_TEXT, SendDialog, SiengeUserPrompt, type SendStep } from './diary-send';
 import {
   addPhoto,
   changePhoto,
@@ -630,6 +630,7 @@ export function DiaryEditor({
         </p>
       )}
       {!day.canEdit && <p className="callout callout-info">{DAILY_READ_ONLY_MESSAGE}</p>}
+      {day.canEdit && !sent && !conflict && !support.siengeUserCode && <SiengeUserPrompt support={support} onCommand={sideCommand} />}
       {sent && (
         <div className="callout callout-success grid gap-2">
           <p>

@@ -231,6 +231,71 @@ export function SendDialog({
 
 /* ---------- Ligações com o Sienge ---------- */
 
+/** Aviso no alto do diário enquanto a pessoa não ligou o usuário dela do Sienge. Ligar é obrigatório para
+ * enviar (24/11/2026): sem o código, o Sienge gravaria o usuário da integração (SIENGEAPI) como responsável
+ * de todos os diários. Oferece "Sou eu" com os códigos que parecem ser dela e uma lista com os códigos que já
+ * assinam diários no Sienge, para não precisar digitar. */
+export function SiengeUserPrompt({ support, onCommand }: { support: DailySupport; onCommand: (command: DiarySideCommand) => void }) {
+  const [code, setCode] = useState('');
+  const matches = support.siengeUserMatches ?? [];
+  const users = support.siengeUsers ?? [];
+  const clean = code.trim().toUpperCase();
+  const save = (value: string) => {
+    if (value) onCommand({ type: 'set_sienge_user', code: value });
+  };
+  return (
+    <section className="callout callout-warning grid gap-3" aria-labelledby="diario-usuario-sienge">
+      <div className="grid gap-1">
+        <h2 id="diario-usuario-sienge" className="text-sm font-bold">
+          Ligue seu usuário do Sienge
+        </h2>
+        <p className="text-sm">
+          É o login com que você entra no Sienge. Ele vai como responsável de cada diário que você enviar, e sem ele o envio fica bloqueado.
+          Você faz isso uma vez só.
+        </p>
+      </div>
+      {matches.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {matches.map(match => (
+            <button key={match} type="button" className="button-secondary min-h-11" onClick={() => save(match)}>
+              <Check size={16} aria-hidden />
+              Sou eu: {match}
+            </button>
+          ))}
+        </div>
+      )}
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={event => {
+          event.preventDefault();
+          save(clean);
+        }}
+      >
+        <input
+          className={`${inputClass} min-w-0 flex-1 basis-48`}
+          list="diario-usuarios-sienge"
+          aria-label="Seu usuário no Sienge"
+          placeholder={matches.length ? 'Ou digite outro código' : 'Ex.: MARIA.SILVA'}
+          autoCapitalize="characters"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={DAILY_LIMITS.siengeUserCode}
+          value={code}
+          onChange={event => setCode(event.target.value)}
+        />
+        <datalist id="diario-usuarios-sienge">
+          {users.map(user => (
+            <option key={user} value={user} />
+          ))}
+        </datalist>
+        <button type="submit" className="button min-h-11" disabled={!clean}>
+          Salvar
+        </button>
+      </form>
+    </section>
+  );
+}
+
 /** Campo que só grava ao sair dele (ou no Enter): o código é digitado inteiro antes de virar comando. */
 function CommitInput({
   value,
@@ -297,18 +362,27 @@ export function LinksPanel({
               spellCheck={false}
               maxLength={DAILY_LIMITS.siengeUserCode}
               placeholder="Ex.: MARIA.SILVA"
+              list="diario-usuarios-sienge-ligacoes"
               value={support.siengeUserCode}
               onCommit={code => onCommand({ type: 'set_sienge_user', code: code.toUpperCase() })}
             />
           </Label>
-          <Hint>É o código com que você entra no Sienge. Vai como responsável do diário e fica guardado no seu cadastro.</Hint>
+          <datalist id="diario-usuarios-sienge-ligacoes">
+            {(support.siengeUsers ?? []).map(user => (
+              <option key={user} value={user} />
+            ))}
+          </datalist>
+          <Hint>
+            É o login com que você entra no Sienge. Vai como responsável do diário e fica guardado no seu cadastro. Sem ele o envio fica
+            bloqueado.
+          </Hint>
         </div>
 
         <div className="grid gap-2">
           <h3 className="text-sm font-semibold text-slate-800">Locais</h3>
           {support.sites === null && (
             <Hint tone="warning">
-              A consulta de locais do Sienge ainda não está liberada no usuário de API. Até lá, informe o código do local no Sienge à mão.
+              Não foi possível ler os locais do Sienge agora. Informe o código do local no Sienge à mão ou tente de novo mais tarde.
             </Hint>
           )}
           {support.locals.length === 0 ? (

@@ -58,7 +58,8 @@ Obra 360 quando o sinal volta. Subir para o Obra 360 não é enviar ao Sienge.
    a tipo de equipe.
 9. **Ligações.** A obra precisa estar ligada ao empreendimento em Configurações da obra ("Orçamento do
    Sienge", já existente, migração 0057). O código de usuário do Sienge é de cada pessoa
-   (`profiles.sienge_user_code`) e vai como responsável. O local da obra guarda o código do local do
+   (`profiles.sienge_user_code`) e vai como responsável; **ligar é obrigatório para enviar** (ver a decisão
+   13). O local da obra guarda o código do local do
    Sienge (`lob_locals.sienge_site_id`). A empresa ↔ tipo de equipe vale para todas as obras
    (`sienge_crew_links`) e é automática quando o nome é igual ao do tipo de equipe.
 10. **Gravação com versão.** `version` sobe a cada gravação; o servidor recusa a de quem leu uma versão
@@ -67,6 +68,18 @@ Obra 360 quando o sinal volta. Subir para o Obra 360 não é enviar ao Sienge.
     `/api/diario`, e a falta das tabelas derruba só este módulo.
 12. **O modo de campo fica fora do proxy** (`/campo/` é casca estática guardada pelo service worker, como
     o da terminalidade); quem autoriza são as APIs, que seguem o módulo.
+
+13. **Cada pessoa liga o próprio usuário do Sienge, e sem ele não há envio** (pedido do usuário em
+    24/11/2026, no modelo do sistema do Thiago, em que a pessoa liga o usuário do Sienge ao dela). A API
+    pública do Sienge só aceita usuário de integração (criado no Painel de Integrações), então o Sienge
+    registra esse usuário como quem cadastrou o diário ("SIENGEAPI") em todos os envios; o que identifica a
+    pessoa é o **responsável** (`responsibleId`), que vai com o código ligado. Enquanto a pessoa não liga, o
+    diário mostra no alto "Ligue seu usuário do Sienge", com "Sou eu: …" para os códigos que parecem ser dela
+    (`matchSiengeUsers`, pelo primeiro nome ou pelo e-mail) e uma lista com os responsáveis dos diários do
+    último ano no Sienge (`listDailyResponsibles`, uma hora em memória). A conferência bloqueia o envio sem o
+    código. Fazer o Sienge registrar a própria pessoa como quem cadastrou exigiria um usuário de integração
+    por pessoa, criado pelo administrador do Sienge, com a senha de cada um guardada no Obra 360; não foi
+    feito.
 
 ## Integração com o Sienge
 
@@ -100,7 +113,8 @@ Atmos sai com o nº 376. O que ficou confirmado:
    Forte/Impraticável".
 2. Atividade avulsa com `siteId`, ocorrência, equipe por tipo (`crewTypeId`, origem "type") e equipamento
    por tipo entram como enviados.
-3. **Sem `responsibleId`, o Sienge grava "SIENGEAPI"** (o usuário da integração) como responsável.
+3. **Sem `responsibleId`, o Sienge grava "SIENGEAPI"** (o usuário da integração) como responsável. Por isso
+   ligar o usuário do Sienge passou a ser obrigatório (decisão 13).
 4. **O local da foto vai em `locationId`.** A documentação diz `localId`, que o Sienge ignora em silêncio.
    Com `locationId=10` a foto ficou em "6º Pavimento", o mesmo código que as atividades usam em `siteId`:
    locais de atividade e de foto são o mesmo cadastro.
@@ -120,7 +134,7 @@ Atmos sai com o nº 376. O que ficou confirmado:
 | --- | --- | --- |
 | obra (`work_settings.sienge_building_id`) | `buildingId` | sem a ligação, o envio é impedido |
 | data do diário | `date` (`yyyy-MM-dd`) | |
-| código de usuário de quem envia (`profiles.sienge_user_code`) | `responsibleId` | sem ele o Sienge grava "SIENGEAPI" (aviso na tela) |
+| código de usuário de quem envia (`profiles.sienge_user_code`) | `responsibleId` | obrigatório: sem ele o envio é bloqueado (o Sienge gravaria "SIENGEAPI") |
 | índice pluviométrico (mm) | `rainfallIndex` | de 0 a menos de 9999,99; vazio não vai |
 | observações | `notes` | até 4.000 caracteres; vazio não vai |
 | turno (manhã, tarde, noite) | `shifts[].description` | em inglês (`Morning`, `Afternoon`, `Night`); confirmado |
@@ -218,8 +232,7 @@ Em 24/11/2026, no branch `diario-de-obra`:
 
 - **Publicar** (merge do PR #10 no `main`). A 0059 já está aplicada.
 - **Primeiro diário de verdade pela tela**, no Atmos, com quem preenche hoje no Sienge.
-- **Liberar o módulo** para quem preenche em cada obra (Configurações → Usuários → Módulos) e pedir a
-  cada pessoa o código de usuário do Sienge.
+- **Cada pessoa ligar o usuário do Sienge** na primeira vez que abrir o diário (o aviso no alto pede).
 - **Ligar os locais que faltam.** No Atmos, os 19 locais com correspondente claro no Sienge foram ligados
   direto no banco em 24/11/2026 (`lob_locals.sienge_site_id`: Subsolo 01 → 3 Subsolo, Térreo → 4,
   Mezanino → 5, 2º a 15º pavto → 6 a 19, Caixa de água → 20 Caixa d'água, Cobertura → 21). Os 29 restantes

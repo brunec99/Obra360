@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { canAdminDailyReport, canWriteDailyReport, crewsOfDay, lastCrewsBefore } from '@/application/use-cases/daily-report-commands';
 import type { DailyReportResponse } from '@/domain/daily-report';
 import { validateDate } from '@/domain/validation';
+import { getAuthUser } from '@/infrastructure/auth/supabase-server';
 import { todayInSaoPaulo } from '@/infrastructure/clock';
 import { dailyError, dailyGate, dailyHeaders, loadDailySupport } from '@/infrastructure/daily-report-support';
 import { logRouteError } from '@/infrastructure/log';
@@ -59,7 +60,12 @@ export async function GET(request: NextRequest) {
     ]);
     const [photos, support] = await Promise.all([
       signDailyPhotos(current.photos),
-      loadDailySupport(workId, date, profile.id, headcount.entries),
+      loadDailySupport(
+        workId,
+        date,
+        { id: profile.id, name: profile.name, email: (await getAuthUser().catch(() => null))?.email },
+        headcount.entries,
+      ),
     ]);
     const body: DailyReportResponse = {
       available: true,
