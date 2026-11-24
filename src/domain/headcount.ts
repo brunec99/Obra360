@@ -325,17 +325,20 @@ export function crewsOfDay(entries: readonly HeadcountEntry[], day: string): Hea
   return list.sort((a, b) => Number(b.own) - Number(a.own) || b.total - a.total || a.company.localeCompare(b.company));
 }
 
-/** Empresas e funções já lançadas na obra, da mais usada para a menos: as sugestões da tela. */
+/** Empresas e funções já lançadas na obra, em ordem alfabética: as sugestões da tela. Até 24/11/2026 a
+ * ordem era a da mais usada; o Jorge (Atmos) pediu a alfabética, que é como se procura numa lista longa.
+ * Acento e maiúscula não mudam a posição ("Ótica" fica entre "Operador" e "Pedreiro") e os números contam
+ * pelo valor ("Equipe 2" antes de "Equipe 10"). Grafias diferentes do mesmo nome viram uma só, a primeira
+ * lançada. */
 export function headcountCatalog(entries: readonly HeadcountEntry[]): { companies: string[]; roles: string[] } {
-  const count = (pick: (e: HeadcountEntry) => string) => {
-    const uses = new Map<string, { name: string; uses: number }>();
+  const collator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
+  const names = (pick: (e: HeadcountEntry) => string) => {
+    const unique = new Map<string, string>();
     for (const entry of entries) {
       const key = headcountKey(pick(entry));
-      const item = uses.get(key);
-      if (item) item.uses++;
-      else uses.set(key, { name: pick(entry), uses: 1 });
+      if (!unique.has(key)) unique.set(key, pick(entry));
     }
-    return [...uses.values()].sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name)).map(item => item.name);
+    return [...unique.values()].sort(collator.compare);
   };
-  return { companies: count(e => e.company), roles: count(e => e.role) };
+  return { companies: names(e => e.company), roles: names(e => e.role) };
 }

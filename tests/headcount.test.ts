@@ -157,8 +157,26 @@ test('folha do dia: próprio primeiro, depois as maiores; catálogo do mais usad
     ],
   );
   const catalog = headcountCatalog(WEEK);
-  assert.equal(catalog.companies[0], 'AWA');
-  assert.equal(catalog.roles[0], 'Carpinteiro');
+  assert.deepEqual(catalog.companies, ['ATR', 'AWA', 'Hidrotec']);
+  assert.deepEqual(catalog.roles, ['Carpinteiro', 'Encanador', 'Engenheiro', 'Servente']);
+});
+
+test('sugestões de empresa e função em ordem alfabética, sem pesar acento, maiúscula nem uso', () => {
+  const catalog = headcountCatalog([
+    entry('a', '2026-11-02', 'Zeta', 'Pedreiro', 30),
+    entry('b', '2026-11-03', 'Zeta', 'Pedreiro', 30),
+    entry('c', '2026-11-02', 'alfa', 'Ótica', 1),
+    entry('d', '2026-11-02', 'Beta', 'Operador', 1),
+    entry('e', '2026-11-02', 'Beta', 'Equipe 10', 1),
+    entry('f', '2026-11-02', 'Beta', 'Equipe 2', 1),
+    entry('g', '2026-11-04', 'Beta', 'pedreiro ', 1),
+  ]);
+  assert.deepEqual(catalog.companies, ['alfa', 'Beta', 'Zeta'], 'a mais usada (Zeta) não vem primeiro');
+  assert.deepEqual(
+    catalog.roles,
+    ['Equipe 2', 'Equipe 10', 'Operador', 'Ótica', 'Pedreiro'],
+    'número pelo valor, acento ignorado, "pedreiro " igual a "Pedreiro" na grafia lançada primeiro',
+  );
 });
 
 // ----- Comandos -----

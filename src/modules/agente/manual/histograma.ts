@@ -76,12 +76,17 @@ export const sections: ManualSection[] = [
       'função nova',
       'data no futuro',
       'observação do efetivo',
+      'próximo dia',
+      'dia seguinte',
+      'setas da data',
+      'ordem alfabética',
+      'lista de funções',
     ],
     screen: 'histograma',
     body: `## Lançar o efetivo do dia
 
-1. Na **Folha do dia**, escolha o dia (abre em hoje para quem lança). As setas vão ao dia lançado anterior e ao próximo.
-2. Preencha **Empresa**, **Função** e **Qtd.** e, se quiser, a **Observação** (falta, atestado, day off). Clique em **Lançar**.
+1. Na **Folha do dia**, escolha o dia (abre em hoje para quem lança). As setas ‹ › andam **um dia de cada vez, com ou sem lançamento**, e a da direita para em hoje; o campo da data abre o calendário. (Até 24/11/2026 as setas só pulavam entre dias já lançados.)
+2. Preencha **Empresa**, **Função** e **Qtd.** e, se quiser, a **Observação** (falta, atestado, day off). Clique em **Lançar**. Ao clicar em Empresa ou Função, a lista mostra os nomes já lançados na obra **em ordem alfabética** (acento e maiúscula não mudam a ordem); digitar filtra a lista.
 3. A empresa continua preenchida para lançar a próxima função da mesma empresa.
 
 ### Repetir o último dia

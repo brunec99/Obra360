@@ -224,8 +224,8 @@ export function HeadcountOverview({ workId }: { workId: string }) {
             num dia.
           </p>
           <p>
-            Lança-se na folha do dia. “Repetir o último dia” copia as equipes do último dia lançado para um dia ainda vazio; depois basta
-            ajustar as quantidades que mudaram.
+            Lança-se na folha do dia; as setas ao lado da data andam um dia de cada vez, mesmo sem lançamento. “Repetir o último dia” copia
+            as equipes do último dia lançado para um dia ainda vazio; depois basta ajustar as quantidades que mudaram.
           </p>
           <p>
             A mesma empresa e função só aparece uma vez por dia: lançar de novo pede para editar a linha. Nomes digitados com outra grafia
@@ -286,8 +286,14 @@ export function HeadcountOverview({ workId }: { workId: string }) {
   const day = pickedDay ?? (canEdit ? today : (lastDay ?? today));
   const crews = crewsOfDay(entries, day);
   const dayTotal = crews.reduce((sum, crew) => sum + crew.total, 0);
+  // As setas andam um dia de calendário, com ou sem lançamento (pedido do Jorge, 24/11/2026: antes só
+  // pulavam entre dias lançados e o dia seguinte vazio só abria pelo calendário). O último dia lançado
+  // antes deste continua sendo a origem de "Repetir o último dia".
   const previousDay = [...days].reverse().find(d => d < day);
-  const nextDay = days.find(d => d > day);
+  const dayBefore = addDays(day, -1);
+  const dayAfter = addDays(day, 1);
+  const canGoForward = dayAfter <= today;
+  const dayLabel = (iso: string) => `${formatDay(iso)} (${weekdayName(iso)})`;
   const lastTotal = lastDay ? entries.filter(e => e.workedOn === lastDay).reduce((sum, e) => sum + e.quantity, 0) : 0;
   const idleWorkdays = lastDay ? workdaysBetween(lastDay, today) : 0;
   const known = (list: string[], text: string) => !text.trim() || list.some(name => headcountKey(name) === headcountKey(text));
@@ -393,10 +399,9 @@ export function HeadcountOverview({ workId }: { workId: string }) {
             <button
               type="button"
               className="button-ghost"
-              aria-label="Dia lançado anterior"
-              title={previousDay ? `Dia lançado anterior: ${formatDay(previousDay)}` : 'Não há dia lançado antes deste'}
-              disabled={!previousDay}
-              onClick={() => previousDay && setPickedDay(previousDay)}
+              aria-label="Dia anterior"
+              title={`Dia anterior: ${dayLabel(dayBefore)}`}
+              onClick={() => setPickedDay(dayBefore)}
             >
               <ChevronLeft size={16} aria-hidden />
             </button>
@@ -411,10 +416,10 @@ export function HeadcountOverview({ workId }: { workId: string }) {
             <button
               type="button"
               className="button-ghost"
-              aria-label="Próximo dia lançado"
-              title={nextDay ? `Próximo dia lançado: ${formatDay(nextDay)}` : 'Não há dia lançado depois deste'}
-              disabled={!nextDay}
-              onClick={() => nextDay && setPickedDay(nextDay)}
+              aria-label="Próximo dia"
+              title={canGoForward ? `Próximo dia: ${dayLabel(dayAfter)}` : 'Não se lança efetivo de dia futuro'}
+              disabled={!canGoForward}
+              onClick={() => canGoForward && setPickedDay(dayAfter)}
             >
               <ChevronRight size={16} aria-hidden />
             </button>

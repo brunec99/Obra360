@@ -10,14 +10,42 @@ aplicada no Supabase e o histórico da planilha ainda não foi importado.** Sem 
 
 **Atualização de 11/11/2026 (noite):** a migração foi aplicada no `takt-hub` pela CLI do Supabase, a pedido do usuário, e conferida no catálogo (tabela, RLS ligada, grant para `service_role`, sem acesso de `anon`). O histórico da planilha foi importado: 28.789 linhas (BLT 10.432, ESZ 6.954, MZN 6.724, ATM 2.948, BRZ 924, TAU 807), 50.010 homens-dia. Ficaram de fora LMM (465), MYS (2.977) e AMA (190), que não existem como obra no sistema. Desde então o Histograma do SGI (App-ATR) lê `works` e `headcount_entries` deste banco, pela API REST, no lugar da planilha. A tela ainda não foi aberta logada em produção.
 
+## Ajustes pedidos pelo Jorge (24/11/2026)
+
+Pedido do Jorge Lucas (Atmos) no e-mail "Feedback Obra 360" de 24/11/2026, depois de usar a aba:
+
+1. **Sugestões de Empresa e Função em ordem alfabética.** Antes vinham da mais usada para a menos
+   (`headcountCatalog`). Agora saem em ordem alfabética do português (`Intl.Collator('pt-BR')`): acento e
+   maiúscula não mudam a posição e números contam pelo valor ("Equipe 2" antes de "Equipe 10"). O Jorge
+   pediu só a Função; a Empresa foi junto por coerência (decisão minha, pelo mesmo motivo: lista longa se
+   procura em ordem). Digitar continua filtrando a lista do navegador.
+2. **Setas da data andam um dia de calendário.** Antes, ‹ e › só pulavam para o dia lançado anterior ou
+   seguinte; ir para um dia ainda vazio (o comum ao pôr o mês em dia) só pelo calendário. Agora cada seta
+   anda um dia, com ou sem lançamento, e a da direita fica apagada em hoje, porque não se lança data futura.
+   "Repetir o último dia" continua copiando do último dia **lançado** antes do dia da folha, então o
+   caminho para preencher dias seguidos é: › e "Repetir o último dia", depois ajustar as quantidades.
+
+Sem migração e sem mudança nas rotas. Ajustados também o texto de ajuda da aba, o tour e o manual da
+Claudia (`src/modules/agente/manual/histograma.ts`).
+
+**Validado** numa cópia limpa do `main` só com esta mudança: `verify:portal-kit`, `typecheck`, `lint`
+(0 erros), `format:check`, `npm test` (1.722 de 1.723; o que falhou foi o teste de desempenho do arrasto
+da Linha de Balanço, que mede tempo, estourou com a suíte inteira em paralelo e passou sozinho, em 3 s),
+`validate:migrations`, `build` e `test:e2e` (10). `tests/headcount.test.ts` tem 18 testes, um novo para a
+ordem das sugestões. **Não validado:** a tela no navegador e o uso real logado.
+
+**Fica igual de propósito:** a aba 2.3 (Controle de produtividade) tem as mesmas setas por dia lançado e
+não foi mexida, porque o pedido foi só do histograma.
+
 ## O que a tela faz
 
 `/obras/{obraId}/histograma`, grupo **Controles de obra** do menu.
 
 - **Cartões:** efetivo no último dia lançado (com aviso quando há mais de um dia útil sem lançar), média
   por dia útil, pico do período e parcela de empreiteiros nos homens-dia.
-- **Folha do dia:** as empresas do dia, cada uma com funções e quantidades. É onde se lança: empresa,
-  função, quantidade e observação. A quantidade se edita na própria linha; a lixeira exclui. Num dia vazio,
+- **Folha do dia:** as empresas do dia, cada uma com funções e quantidades. As setas ao lado da data
+  andam um dia de cada vez. É onde se lança: empresa, função (sugestões em ordem alfabética), quantidade e
+  observação. A quantidade se edita na própria linha; a lixeira exclui. Num dia vazio,
   "Repetir o último dia" copia as equipes do último dia lançado antes dele (sem as observações).
 - **Histograma:** barras empilhadas por dia, semana ou mês; empilha por próprio × empreiteiro, empresa ou
   função; período de 30 dias, 90 dias, 6 meses, 12 meses ou tudo.

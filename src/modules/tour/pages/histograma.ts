@@ -16,12 +16,12 @@ export const steps: TourStep[] = [
   {
     target: 'headcount-day',
     title: 'Folha do dia',
-    body: 'As empresas do dia escolhido, cada uma com as funções e as quantidades. As setas vão ao dia lançado anterior e ao próximo.',
+    body: 'As empresas do dia escolhido, cada uma com as funções e as quantidades. As setas andam um dia de cada vez, com ou sem lançamento, até hoje.',
   },
   {
     target: 'headcount-form',
     title: 'Lançar',
-    body: 'Empresa, função e quantidade; a empresa continua preenchida para a próxima função. Num dia vazio, "Repetir o último dia" copia as equipes do último dia lançado, e depois basta ajustar as quantidades na própria linha.',
+    body: 'Empresa, função e quantidade, com as sugestões em ordem alfabética; a empresa continua preenchida para a próxima função. Num dia vazio, "Repetir o último dia" copia as equipes do último dia lançado, e depois basta ajustar as quantidades na própria linha.',
   },
   {
     target: 'headcount-chart',

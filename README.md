@@ -28,6 +28,7 @@ A interface de cada obra é organizada em **seis abas numeradas**: os quatro ní
    - Folha do dia para lançar (com "Repetir o último dia"), cartões, histograma empilhado por dia, semana ou mês (próprio × empreiteiro, empresa ou função) e rankings por empresa e função.
    - Liberado por pessoa; quem tem o módulo lança, o papel consulta só visualiza. A mesma empresa e função só existe uma vez por dia, e a grafia que a obra já usa vence.
    - Fica fora do snapshot (migração 0045, aplicada no `takt-hub` em 11/11/2026 pela CLI do Supabase). O histórico da planilha entrou por `scripts/import-histograma.ts` em 11/11/2026: 28.789 linhas em seis obras; LMM, MYS e AMA não existem como obra no sistema e ficaram de fora.
+   - 24/11/2026, pedido do Jorge: sugestões de Empresa e Função em ordem alfabética e setas da Folha do dia andando um dia de calendário (antes só pulavam entre dias lançados).
    - Veja [docs/histograma.md](docs/histograma.md).
 8. **Controle de produtividade** (11/11/2026): o lançamento diário de serviço, empreiteiro, equipe e produção, no lugar da planilha "ATR - Controle da produção".
    - Folha do dia para lançar (produção em branco é "a medir" e se preenche depois, na linha; "Repetir o último dia" copia as equipes) e quadro de produção por homem-dia por serviço, que abre nos empreiteiros.
