@@ -355,6 +355,13 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
     effect: 'A obra não pode ser ligada ao Sienge e o "Buscar do Sienge" da visão Custos fica indisponível; o resto segue normal.',
     critical: false,
   },
+  {
+    migration: '0059_daily_report',
+    label: 'Diário de Obra: diários, fotos e ligações com o Sienge (tipo de equipe, local e código de usuário)',
+    probe: { kind: 'table', table: 'daily_reports' },
+    effect: 'O módulo 2.4 (Diário de Obra) responde "indisponível"; o resto segue normal.',
+    critical: false,
+  },
 ];
 
 export type MigrationStatus = { migration: string; label: string; effect: string; critical: boolean; applied: boolean; detail?: string };

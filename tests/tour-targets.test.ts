@@ -45,6 +45,6 @@ test('toda página do sistema tem um tour', () => {
     // A raiz só redireciona para /obras.
     .filter(route => route !== '/')
     .map(route => route.replace(/\[[^\]]+\]/g, 'x'));
-  const without = [...pages, '/campo/terminalidade'].filter(route => !resolveTourKey(route));
+  const without = [...pages, '/campo/terminalidade', '/campo/diario'].filter(route => !resolveTourKey(route));
   assert.deepEqual(without, []);
 });

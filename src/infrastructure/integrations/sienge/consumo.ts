@@ -16,7 +16,8 @@ const SISTEMA = 'obra360';
 const RECEPTOR_PADRAO = 'https://srkbewdqjdpndhqnpspm.supabase.co/functions/v1/api-consumo-receber';
 const TIMEOUT_MS = 10_000;
 
-export type OrigemSienge = 'orcamento' | 'empreendimentos';
+/** `diario` (24/11/2026): as chamadas do Diário de Obra, leituras de apoio e gravações. */
+export type OrigemSienge = 'orcamento' | 'empreendimentos' | 'diario';
 
 export interface ContadorSienge {
   readonly origem: OrigemSienge;

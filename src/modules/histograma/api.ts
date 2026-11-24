@@ -11,6 +11,8 @@ export interface HeadcountView {
   entries: HeadcountEntry[];
   /** Quem está logado pode lançar. O servidor confere de novo. */
   canEdit: boolean;
+  /** Dias com o Diário de Obra (2.4) já enviado ao Sienge. */
+  sentDiaryDays: string[];
 }
 export type HeadcountState =
   { status: 'loading' } | { status: 'error'; message: string } | { status: 'unavailable' } | { status: 'ready'; data: HeadcountView };
@@ -42,7 +44,11 @@ export function useHeadcount(workId: string) {
   const [state, setState] = useState<HeadcountState>({ status: 'loading' });
   const apply = useCallback((response: HeadcountResponse) => {
     if (!response.available) setState({ status: 'unavailable' });
-    else setState({ status: 'ready', data: { entries: response.entries, canEdit: response.canEdit } });
+    else
+      setState({
+        status: 'ready',
+        data: { entries: response.entries, canEdit: response.canEdit, sentDiaryDays: response.sentDiaryDays ?? [] },
+      });
   }, []);
   const reload = useCallback(async () => {
     try {

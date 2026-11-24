@@ -395,3 +395,27 @@ test('Segurança, checklist e Quadro de Restrições (12/11/2026): liberados por
   // O link do operador do checklist não é API restrita: quem autoriza é o segredo do endereço.
   assert.equal(isRestrictedApi('/api/publico/checklist/abc'), false);
 });
+
+test('Diário de Obra (24/11/2026): liberado por pessoa, com tela, APIs e modo de campo', () => {
+  const nobody = { developer: false, modules: [] };
+  const diario = { developer: false, modules: ['diario'] };
+  assert.ok((RESTRICTED_SECTIONS as readonly string[]).includes('diario'));
+  assert.equal(grantableSection('diario'), true);
+  assert.equal(hasSectionAccess('diario', nobody), false);
+  assert.equal(hasSectionAccess('diario', diario), true);
+  assert.equal(hasSectionAccess('diario', { developer: true, modules: [] }), true);
+  assert.equal(restrictedPageRedirect('/obras/obra-1/diario'), '/obras/obra-1/dashboard');
+  assert.equal(restrictedSectionOf('/obras/obra-1/diario'), 'diario');
+  // O modo de campo (`/campo/diario`, fora do proxy) lê e grava por estas rotas, que seguem o módulo.
+  for (const path of ['/api/diario', '/api/diario/commands', '/api/diario/upload-url', '/api/diario/enviar/foto', '/api/diario/reabrir']) {
+    assert.equal(isRestrictedApi(path), true, path);
+    assert.deepEqual(sectionsForApi(path), ['diario'], path);
+    assert.equal(hasApiAccess(path, diario), true, path);
+    assert.equal(hasApiAccess(path, nobody), false, path);
+    // Ter o histograma não abre o diário, embora a mão de obra seja a mesma.
+    assert.equal(hasApiAccess(path, { developer: false, modules: ['histograma'] }), false, path);
+  }
+  assert.equal(isRestrictedApi('/api/diariox'), false);
+  // Na grade de usuários, a coluna fica entre Produtividade e Checklist de equipamentos.
+  assert.deepEqual(normalizeModules(['checklist', 'diario', 'produtividade']), ['produtividade', 'diario', 'checklist']);
+});

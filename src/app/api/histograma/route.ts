@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { requireModuleAccess } from '@/infrastructure/auth/supabase-server';
 import { canWriteHeadcount } from '@/application/use-cases/headcount-commands';
 import { HeadcountUnavailableError, loadHeadcount } from '@/infrastructure/repositories/supabase/headcount-repository';
+import { loadSentDailyDates } from '@/infrastructure/repositories/supabase/daily-report-repository';
 import { logRouteError } from '@/infrastructure/log';
 
 export const runtime = 'nodejs';
@@ -20,8 +21,8 @@ export async function GET(request: NextRequest) {
   if (!profile) return responseError('Perfil não provisionado. Contate o gestor.', 403);
   if (!profile.workIds.includes(workId)) return responseError('Você não tem acesso a esta obra.', 403);
   try {
-    const data = await loadHeadcount(workId);
-    return NextResponse.json({ available: true, canEdit: canWriteHeadcount(profile), ...data }, { headers });
+    const [data, sentDiaryDays] = await Promise.all([loadHeadcount(workId), loadSentDailyDates(workId).catch(() => [])]);
+    return NextResponse.json({ available: true, canEdit: canWriteHeadcount(profile), sentDiaryDays, ...data }, { headers });
   } catch (error) {
     if (error instanceof HeadcountUnavailableError) return NextResponse.json({ available: false }, { headers });
     logRouteError('GET /api/histograma', error, { actorId: profile.id, workId });

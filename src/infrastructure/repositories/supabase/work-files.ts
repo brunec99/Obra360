@@ -3,13 +3,14 @@ import { TERMINALITY_BUCKET } from './terminality-repository';
 import { LOB_BUCKET } from './lob-repository';
 import { SAFETY_BUCKET } from '../../../domain/safety';
 import { CHECKLIST_BUCKET } from '../../../domain/equipment-checklist';
+import { DAILY_BUCKET } from '../../../domain/daily-report';
 
 /** Os buckets em que cada obra tem uma pasta com o próprio id: os IFC e a geometria convertida em
  * `ifc/<obra>/<modelo>/…`, as fotos da terminalidade em `terminalidade/<obra>/<item>/…` e as fotos
  * das medições da Linha de Balanço em `medicoes/<obra>/<lançamento>/…` (0038) e as fotos da segurança do
  * trabalho em `seguranca/<obra>/<apontamento>/…` (0040) e a assinatura e as fotos do checklist de equipamentos
- * em `checklist/<obra>/<inspeção>/…` (0048). */
-export const WORK_BUCKETS = ['ifc', TERMINALITY_BUCKET, LOB_BUCKET, SAFETY_BUCKET, CHECKLIST_BUCKET] as const;
+ * em `checklist/<obra>/<inspeção>/…` (0048) e as fotos do Diário de Obra em `diario/<obra>/<diário>/…` (0059). */
+export const WORK_BUCKETS = ['ifc', TERMINALITY_BUCKET, LOB_BUCKET, SAFETY_BUCKET, CHECKLIST_BUCKET, DAILY_BUCKET] as const;
 const PAGE = 1000;
 const REMOVE_BATCH = 100;
 

@@ -4,9 +4,9 @@
 -- Devolve uma tabela única, uma linha por item, com situação OK / FALTA / ATENÇÃO, e uma última
 -- linha de resumo. Num banco recém-montado, todas as linhas devem sair OK.
 --
--- Itens: as 22 tabelas do snapshot do planejamento, as 10 tabelas fora dele, as 6 da terminalidade, as 10 da Linha de Balanço (0038), as 3 da segurança do trabalho (0040), as colunas que a tela
+-- Itens: as 22 tabelas do snapshot do planejamento, as 10 tabelas fora dele, as 6 da terminalidade, as 10 da Linha de Balanço (0038), as 3 da segurança do trabalho (0040), as 3 do Diário de Obra (0059), as colunas que a tela
 -- de saúde do banco (/api/health) sonda, RLS ligada em cada tabela, as funções e seus privilégios,
--- os gatilhos de imutabilidade, os buckets ifc, terminalidade, medicoes e seguranca do Storage e a versão em planning_meta.
+-- os gatilhos de imutabilidade, os buckets ifc, terminalidade, medicoes, seguranca e diario do Storage e a versão em planning_meta.
 with
 tabelas(ordem, nome, grupo) as (
   values
@@ -65,7 +65,10 @@ tabelas(ordem, nome, grupo) as (
     (231, 'pending_checklists', 'Lista de pendência (0043)'),
     (232, 'pending_checklist_items', 'Lista de pendência (0043)'),
     (233, 'pending_messages', 'Lista de pendência (0043)'),
-    (234, 'lob_cost_items', 'Apropriação de custos (0044)')
+    (234, 'lob_cost_items', 'Apropriação de custos (0044)'),
+    (235, 'daily_reports', 'Diário de Obra (0059)'),
+    (236, 'daily_report_photos', 'Diário de Obra (0059)'),
+    (237, 'sienge_crew_links', 'Diário de Obra (0059)')
 ),
 colunas(ordem, tabela, coluna, migracao) as (
   values
@@ -80,7 +83,9 @@ colunas(ordem, tabela, coluna, migracao) as (
     (309, 'plan_tasks', 'schedule_meta', '0023'),
     (310, 'long_term_plans', 'synced_revision', '0026'),
     (311, 'work_settings', 'latitude', '0029'),
-    (312, 'profiles', 'tst', '0040')
+    (312, 'profiles', 'tst', '0040'),
+    (313, 'lob_locals', 'sienge_site_id', '0059'),
+    (314, 'profiles', 'sienge_user_code', '0059')
 ),
 funcoes(ordem, assinatura, servidor_apenas) as (
   values
@@ -181,6 +186,14 @@ itens(ordem, grupo, item, ok, detalhe) as (
       else 'PÚBLICO — deveria ser privado'
     end
   from storage.buckets b where b.id = 'seguranca'
+  union all
+  select 605, 'Storage', 'bucket diario (privado, fotos da 0059)', count(*) = 1,
+    case
+      when count(*) = 0 then 'bucket ausente'
+      when bool_and(not b.public) then 'privado'
+      else 'PÚBLICO — deveria ser privado'
+    end
+  from storage.buckets b where b.id = 'diario'
   union all
   -- query_to_xml lê a tabela por SQL dinâmico, para a conferência não quebrar se ela não existir.
   select 701, 'Dados', 'planning_meta (linha única de versão)', m.versao is not null,

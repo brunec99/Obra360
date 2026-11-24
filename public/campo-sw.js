@@ -1,4 +1,4 @@
-// Service worker do modo de campo (terminalidade e segurança do trabalho no celular, sem sinal).
+// Service worker do modo de campo (terminalidade, segurança do trabalho e diário de obra no celular, sem sinal).
 //
 // Mesmo desenho da vistoria da Obra do Mês no App-ATR, escrito à mão, sem biblioteca: o que precisa
 // abrir sem sinal são as telas de /campo/, e uma lista de precache com nomes de chunk do Next
@@ -13,10 +13,12 @@
 // Os dados (pacote da obra, fila e fotos) NÃO passam por aqui: ficam no IndexedDB, que é o dono do
 // rascunho. O service worker só garante que a tela abra.
 
-// A versão continua v1 ao entrar a segurança (05/11/2026): trocar o nome apagaria, na ativação, a casca
-// da terminalidade já guardada nos celulares; a instalação nova só acrescenta a casca da segurança.
-const VERSAO = 'obra360-campo-v1';
-const CASCAS = ['/campo/terminalidade', '/campo/seguranca'];
+// A versão ficou v1 ao entrar a segurança (05/11/2026), para não apagar a casca da terminalidade já guardada.
+// Subiu para v2 com o Diário de Obra (24/11/2026), a pedido: na ativação o cache v1 sai, e as cascas e os
+// estáticos entram de novo no primeiro acesso com sinal. Quem usa o modo de campo precisa abrir a tela uma
+// vez com sinal depois desta versão; os dados (IndexedDB) não são tocados.
+const VERSAO = 'obra360-campo-v2';
+const CASCAS = ['/campo/terminalidade', '/campo/seguranca', '/campo/diario'];
 
 self.addEventListener('install', event => {
   event.waitUntil(

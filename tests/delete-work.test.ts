@@ -213,6 +213,16 @@ async function seedWork(db: PGlite, required: Map<string, Columns>, p: string, c
     role: 'Engenheiro',
     quantity: 1,
   });
+  // 0059: o Diário de Obra e as fotos dele saem pela cascata de work_id.
+  await insert('daily_reports', { id: `${p}-diario`, work_id: w, report_date: '2026-11-03', created_by: 'u1', updated_by: 'u1' });
+  await insert('daily_report_photos', {
+    id: `${p}-diariofoto`,
+    report_id: `${p}-diario`,
+    work_id: w,
+    storage_path: `${w}/${p}-diario/foto.jpg`,
+    thumb_path: `${w}/${p}-diario/foto-thumb.jpg`,
+    created_by: 'u1',
+  });
   await insert('safety_photos', {
     id: `${p}-sstphoto`,
     item_id: `${p}-sst`,
