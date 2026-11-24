@@ -2113,3 +2113,107 @@ Do usuário, em 23/11/2026: para facilitar o vínculo entre as tarefas do planej
 - A Claudia ainda não consulta o Sienge; ela só conhece a tela pelo manual.
 
 ---
+
+## Longo prazo: Linhas de Balanço do Brizz, do Essenza e do Tauá transcritas pela API do Prevision (23/11/2026)
+
+**Pedido do usuário** (23/11/2026): "no longo prazo quero que vc busque as informações pela minha API do Prevision e transcreva todas as linhas de balanço no sistema", com a chave de API dele; as do Blentt e da Mozine, que não estão no Prevision, ele vai salvar na pasta de downloads.
+
+### O que entrou no banco (takt-hub, 23/11/2026)
+
+Gravado pelo script `scripts/import-lob-prevision.ts --prevision <id> --sem-fluxos --apply`, depois de simulação conferida, com o perfil admin do usuário como ator. As três obras estavam com a Linha de Balanço vazia e sem calendário próprio.
+
+| Obra (código) | Obra no Prevision (id) | Locais | Serviços | Blocos | Dependências | Medição M1 | Dias sem trabalho no calendário | Período |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Brizz (BRZ) | Brizz Smart Stay (40096) | 20 | 69 | 283 | 549 | 4 blocos com avanço | 49 | 06/07/2026 a 13/09/2028 |
+| Essenza (ESZ) | Essenza Home Club (22268) | 35 | 60 | 545 | 851 | 326 blocos (309 concluídos) | 106 | 16/09/2024 a 31/05/2027 |
+| Tauá (TAU) | Tauá - Dreamis (35062) | 37 | 58 | 590 | 1.296 | 2 blocos com avanço | 84 | 22/06/2026 a 09/05/2029 |
+
+Em cada obra entraram também a linha de base "Prevision — API, obra <id> (23/11/2026)" e a medição M1 de 23/11/2026, salva e sem fotos, com o % concluído do Prevision. Nenhum fluxo de serviços foi criado (`--sem-fluxos`), porque o pedido foi só a transcrição.
+
+**Conferência depois da gravação** (leitura do banco comparada, bloco a bloco, com a resposta da API): início e término iguais aos do Prevision em 283/283, 545/545 e 590/590 blocos; nenhum bloco se move com as dependências gravadas; a duração em dias úteis é igual à do Prevision em todos os blocos, menos um do Essenza (o Prevision grava o término dele às 18h e conta um dia a menos; o término aqui é o mesmo).
+
+### Como a leitura pela API funciona
+
+- **API usada**: a GraphQL (`https://api.prevision.com.br/graphql`, cabeçalho `UserAuthorization: token <chave>`), porque a chave que o Prevision mostra em Configurações → Integrações tem 24 caracteres e só vale nela. A API REST nova (`PREVISION_API_TOKEN`, um JWT), usada pela tela Integrações, respondeu 401 a essa chave. O Prevision avisa que a GraphQL funciona até **17/01/2028**; a REST já tem as rotas equivalentes (`/activities`, `/activities/dependencies`, `/floors`).
+- **Cliente**: `src/infrastructure/integrations/prevision/graphql.ts`, só consulta. Lê o calendário, os lotes, os serviços e as atividades com as predecessoras. O Prevision entrega no máximo 50 itens por página, qualquer que seja o tamanho pedido: toda lista é percorrida até o fim e conferida com o total, e a leitura falha em vez de transcrever uma lista cortada (na primeira tentativa, os serviços do Brizz vieram 50 de 70 e a trava segurou). Há pausa de 1,5 s entre consultas.
+- **Regras** (`src/domain/lob-prevision-import.ts`, funções `readPrevisionApiSchedule` e `previsionApiCalendar`, sem banco e com testes):
+  1. Cada atividade do Prevision (serviço × lote) vira um bloco com as mesmas datas.
+  2. Os locais ficam na ordem da tela do Prevision (o lote de posição 1 no topo); só entram lotes e serviços que têm atividade.
+  3. A cor do serviço é a do Prevision.
+  4. O calendário do Prevision (dias da semana, feriados e recessos dentro da janela do calendário dele) é gravado na obra **quando ela ainda não tem calendário próprio**; se já tem, o da obra é mantido e o script avisa. Com o calendário dele, a duração em dias úteis fica igual à do Prevision.
+  5. As dependências são as **reais** do Prevision, não deduzidas como no XML do Atmos. Aqui toda dependência é término → início com espera em dias úteis; cada vínculo do Prevision (término → início, início → início, término → término, início → término, com defasagem em dias corridos, para depois ou para antes) vira o início mínimo que ele impõe à sucessora, medido a partir do fim da predecessora (negativo quando as duas se sobrepõem). A espera nunca passa da folga real entre os dois blocos, para as datas do Prevision ficarem como estão: isso reduziu a espera em 1 vínculo do Brizz, 3 do Essenza e 1 do Tauá, em que as datas do próprio Prevision não cumprem a regra dele.
+  6. Mesmo serviço em locais diferentes vira "equipe segue"; serviços diferentes, dependência comum.
+  7. Atividade dividida em partes no Prevision (o mesmo serviço duas vezes no mesmo lote) vira um bloco só, o primeiro, com aviso; nenhuma das três obras tem esse caso.
+- **Script**: `--prevision <id>` lê da API (chave em `PREVISION_GRAPHQL_TOKEN`, que não fica no repositório nem no servidor); `--salvar-json` guarda a resposta e `--json` grava a partir dela, para a gravação usar exatamente o que foi simulado; `--listar-prevision` mostra as obras e os ids. Continua recusando obra com Linha de Balanço preenchida e apagando o que entrou se a gravação falhar no meio (inclusive o calendário novo).
+
+### O que ficou de fora, e por quê
+
+- **Atmos**: já tinha a Linha de Balanço carregada em 11/11/2026 e está em uso (3 medições e 4 linhas de base feitas no sistema). Não foi regravada; as dependências dela continuam as deduzidas do XML.
+- **Blentt e Mozine**: não existem no Prevision. O usuário vai salvar os arquivos na pasta de downloads; em 23/11/2026 eles ainda não estavam lá.
+- **Obras do Prevision sem obra no sistema**: Terrazzo Tomio, Casa Pinheiro, Arandá, Lummi e My Sunset (obras encerradas entre 2023 e 2026). Nenhuma obra foi criada para elas.
+- **"Atmos - Gantt"** (id 40427): cronograma do tipo Gantt no Prevision, não é Linha de Balanço; o leitor recusa.
+- **Nova Sede, Bioma e SEPAT**: não têm obra no Prevision.
+- **Linha de base do Prevision**: a linha de base gravada aqui são as datas atuais do Prevision no dia da carga, não a linha de base ativa dele. No Essenza (obra em andamento desde 2024) o desvio contra a base começa zerado.
+- **Datas reais**: a GraphQL não entrega início e término reais; o bloco com avanço recebe o início planejado como início real, e o concluído recebe o término planejado (ou a data da medição, se for posterior), como na carga do Atmos.
+- **Vínculo da obra com o Prevision** (`works.prevision_project_id`): não foi preenchido; ele muda o que cada pessoa vê na tela Integrações.
+
+### Validações
+
+- `node --import tsx --test tests/lob-prevision-import.test.ts`: 15 testes, 5 novos para a API (calendário pela janela, ordem de locais e serviços, cores, recusa de Gantt, avisos, conversão das dependências, espera reduzida e par repetido).
+- Simulação das três obras sem avisos e com "nenhum bloco se move com as dependências", antes de gravar.
+- Conferência do banco contra a API depois de gravar (acima).
+- Não conferido: as três Linhas de Balanço numa sessão logada no servidor da ATR.
+
+### Próximas etapas (não implementado)
+
+- ~~Transcrever Blentt e Mozine~~: feito em 24/11/2026 (seção seguinte).
+- Trazer a linha de base ativa do Prevision como linha de base do Essenza, se o desvio histórico interessar.
+- Um botão na tela para o administrador repetir a carga sem o script, e a migração da leitura para a API REST antes de 17/01/2028.
+
+## Longo prazo: Linhas de Balanço do Blentt e da Mozine transcritas do relatório "Avanço Físico-Financeiro" (24/11/2026)
+
+O Blentt e a Mozine não estão no Prevision: o planejamento deles fica em outro sistema, que exporta o relatório **"Avanço Físico-Financeiro"** em CSV. O usuário salvou um arquivo de cada obra e pediu a transcrição para a Linha de Balanço.
+
+### O que foi entregue
+
+- **Leitor do relatório** em `src/domain/lob-progress-report-import.ts` (`readProgressReportSchedule`, `parseCsv`, `localKey`), que devolve o mesmo `PrevisionSchedule` das outras importações. O relatório tem uma linha por atividade e por mês, com Código, Unidade, Local, Macro Etapa, Etapa, mês, Início/Término Planejado Base, Início/Término Planejado, Início/Término Real, Caminho Crítico e os avanços do mês. Não traz predecessoras.
+- **`scripts/import-lob-prevision.ts <relatório.csv> --obra <código> --actor <perfil> [--origem <nome>]`**: arquivo `.csv` passa pelo leitor novo; `.xml` e `--prevision` seguem como antes. Sem `--apply` é simulação.
+- **`buildPrevisionImport`** ganhou: datas reais vindas da origem (`actualDates`), linha de base com datas próprias (`baseDates`), nome da origem na linha de base e na medição (`sourceLabel`) e reordenação dos locais da obra (`reorderLocals`, com os já cadastrados que mudam de posição em `localUpdates`).
+
+### Regras da leitura
+
+1. Cada **código** de atividade é um bloco (Etapa × Local), nas datas de "Início/Término Planejado". A duração é contada em dias úteis do calendário da obra (as duas obras não têm calendário próprio: segunda a sexta).
+2. A **linha de base** gravada guarda as datas "Início/Término Planejado Base" do relatório. Atividade sem essas datas fica fora dela, e as telas a tratam como bloco criado depois da linha de base.
+3. "Início/Término Real" viram as **datas reais** do bloco.
+4. **Avanço** (medição M1): 100% com término real; sem ele, a soma do "Real (%)" dos meses. Esse percentual é financeiro: atividade sem custo fica em 0% até terminar, e atividade com 100% financeiro sem término real fica com 99%.
+5. **Locais** na ordem do código (o 2º número é o local dentro da unidade), de baixo para cima; fachadas e equipamentos pelo campo Unidade. Local já cadastrado com outra grafia é reaproveitado ("2º pavto." = "2 PAV"). Todos os locais da obra são reordenados pela ordem do relatório; os cadastrados sem bloco vão para o fim.
+6. A mesma etapa com dois códigos no mesmo local (duas passadas) vira dois serviços: a que começa depois ganha "(2)", porque o bloco é único por serviço × local.
+7. Linhas sem código ("Despesas Indiretas") e atividades sem datas planejadas ficam de fora, com aviso.
+8. **Dependências deduzidas**, como no Atmos: "equipe segue" do mesmo serviço entre locais e sequência dos serviços dentro de cada local, com a espera limitada à folga real, para nenhum bloco se mover.
+
+### Gravado em produção (takt-hub, 24/11/2026)
+
+| Obra | Arquivo | Locais | Serviços | Blocos | Dependências | Linha de base | M1 | Período |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Blentt | `export (1).csv` | 27 usados (13 novos; 34 na obra) | 69 | 681 | 1.436 | 639 blocos | 330 blocos, 325 concluídos | 02/09/2024 a 29/06/2027 |
+| Mozine | `export (2).csv` | 22 (todos novos) | 65 | 444 | 924 | 412 blocos | 254 blocos, 241 concluídos | 25/09/2024 a 08/01/2027 |
+
+Gravado com `--sem-fluxos` (nenhum fluxo de serviços criado) e ator = perfil admin do usuário. A obra de cada arquivo foi reconhecida pelos pavimentos: o Blentt tem 12 pavimentos nos compromissos do curto prazo e nos locais já cadastrados.
+
+**No Blentt**, os 21 locais já cadastrados (usados na coluna Local do curto prazo) foram mantidos com o mesmo id: 14 receberam blocos (SS2, SS1, TÉRREO, 2 PAV a 12 PAV) e 7 ficaram sem bloco, no fim da lista (COBERTURA, CXD, TOPO CXD e as quatro FACHADA n-n). O relatório usa outros nomes para a caixa d'água e as fachadas ("Caixa de água", "Fachada Sul - T ao 9°"…), que entraram como locais novos.
+
+Ficaram de fora, por não terem datas no relatório: "Impermeabilização de parede" no Blentt (14 atividades) e "Impermeabilização de piso" e "Porcelanato" na Mozine (9 cada).
+
+### Validações
+
+- Conferência no banco depois da gravação, bloco a bloco contra os arquivos: início, término e datas reais idênticos em 681/681 (Blentt) e 444/444 (Mozine); linha de base idêntica em 639/639 e 412/412; avanço idêntico em todos; `cascade` não move nenhum bloco.
+- `tests/lob-progress-report-import.test.ts` (5 testes): CSV com aspas e BOM, grafias de pavimento, leitura completa, arquivo de outro formato recusado, gravação com datas reais, linha de base e reordenação.
+- Sequência do `ci.yml` até os testes (tipos, lint, Prettier, testes). Build e teste de navegador não foram rodados.
+
+### Pendências
+
+- Conferir as duas obras logado no servidor da ATR.
+- Juntar no Blentt os locais repetidos (CXD e "Caixa de água", as fachadas), se o usuário quiser: é renomear ou excluir em Configurações.
+- As dependências são deduzidas; o relatório não traz as reais.
+- O avanço das atividades em andamento é o financeiro do relatório, não o físico.
+

@@ -13,9 +13,11 @@
  * `LobData.calendar` e passa às duas funções; sem ele, segunda a sexta sem feriados. */
 import { parseXsdDuration, type MspdiProject, type MspdiTask } from './mspdi-import';
 import { addDays, isLocalDate, type LocalDate } from './long-term-plan';
+import { LOB_CALENDAR_MAX_HOLIDAYS, normalizeLobCalendar } from './lob-calendar';
 import {
   activityEnd,
   activityFinish,
+  addWorkdays,
   flowLevels,
   LOB_COLORS,
   LOB_LIMITS,
@@ -72,6 +74,12 @@ export interface PrevisionBlock {
   /** Duração do Prevision em dias úteis do calendário dele (que desconta feriados). */
   workDays: number;
   percent: number;
+  /** Datas reais informadas pela origem (com `PrevisionSchedule.actualDates`). */
+  actualStart?: LocalDate;
+  actualFinish?: LocalDate;
+  /** Datas do bloco na linha de base da origem (com `PrevisionSchedule.baseDates`). */
+  baseStart?: LocalDate;
+  baseFinish?: LocalDate;
 }
 export interface PrevisionSchedule {
   title?: string;
@@ -81,6 +89,25 @@ export interface PrevisionSchedule {
   locals: { name: string; group: PrevisionLocalGroup }[];
   blocks: PrevisionBlock[];
   warnings: string[];
+  /** Dependências reais do Prevision (só a leitura pela API traz). Com elas, nada é deduzido. */
+  links?: PrevisionLink[];
+  /** Cor de cada serviço no Prevision (#rrggbb), pelo nome do serviço. */
+  colors?: Map<string, string>;
+  /** A origem informa as datas reais de cada bloco: valem as dela, em vez das deduzidas do avanço. */
+  actualDates?: boolean;
+  /** A origem informa a linha de base: a foto guarda `baseStart`/`baseFinish`, e o bloco sem essas
+   * datas fica fora dela (criado depois da linha de base). */
+  baseDates?: boolean;
+}
+/** Uma dependência do Prevision entre dois blocos (índices em `blocks`): a data de referência da
+ * predecessora (início ou término), a data amarrada da sucessora (início ou término) e a defasagem
+ * em dias corridos (negativa = antes). */
+export interface PrevisionLink {
+  predecessor: number;
+  successor: number;
+  from: 'start' | 'finish';
+  to: 'start' | 'finish';
+  lagCalendarDays: number;
 }
 
 const datePart = (value: string | undefined): LocalDate | undefined => {
@@ -215,6 +242,180 @@ function orderLocals(sequences: string[][], firstSeen: Map<string, number>, earl
     .map(name => ({ name, group: group.get(name)! }));
 }
 
+// ─── Leitura pela API do Prevision ──────────────────────────────────────────────
+
+/** O cronograma de uma obra como a API do Prevision entrega (GraphQL, 23/11/2026), já sem o
+ * envelope: quem busca é `infrastructure/integrations/prevision/graphql.ts`. */
+export interface PrevisionApiProject {
+  id: string;
+  name: string;
+  /** "lob" ou "gantt": só a Linha de Balanço tem lotes e serviços de verdade. */
+  scheduleType?: string | null;
+  calendar?: {
+    startAt?: string | null;
+    endAt?: string | null;
+    /** Feriados e recessos (AAAA-MM-DD); a lista do Prevision vai de 2006 a 2050. */
+    holidays?: string[] | null;
+    weekWorkdays?: Partial<Record<PrevisionWeekday, boolean>> | null;
+  } | null;
+  /** Lotes: `position` 1 é o topo da tela do Prevision. */
+  floors: { id: string; name: string; position: number }[];
+  services: { id: string; name: string; position?: number | null; color?: string | null }[];
+  activities: {
+    id: string;
+    serviceId: string;
+    floorId: string;
+    startAt?: string | null;
+    endAt?: string | null;
+    /** Duração em dias úteis do calendário do Prevision. */
+    workDuration?: number | null;
+    percentageCompleted?: number | null;
+    predecessors: {
+      predecessorId: string;
+      /** "start_at" ou "end_at": a data da predecessora que serve de referência. */
+      baseAttribute: string;
+      /** "start" ou "end": a data da sucessora que fica amarrada. */
+      precedenceAttribute: string;
+      /** "after" soma a defasagem à referência; "before" subtrai. */
+      timeOperation: string;
+      /** Defasagem em dias corridos. */
+      delay: number;
+    }[];
+  }[];
+}
+const PREVISION_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+type PrevisionWeekday = (typeof PREVISION_WEEKDAYS)[number];
+
+/** O calendário da obra no Prevision, no formato da Linha de Balanço: os dias da semana trabalhados
+ * e os feriados e recessos dentro da janela do calendário dele (ou do período dos blocos, se a
+ * janela não vier ou a lista passar do teto). */
+export function previsionApiCalendar(project: PrevisionApiProject): LobCalendar {
+  const week = project.calendar?.weekWorkdays;
+  const marked = PREVISION_WEEKDAYS.map((day, index) => (week?.[day] ? index : -1)).filter(index => index >= 0);
+  const weekdays = marked.length ? marked : [1, 2, 3, 4, 5];
+  const all = [...new Set((project.calendar?.holidays ?? []).filter(isLocalDate))].sort();
+  const dates = project.activities
+    .flatMap(a => [datePart(a.startAt ?? undefined), datePart(a.endAt ?? undefined)])
+    .filter(Boolean) as LocalDate[];
+  const span = dates.length ? { from: dates.reduce((a, b) => (a < b ? a : b)), to: dates.reduce((a, b) => (a > b ? a : b)) } : undefined;
+  const within = (from?: LocalDate, to?: LocalDate) => all.filter(d => (!from || d >= from) && (!to || d <= to));
+  const start = datePart(project.calendar?.startAt ?? undefined);
+  const end = datePart(project.calendar?.endAt ?? undefined);
+  // A janela do calendário alargada até cobrir os blocos; sem janela, só o período dos blocos.
+  const from = start && span ? (start < span.from ? start : span.from) : (start ?? span?.from);
+  const to = end && span ? (end > span.to ? end : span.to) : (end ?? span?.to);
+  let holidays = from || to ? within(from, to) : [];
+  if (holidays.length > LOB_CALENDAR_MAX_HOLIDAYS) holidays = within(span?.from, span?.to).slice(0, LOB_CALENDAR_MAX_HOLIDAYS);
+  return normalizeLobCalendar({ weekdays, holidays });
+}
+
+/** Lê o cronograma vindo da API. Cada atividade é um bloco (serviço × lote) com as datas do
+ * Prevision; os locais ficam na ordem da tela dele (o lote de `position` 1 no topo); os serviços, na
+ * ordem dele; e as dependências são as reais, sem dedução. `calendar` é o calendário em que os dias
+ * úteis serão contados (o da obra, ou o do Prevision quando a obra ainda não tem). */
+export function readPrevisionApiSchedule(project: PrevisionApiProject, calendar?: LobCalendar): PrevisionSchedule {
+  if (project.scheduleType && project.scheduleType !== 'lob')
+    throw new LobError(`"${project.name}" é um cronograma do tipo ${project.scheduleType} no Prevision, não uma Linha de Balanço.`);
+  const warnings: string[] = [];
+  const floorById = new Map(project.floors.map(f => [f.id, f]));
+  const serviceById = new Map(project.services.map(s => [s.id, s]));
+  // Dois lotes (ou serviços) com o mesmo nome viram um só aqui, onde o nome é único na obra.
+  const canonical = (names: Map<string, string>, raw: string, fallback: string) => {
+    const name = clean(raw).slice(0, LOB_LIMITS.name) || fallback;
+    const key = normalizeName(name);
+    if (!names.has(key)) names.set(key, name);
+    return names.get(key)!;
+  };
+  const localNames = new Map<string, string>();
+  const serviceNames = new Map<string, string>();
+  const blocks: PrevisionBlock[] = [];
+  const indexOfActivity = new Map<string, number>();
+  const blockKeys = new Map<string, number>();
+  for (const a of project.activities) {
+    const floor = floorById.get(a.floorId);
+    const service = serviceById.get(a.serviceId);
+    if (!floor || !service) {
+      warnings.push(`Atividade ${a.id} sem lote ou serviço no Prevision: ficou de fora.`);
+      continue;
+    }
+    const serviceName = canonical(serviceNames, service.name, `Serviço ${service.id}`);
+    const localName = canonical(localNames, floor.name, `Lote ${floor.id}`);
+    let start = datePart(a.startAt ?? undefined);
+    let finish = datePart(a.endAt ?? undefined);
+    if (!start || !finish) {
+      warnings.push(`"${serviceName} › ${localName}" sem datas no Prevision: ficou de fora.`);
+      continue;
+    }
+    const key = `${normalizeName(serviceName)}|${normalizeName(localName)}`;
+    const repeated = blockKeys.get(key);
+    if (repeated !== undefined) {
+      // Atividade dividida em partes no Prevision: aqui é um bloco só por serviço × local.
+      warnings.push(`"${serviceName} › ${localName}" aparece mais de uma vez no Prevision (atividade em partes): valeu a primeira.`);
+      indexOfActivity.set(a.id, repeated);
+      continue;
+    }
+    start = nextWorkday(start, calendar);
+    finish = previousWorkday(finish, calendar);
+    if (finish < start) finish = start;
+    const counted = workdaysBetween(start, addDays(finish, 1), calendar);
+    const workDays = Math.max(1, Math.round(a.workDuration ?? 0) || counted);
+    const percent = Math.min(100, Math.max(0, Number(a.percentageCompleted) || 0));
+    blockKeys.set(key, blocks.length);
+    indexOfActivity.set(a.id, blocks.length);
+    blocks.push({ serviceName, localName, start, finish, workDays, percent });
+  }
+  const links: PrevisionLink[] = [];
+  let unknown = 0;
+  for (const a of project.activities) {
+    const successor = indexOfActivity.get(a.id);
+    for (const p of a.predecessors) {
+      const predecessor = indexOfActivity.get(p.predecessorId);
+      const from = p.baseAttribute === 'start_at' ? 'start' : p.baseAttribute === 'end_at' ? 'finish' : undefined;
+      const to = p.precedenceAttribute === 'start' ? 'start' : p.precedenceAttribute === 'end' ? 'finish' : undefined;
+      const sign = p.timeOperation === 'after' ? 1 : p.timeOperation === 'before' ? -1 : undefined;
+      if (successor === undefined || predecessor === undefined || !from || !to || !sign || !Number.isFinite(p.delay)) {
+        unknown++;
+        continue;
+      }
+      if (predecessor !== successor) links.push({ predecessor, successor, from, to, lagCalendarDays: sign * Math.round(p.delay) });
+    }
+  }
+  if (unknown)
+    warnings.push(`${unknown} dependência(s) do Prevision apontam para atividade fora da lista ou têm tipo desconhecido: ficaram de fora.`);
+  const used = (names: Map<string, string>, raw: string) => names.get(normalizeName(clean(raw).slice(0, LOB_LIMITS.name)));
+  const inBlocks = (pick: (b: PrevisionBlock) => string) => new Set(blocks.map(pick));
+  const usedLocals = inBlocks(b => b.localName);
+  const usedServices = inBlocks(b => b.serviceName);
+  const ordered = <T extends { name: string }>(
+    list: T[],
+    names: Map<string, string>,
+    usedNames: Set<string>,
+    rank: (item: T) => number,
+  ) => {
+    const result: string[] = [];
+    for (const item of [...list].sort((a, b) => rank(a) - rank(b))) {
+      const name = used(names, item.name);
+      if (name && usedNames.has(name) && !result.includes(name)) result.push(name);
+    }
+    return result;
+  };
+  const colors = new Map<string, string>();
+  for (const s of project.services) {
+    const name = used(serviceNames, s.name);
+    if (name && s.color && !colors.has(name)) colors.set(name, s.color);
+  }
+  return {
+    title: project.name,
+    services: ordered(project.services, serviceNames, usedServices, s => s.position ?? 0),
+    // De baixo para cima: a maior posição do Prevision é a linha de baixo da tela dele.
+    locals: ordered(project.floors, localNames, usedLocals, f => -f.position).map(name => ({ name, group: localGroup(name) })),
+    blocks,
+    warnings,
+    links,
+    colors,
+  };
+}
+
 // ─── Montagem dos dados da obra ─────────────────────────────────────────────────
 
 export interface PrevisionImportOptions {
@@ -231,6 +432,14 @@ export interface PrevisionImportOptions {
   existingLocals?: LobLocal[];
   /** Calendário de dias úteis da obra (`LobData.calendar`); ausente = segunda a sexta sem feriados. */
   calendar?: LobCalendar;
+  /** `false` deixa de deduzir os fluxos de serviços (padrão: deduz). */
+  withFlows?: boolean;
+  /** Nome do sistema de origem na linha de base e na medição (padrão "Prevision"). */
+  sourceLabel?: string;
+  /** Reordena TODOS os locais da obra pela ordem do arquivo (os já cadastrados sem bloco vão para o
+   * fim); os já cadastrados que mudam de posição saem em `localUpdates`. Padrão: os cadastrados
+   * ficam onde estão e os novos entram depois. */
+  reorderLocals?: boolean;
 }
 export interface PrevisionFlowEdge {
   predecessorId: string;
@@ -254,6 +463,8 @@ export interface PrevisionFlow {
 export interface PrevisionImport {
   /** Só os locais novos (os existentes com o mesmo nome são reaproveitados). */
   locals: LobLocal[];
+  /** Locais já cadastrados que mudam de posição (só com `reorderLocals`). */
+  localUpdates: LobLocal[];
   /** Todos os locais usados, de baixo para cima, com o grupo. */
   localOrder: { local: LobLocal; group: PrevisionLocalGroup }[];
   services: LobService[];
@@ -271,6 +482,15 @@ export interface PrevisionImport {
     measured: number;
     /** Blocos em que o intervalo do Prevision tem mais dias úteis que a duração (feriados no meio). */
     withHolidays: number;
+    /** Só com as dependências reais do Prevision (`schedule.links`). */
+    links?: {
+      /** Dependências lidas do Prevision. */
+      total: number;
+      /** Pares repetidos (o mesmo par com dois tipos de vínculo): ficou a mais exigente. */
+      merged: number;
+      /** A espera foi reduzida à folga real, porque as datas do Prevision não cumprem a regra dele. */
+      relaxed: number;
+    };
   };
 }
 
@@ -280,6 +500,7 @@ const signedGap = (a: Pick<LobActivity, 'start' | 'durationDays'>, b: Pick<LobAc
   return b.start >= end ? workdaysBetween(end, b.start, calendar) : -workdaysBetween(b.start, end, calendar);
 };
 const clampLag = (lag: number) => Math.max(-LOB_LIMITS.lagDays, Math.min(LOB_LIMITS.lagDays, lag));
+const validColor = (color: string | undefined) => (color && /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : undefined);
 const formatBr = (date: LocalDate) => `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
 
 export function buildPrevisionImport(schedule: PrevisionSchedule, options: PrevisionImportOptions): PrevisionImport {
@@ -290,6 +511,7 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
   if (schedule.services.length > LOB_LIMITS.services) throw new LobError(`O arquivo tem mais de ${LOB_LIMITS.services} serviços.`);
   if (schedule.blocks.length > LOB_LIMITS.activities) throw new LobError(`O arquivo tem mais de ${LOB_LIMITS.activities} blocos.`);
   const warnings = [...schedule.warnings];
+  const sourceLabel = options.sourceLabel ?? 'Prevision';
 
   // Locais: os já cadastrados ficam com o id e a posição; os novos entram depois, na ordem do arquivo.
   const existing = new Map((options.existingLocals ?? []).map(l => [normalizeName(l.name), l]));
@@ -308,6 +530,23 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
     groupOf.set(local.id, group);
     localOrder.push({ local, group });
   }
+  const localUpdates: LobLocal[] = [];
+  if (options.reorderLocals) {
+    const usedIds = new Set(localOrder.map(l => l.local.id));
+    const rest = [...(options.existingLocals ?? [])].filter(l => !usedIds.has(l.id)).sort((a, b) => a.orderIndex - b.orderIndex);
+    const created = new Set(locals);
+    [...localOrder.map(l => l.local), ...rest].forEach((local, index) => {
+      if (local.orderIndex === index) return;
+      if (created.has(local)) local.orderIndex = index;
+      else {
+        const moved = { ...local, orderIndex: index, updatedAt: now };
+        localUpdates.push(moved);
+        const entry = localOrder.find(l => l.local === local);
+        if (entry) entry.local = moved;
+        for (const [name, value] of localByName) if (value === local) localByName.set(name, moved);
+      }
+    });
+  }
   localOrder.sort((a, b) => a.local.orderIndex - b.local.orderIndex);
 
   // Serviços pela ordem do primeiro início (a legenda e a tabela ficam cronológicas).
@@ -323,7 +562,7 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
     id: newId(),
     workId,
     name: name.slice(0, LOB_LIMITS.name),
-    color: LOB_COLORS[index % LOB_COLORS.length],
+    color: validColor(schedule.colors?.get(name)) ?? LOB_COLORS[index % LOB_COLORS.length],
     orderIndex: index,
     createdAt: now,
     updatedAt: now,
@@ -351,6 +590,11 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
     };
     workDaysOf.set(activity.id, b.workDays);
     percentOf.set(activity.id, b.percent);
+    if (schedule.actualDates) {
+      if (b.actualStart) activity.actualStart = b.actualStart;
+      if (b.actualStart && b.actualFinish) activity.actualFinish = b.actualFinish < b.actualStart ? b.actualStart : b.actualFinish;
+      return activity;
+    }
     if (b.percent > 0) {
       activity.actualStart = b.start;
       if (b.start > options.measurementDate)
@@ -361,7 +605,8 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
   });
 
   const localIndex = new Map(localOrder.map(({ local }, index) => [local.id, index]));
-  const flows = deriveFlows(activities, localOrder, workDaysOf, services, options.workName, warnings, calendar);
+  const flows =
+    options.withFlows === false ? [] : deriveFlows(activities, localOrder, workDaysOf, services, options.workName, warnings, calendar);
   const flowLag = new Map<string, number>();
   for (const flow of flows) for (const e of flow.edges) flowLag.set(`${flow.group}|${e.predecessorId}|${e.successorId}`, e.lagDays);
 
@@ -372,23 +617,56 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
   const dependencies: LobDependency[] = [];
   const link = (p: LobActivity, s: LobActivity, lagDays: number, kind: LobDependency['kind']) =>
     dependencies.push({ id: newId(), workId, predecessorId: p.id, successorId: s.id, lagDays: clampLag(lagDays), kind, createdAt: now });
-  const byService = groupBy(activities, a => a.serviceId);
-  for (const list of byService.values()) {
-    list.sort((a, b) => a.start.localeCompare(b.start) || localIndex.get(a.localId)! - localIndex.get(b.localId)!);
-    for (let i = 1; i < list.length; i++) link(list[i - 1], list[i], signedGap(list[i - 1], list[i], calendar), 'crew');
+  let linkStats: PrevisionImport['stats']['links'];
+  if (schedule.links) {
+    // Dependências reais do Prevision. Aqui toda dependência é término → início com espera em dias
+    // úteis, então cada vínculo vira o início mínimo que ele impõe à sucessora, medido a partir do
+    // fim da predecessora (negativo quando as duas se sobrepõem, como no início → início). A espera
+    // nunca passa da folga real entre os dois blocos: as datas do Prevision ficam como estão.
+    linkStats = { total: schedule.links.length, merged: 0, relaxed: 0 };
+    const pairs = new Map<string, { p: LobActivity; s: LobActivity; lag: number }>();
+    for (const l of schedule.links) {
+      const p = activities[l.predecessor];
+      const s = activities[l.successor];
+      if (!p || !s || p === s) continue;
+      const target = addDays(l.from === 'start' ? p.start : activityFinish(p, calendar), l.lagCalendarDays);
+      const required =
+        l.to === 'start' ? nextWorkday(target, calendar) : addWorkdays(nextWorkday(target, calendar), -(s.durationDays - 1), calendar);
+      const gap = signedGap(p, s, calendar);
+      const wanted = signedGap(p, { start: required }, calendar);
+      if (wanted > gap) linkStats.relaxed++;
+      const lag = Math.min(wanted, gap);
+      const key = `${p.id}|${s.id}`;
+      const same = pairs.get(key);
+      if (same) {
+        linkStats.merged++;
+        same.lag = Math.max(same.lag, lag);
+      } else pairs.set(key, { p, s, lag });
+    }
+    for (const { p, s, lag } of pairs.values()) link(p, s, lag, p.serviceId === s.serviceId ? 'crew' : 'fs');
+  } else {
+    const byService = groupBy(activities, a => a.serviceId);
+    for (const list of byService.values()) {
+      list.sort((a, b) => a.start.localeCompare(b.start) || localIndex.get(a.localId)! - localIndex.get(b.localId)!);
+      for (let i = 1; i < list.length; i++) link(list[i - 1], list[i], signedGap(list[i - 1], list[i], calendar), 'crew');
+    }
+    for (const [localId, list] of groupBy(activities, a => a.localId)) {
+      const group = groupOf.get(localId)!;
+      if (group === 'equipamentos') continue;
+      for (const [s, preds] of immediatePredecessors(list, calendar))
+        for (const p of preds) {
+          const lag = flowLag.get(`${group}|${p.serviceId}|${s.serviceId}`) ?? 0;
+          link(p, s, Math.min(lag, signedGap(p, s, calendar)), 'fs');
+        }
+    }
   }
-  const crew = dependencies.length;
-  for (const [localId, list] of groupBy(activities, a => a.localId)) {
-    const group = groupOf.get(localId)!;
-    if (group === 'equipamentos') continue;
-    for (const [s, preds] of immediatePredecessors(list, calendar))
-      for (const p of preds) {
-        const lag = flowLag.get(`${group}|${p.serviceId}|${s.serviceId}`) ?? 0;
-        link(p, s, Math.min(lag, signedGap(p, s, calendar)), 'fs');
-      }
-  }
+  const crew = dependencies.filter(d => d.kind === 'crew').length;
   if (topologicalActivities(activities, dependencies).length !== activities.length)
-    throw new LobError('As dependências deduzidas formaram um ciclo. Confira a ordem dos serviços no arquivo.');
+    throw new LobError(
+      schedule.links
+        ? 'As dependências do Prevision formam um ciclo.'
+        : 'As dependências deduzidas formaram um ciclo. Confira a ordem dos serviços no arquivo.',
+    );
 
   // Medição com o avanço do arquivo e linha de base com as datas importadas.
   const measured = activities.filter(a => (percentOf.get(a.id) ?? 0) > 0);
@@ -399,7 +677,7 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
         number: 1,
         date: options.measurementDate,
         status: 'closed',
-        note: `Avanço importado do Prevision (${options.sourceName}).`,
+        note: `Avanço importado do ${sourceLabel} (${options.sourceName}).`,
         createdBy: actorId,
         createdAt: now,
         updatedAt: now,
@@ -423,22 +701,26 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
   const baseline: LobBaseline = {
     id: newId(),
     workId,
-    name: `Prevision — ${options.sourceName} (${formatBr(options.measurementDate)})`.slice(0, LOB_LIMITS.name),
+    name: `${sourceLabel} — ${options.sourceName} (${formatBr(options.measurementDate)})`.slice(0, LOB_LIMITS.name),
     automatic: false,
     createdBy: actorId,
     createdAt: now,
-    snapshot: activities.map(a => ({
-      activityId: a.id,
-      serviceId: a.serviceId,
-      localId: a.localId,
-      start: a.start,
-      durationDays: a.durationDays,
-      finish: activityFinish(a, calendar),
-    })),
+    snapshot: activities.flatMap((a, index) => {
+      const head = { activityId: a.id, serviceId: a.serviceId, localId: a.localId };
+      if (!schedule.baseDates) return [{ ...head, start: a.start, durationDays: a.durationDays, finish: activityFinish(a, calendar) }];
+      const b = schedule.blocks[index];
+      if (!b.baseStart || !b.baseFinish) return [];
+      const start = nextWorkday(b.baseStart, calendar);
+      const last = previousWorkday(b.baseFinish, calendar);
+      const finish = last < start ? start : last;
+      const durationDays = Math.min(LOB_LIMITS.durationDays, Math.max(1, workdaysBetween(start, addDays(finish, 1), calendar)));
+      return [{ ...head, start, durationDays, finish: activityFinish({ start, durationDays }, calendar) }];
+    }),
   };
 
   return {
     locals,
+    localUpdates,
     localOrder,
     services,
     activities,
@@ -448,7 +730,14 @@ export function buildPrevisionImport(schedule: PrevisionSchedule, options: Previ
     baseline,
     flows,
     warnings,
-    stats: { blocks: activities.length, crew, sequence: dependencies.length - crew, measured: items.length, withHolidays },
+    stats: {
+      blocks: activities.length,
+      crew,
+      sequence: dependencies.length - crew,
+      measured: items.length,
+      withHolidays,
+      links: linkStats,
+    },
   };
 }
 

@@ -379,6 +379,8 @@ No fim da visão. Uma linha de base é uma fotografia imutável do cronograma do
     body: `## O que a tela mostra
 A visão "Linha de Balanço" é o cronograma de longo prazo da obra no estilo do Prevision. No eixo vertical estão os locais da obra, de baixo para cima (Térreo embaixo); no horizontal, o tempo em semanas, com os meses no alto. Cada bloco é um serviço num local, na cor do serviço: a parte cheia é o que já foi medido e a parte clara é o que falta. Um bloco fica com contorno vermelho quando o previsto até hoje passa do medido em 10 pontos ou mais ("atrasado"). A linha tracejada âmbar é hoje; as linhas azuis com "M1", "M2"… são as datas das medições salvas. Serviços que acontecem ao mesmo tempo no mesmo local (por exemplo, as instalações elétrica e hidráulica do mesmo pavimento) aparecem um acima do outro, em faixas mais finas dentro da linha do local, que fica mais alta só nesse caso; clique na faixa para escolher o serviço.
 
+Atmos, Brizz, Essenza e Tauá abrem com a Linha de Balanço transcrita do Prevision (datas, avanço na M1 e linha de base; nas três últimas, dependências e calendário); Blentt e Mozine, do relatório "Avanço Físico-Financeiro" delas. Cargas únicas, sem sincronização.
+
 Passe o mouse sobre um bloco para ver serviço, local, início e término, duração em dias úteis, equipe, previsto até hoje e medido (e, com uma linha de base escolhida, as datas dela e o desvio). Clique para selecionar: o painel "Atividade selecionada", acima do gráfico, abre com os detalhes.
 
 ## Indicadores
@@ -638,13 +640,13 @@ Planejador, gestor e admin medem; o perfil de consulta vê as medições e as fo
       'pacote de serviço',
       'orçamento',
       'colar do orçamento',
-      'não apropriados',
-      'valor agregado',
       'sienge',
       'buscar do sienge',
       'orçamento do sienge',
       'integração com o sienge',
       'unidade construtiva',
+      'não apropriados',
+      'valor agregado',
       'em dia atenção atrasado',
     ],
     screen: 'longo-prazo',
@@ -677,9 +679,9 @@ Aberta pelo botão "Custos" da Linha de Balanço (o selo mostra quantos pacotes 
 - **Pacotes**: uma linha por pacote de serviço, com o custo (digitado direto na linha do pacote ou somado dos itens do orçamento apropriados a ele), a fatia de cada pacote no peso da obra e o IDP do pacote.
 - **Itens e "Colar do orçamento"**: cole as linhas copiadas do Excel (código, descrição e valor); uma célula com o nome do pacote já apropria o item, e linhas sem valor, como o cabeçalho, ficam de fora com o motivo.
 - **Não apropriados**: itens sem pacote. Eles não entram no peso.
+- **"Buscar do Sienge"**: traz o orçamento direto do Sienge, sem planilha (detalhes abaixo).
 - Planejador, gestor e admin apropriam. O perfil de consulta vê a visão com as porcentagens de cada item e pacote, nunca os valores em reais; o peso e o IDP saem iguais.
 
-- **"Buscar do Sienge"**: traz o orçamento direto do Sienge, sem planilha (detalhes abaixo).
 ## Fora desta etapa
 Os Dashboards (aba 0 e o geral) ainda não mostram o IDP.
 

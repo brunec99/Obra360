@@ -6,7 +6,10 @@ import {
   buildPrevisionImport,
   detachFlowIds,
   localGroup,
+  previsionApiCalendar,
+  readPrevisionApiSchedule,
   readPrevisionSchedule,
+  type PrevisionApiProject,
   type PrevisionImportOptions,
 } from '../src/domain/lob-prevision-import';
 
@@ -258,4 +261,175 @@ test('calendário da obra: a duração importada conta os dias úteis dele e nad
   assert.deepEqual(cascade(result.activities, result.dependencies, calendar), []);
   // A linha de base da importação guarda o término de cada bloco.
   assert.equal(result.baseline.snapshot.find(e => e.activityId === reboco.id)!.finish, '2026-12-11');
+});
+
+// ─── Leitura pela API do Prevision (23/11/2026) ─────────────────────────────────
+
+/** Obra no formato da API: três lotes (posição 1 = topo da tela do Prevision), dois serviços, um
+ * feriado em 20/11/2026 (sexta) e as dependências reais. 02/11/2026 é segunda-feira. */
+function apiProject(over: Partial<PrevisionApiProject> = {}): PrevisionApiProject {
+  const activity = (
+    id: string,
+    serviceId: string,
+    floorId: string,
+    start: string,
+    end: string,
+    workDuration: number,
+    percentageCompleted = 0,
+    predecessors: PrevisionApiProject['activities'][number]['predecessors'] = [],
+  ) => ({
+    id,
+    serviceId,
+    floorId,
+    startAt: `${start} 00:00:00 UTC`,
+    endAt: `${end} 23:59:59 UTC`,
+    workDuration,
+    percentageCompleted,
+    predecessors,
+  });
+  const after = (predecessorId: string, delay = 1) => ({
+    predecessorId,
+    baseAttribute: 'end_at',
+    precedenceAttribute: 'start',
+    timeOperation: 'after',
+    delay,
+  });
+  return {
+    id: '123',
+    name: 'Obra API',
+    scheduleType: 'lob',
+    calendar: {
+      startAt: '2026-01-01',
+      endAt: '2027-12-31',
+      holidays: ['2006-01-01', '2026-11-20', '2026-12-25', '2040-01-01'],
+      weekWorkdays: { sunday: false, monday: true, tuesday: true, wednesday: true, thursday: true, friday: true, saturday: false },
+    },
+    floors: [
+      { id: 'f3', name: '3º pavto', position: 1 },
+      { id: 'f2', name: '2º pavto', position: 2 },
+      { id: 'f1', name: 'Térreo', position: 3 },
+      { id: 'f0', name: 'Sem atividade', position: 4 },
+    ],
+    services: [
+      { id: 's2', name: 'ALV - Alvenaria', position: 2, color: '#AA11CC' },
+      { id: 's1', name: 'EST - Estrutura', position: 1, color: 'vermelho' },
+    ],
+    activities: [
+      activity('a1', 's1', 'f1', '2026-11-02', '2026-11-06', 5, 100),
+      activity('a2', 's1', 'f2', '2026-11-09', '2026-11-13', 5, 40, [after('a1')]),
+      // Atravessa o feriado de 20/11: 5 dias úteis de 16/11 a 23/11.
+      activity('a3', 's1', 'f3', '2026-11-16', '2026-11-23', 5, 0, [after('a2')]),
+      // Cura de 10 dias corridos depois da estrutura do térreo (06/11 + 10 = 16/11).
+      activity('b1', 's2', 'f1', '2026-11-16', '2026-11-19', 4, 0, [after('a1', 10)]),
+      // Início → início com a alvenaria do térreo, 7 dias corridos depois, e folga real maior.
+      activity('b2', 's2', 'f2', '2026-11-30', '2026-12-03', 4, 0, [
+        { predecessorId: 'b1', baseAttribute: 'start_at', precedenceAttribute: 'start', timeOperation: 'after', delay: 7 },
+        after('a2'),
+      ]),
+    ],
+    ...over,
+  };
+}
+
+test('API: calendário do Prevision só com os feriados da janela dele', () => {
+  assert.deepEqual(previsionApiCalendar(apiProject()), { weekdays: [1, 2, 3, 4, 5], holidays: ['2026-11-20', '2026-12-25'] });
+  // Sem os dias da semana marcados, vale segunda a sexta; sem janela, o período dos blocos.
+  const bare = apiProject();
+  bare.calendar = { holidays: ['2026-11-20', '2026-12-25'] };
+  assert.deepEqual(previsionApiCalendar(bare), { weekdays: [1, 2, 3, 4, 5], holidays: ['2026-11-20'] });
+});
+
+test('API: blocos, ordem dos locais e dos serviços, cores e vínculos', () => {
+  const project = apiProject();
+  const schedule = readPrevisionApiSchedule(project, previsionApiCalendar(project));
+  assert.deepEqual(
+    schedule.locals.map(l => l.name),
+    ['Térreo', '2º pavto', '3º pavto'],
+  );
+  assert.deepEqual(schedule.services, ['EST - Estrutura', 'ALV - Alvenaria']);
+  assert.equal(schedule.blocks.length, 5);
+  assert.deepEqual(schedule.blocks[2], {
+    serviceName: 'EST - Estrutura',
+    localName: '3º pavto',
+    start: '2026-11-16',
+    finish: '2026-11-23',
+    workDays: 5,
+    percent: 0,
+  });
+  assert.equal(schedule.links?.length, 5);
+  assert.equal(schedule.colors?.get('ALV - Alvenaria'), '#AA11CC');
+  assert.deepEqual(schedule.warnings, []);
+});
+
+test('API: recusa cronograma Gantt e avisa atividade sem lote, sem datas ou repetida', () => {
+  assert.throws(() => readPrevisionApiSchedule(apiProject({ scheduleType: 'gantt' })), /não uma Linha de Balanço/);
+  const project = apiProject();
+  project.activities.push(
+    { id: 'x1', serviceId: 's1', floorId: 'nao-existe', startAt: '2026-11-02', endAt: '2026-11-03', predecessors: [] },
+    { id: 'x2', serviceId: 's2', floorId: 'f3', startAt: null, endAt: null, predecessors: [] },
+    {
+      id: 'x3',
+      serviceId: 's1',
+      floorId: 'f1',
+      startAt: '2026-12-01',
+      endAt: '2026-12-02',
+      predecessors: [{ predecessorId: 'sumiu', baseAttribute: 'end_at', precedenceAttribute: 'start', timeOperation: 'after', delay: 1 }],
+    },
+  );
+  const schedule = readPrevisionApiSchedule(project, previsionApiCalendar(project));
+  assert.equal(schedule.blocks.length, 5);
+  assert.equal(schedule.warnings.length, 4);
+  assert.match(schedule.warnings.join('\n'), /sem lote ou serviço/);
+  assert.match(schedule.warnings.join('\n'), /sem datas/);
+  assert.match(schedule.warnings.join('\n'), /atividade em partes/);
+  assert.match(schedule.warnings.join('\n'), /1 dependência/);
+});
+
+test('API: dependências reais, com a espera em dias úteis e sem mover nenhum bloco', () => {
+  const project = apiProject();
+  const calendar = previsionApiCalendar(project);
+  const result = buildPrevisionImport(readPrevisionApiSchedule(project, calendar), options({ calendar, withFlows: false }));
+  assert.deepEqual(result.flows, []);
+  const name = (id: string) => {
+    const a = result.activities.find(x => x.id === id)!;
+    return `${result.services.find(s => s.id === a.serviceId)!.name.slice(0, 3)}/${result.localOrder.find(l => l.local.id === a.localId)!.local.name}`;
+  };
+  const deps = result.dependencies.map(d => `${name(d.predecessorId)} → ${name(d.successorId)} ${d.kind} ${d.lagDays}`).sort();
+  assert.deepEqual(deps, [
+    // Início → início + 7 dias corridos pede 23/11; a alvenaria do térreo libera em 23/11 (20/11 é feriado): espera 0.
+    'ALV/Térreo → ALV/2º pavto crew 0',
+    'EST/2º pavto → ALV/2º pavto fs 0',
+    'EST/2º pavto → EST/3º pavto crew 0',
+    // 10 dias corridos depois de 06/11 = 16/11: cinco dias úteis depois do fim da estrutura.
+    'EST/Térreo → ALV/Térreo fs 5',
+    'EST/Térreo → EST/2º pavto crew 0',
+  ]);
+  assert.deepEqual(result.stats.links, { total: 5, merged: 0, relaxed: 0 });
+  assert.equal(cascade(result.activities, result.dependencies, calendar).length, 0);
+  // A duração é a do Prevision (o feriado não conta) e o término fica na mesma data.
+  const top = result.activities.find(a => name(a.id) === 'EST/3º pavto')!;
+  assert.equal(top.durationDays, 5);
+  assert.equal(activityFinish(top, calendar), '2026-11-23');
+  assert.equal(result.stats.withHolidays, 0);
+  // Cor do Prevision quando é #rrggbb; senão, a da paleta.
+  assert.equal(result.services.find(s => s.name === 'ALV - Alvenaria')!.color, '#aa11cc');
+  assert.match(result.services.find(s => s.name === 'EST - Estrutura')!.color, /^#[0-9a-f]{6}$/);
+  assert.equal(result.items.length, 2);
+});
+
+test('API: espera maior que a folga real é reduzida, e par repetido fica com a mais exigente', () => {
+  const project = apiProject();
+  // A regra do Prevision pediria 30 dias corridos, mas as datas dele deixam só a sequência direta.
+  project.activities[1].predecessors = [
+    { predecessorId: 'a1', baseAttribute: 'end_at', precedenceAttribute: 'start', timeOperation: 'after', delay: 30 },
+    { predecessorId: 'a1', baseAttribute: 'start_at', precedenceAttribute: 'start', timeOperation: 'after', delay: 0 },
+  ];
+  const calendar = previsionApiCalendar(project);
+  const result = buildPrevisionImport(readPrevisionApiSchedule(project, calendar), options({ calendar, withFlows: false }));
+  assert.deepEqual(result.stats.links, { total: 6, merged: 1, relaxed: 1 });
+  const first = result.activities[0];
+  const second = result.activities[1];
+  const dep = result.dependencies.find(d => d.predecessorId === first.id && d.successorId === second.id)!;
+  assert.equal(dep.lagDays, 0);
+  assert.equal(cascade(result.activities, result.dependencies, calendar).length, 0);
 });

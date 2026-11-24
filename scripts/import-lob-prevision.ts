@@ -6,6 +6,24 @@
  * Uso:
  *   node --import tsx scripts/import-lob-prevision.ts <arquivo.xml> --obra <código> --actor <profileId>
  *     [--date AAAA-MM-DD] [--sem-fluxos] [--env-file .env.local] [--apply]
+ *   node --import tsx scripts/import-lob-prevision.ts --prevision <id da obra no Prevision> --obra <código>
+ *     --actor <profileId> [--date AAAA-MM-DD] [--sem-fluxos] [--env-file .env.local] [--apply]
+ *   node --import tsx scripts/import-lob-prevision.ts --listar-prevision
+ *   node --import tsx scripts/import-lob-prevision.ts <relatório.csv> --obra <código> --actor <profileId>
+ *     [--origem <nome do sistema>] [--date AAAA-MM-DD] [--sem-fluxos] [--env-file .env.local] [--apply]
+ *
+ * Arquivo .csv (24/11/2026) é o relatório "Avanço Físico-Financeiro" do sistema de planejamento do
+ * Blentt e da Mozine (`src/domain/lob-progress-report-import.ts`): blocos nas datas planejadas, linha
+ * de base nas datas "Planejado Base", datas reais e avanço do relatório, dependências deduzidas. Os
+ * locais da obra são reordenados pela ordem do relatório, e os já cadastrados com outra grafia
+ * ("2 PAV" e "2º pavto.") são reaproveitados. --origem é o nome que vai na linha de base.
+ *
+ * Com --prevision (23/11/2026) a leitura é direta da API do Prevision (GraphQL, chave em
+ * PREVISION_GRAPHQL_TOKEN), sem arquivo: além dos blocos e do avanço, vêm as dependências REAIS (nada
+ * é deduzido), a ordem dos locais e as cores dos serviços da tela do Prevision e o calendário dele
+ * (dias da semana, feriados e recessos), gravado na obra quando ela ainda não tem calendário próprio.
+ * Com --json <arquivo> lê a resposta guardada por --salvar-json em vez de consultar de novo.
+ * --listar-prevision só mostra as obras do Prevision com os ids.
  *
  * Sem --apply é SIMULAÇÃO: lê o banco e imprime o que entraria. Com --apply grava os locais, os
  * serviços, os blocos, as dependências, a linha de base e a medição com o avanço do arquivo, e depois
@@ -22,21 +40,26 @@ import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { parseMspdi } from '../src/domain/mspdi-import';
 import { activityFinish, cascade, type LobCalendar } from '../src/domain/lob';
-import { lobCalendarLabel } from '../src/domain/lob-calendar';
+import { lobCalendarLabel, sameLobCalendar } from '../src/domain/lob-calendar';
 import { isLocalDate } from '../src/domain/long-term-plan';
 import {
   buildPrevisionImport,
   detachFlowIds,
   LOCAL_GROUP_LABEL,
+  previsionApiCalendar,
+  readPrevisionApiSchedule,
   readPrevisionSchedule,
+  type PrevisionApiProject,
   type PrevisionImport,
 } from '../src/domain/lob-prevision-import';
+import { fetchPrevisionGraphqlProject, listPrevisionGraphqlProjects } from '../src/infrastructure/integrations/prevision/graphql';
+import { readProgressReportSchedule } from '../src/domain/lob-progress-report-import';
 import type { LobMutation, LobTable } from '../src/application/use-cases/lob-commands';
 import { applyLobMutation, insertFlow, listFlows, loadLob } from '../src/infrastructure/repositories/supabase/lob-repository';
 import { getServiceClient } from '../src/infrastructure/repositories/supabase/client';
 
 const USAGE =
-  'Uso: node --import tsx scripts/import-lob-prevision.ts <arquivo.xml> --obra <código> --actor <profileId> [--date AAAA-MM-DD] [--sem-fluxos] [--env-file .env.local] [--apply]';
+  'Uso: node --import tsx scripts/import-lob-prevision.ts (<arquivo.xml> | --prevision <id> [--json <arquivo>] [--salvar-json <arquivo>]) --obra <código> --actor <profileId> [--date AAAA-MM-DD] [--sem-fluxos] [--env-file .env.local] [--apply]\n     ou: node --import tsx scripts/import-lob-prevision.ts --listar-prevision';
 
 function fail(message: string): never {
   console.error(message);
@@ -52,6 +75,11 @@ const { values, positionals } = (() => {
         actor: { type: 'string' },
         date: { type: 'string' },
         'sem-fluxos': { type: 'boolean', default: false },
+        prevision: { type: 'string' },
+        json: { type: 'string' },
+        'salvar-json': { type: 'string' },
+        'listar-prevision': { type: 'boolean', default: false },
+        origem: { type: 'string' },
         'env-file': { type: 'string' },
         apply: { type: 'boolean', default: false },
       },
@@ -61,12 +89,17 @@ const { values, positionals } = (() => {
   }
 })();
 const [file] = positionals;
-if (!file || positionals.length > 1 || !values.obra || !values.actor) fail(USAGE);
 const envFile = values['env-file'] ?? '.env.local';
 if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 else if (values['env-file']) fail(`Arquivo de ambiente não encontrado: ${envFile}`);
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY)
-  fail('Defina NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (no ambiente ou em --env-file).');
+const listOnly = values['listar-prevision'];
+const fromApi = values.prevision !== undefined || values.json !== undefined;
+if (!listOnly) {
+  if (positionals.length > 1 || !values.obra || !values.actor || Boolean(file) === fromApi) fail(USAGE);
+  if (fromApi && !values.prevision) fail('Informe --prevision <id da obra no Prevision> junto de --json.');
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY)
+    fail('Defina NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY (no ambiente ou em --env-file).');
+}
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 const measurementDate = values.date ?? today;
 if (!isLocalDate(measurementDate)) fail(`Data inválida: ${measurementDate}`);
@@ -107,7 +140,11 @@ function report(result: PrevisionImport, workName: string, calendar?: LobCalenda
   console.log(
     `Blocos: ${result.stats.blocks} (${result.stats.withHolidays} com feriados do Prevision no intervalo: a duração aqui conta esses dias e o término fica igual)`,
   );
-  console.log(`Dependências: ${result.stats.crew} "equipe segue" + ${result.stats.sequence} de sequência no local`);
+  if (result.stats.links)
+    console.log(
+      `Dependências: ${result.dependencies.length} reais do Prevision (${result.stats.crew} "equipe segue" + ${result.stats.sequence} entre serviços), de ${result.stats.links.total} vínculos lidos; ${result.stats.links.merged} par(es) repetido(s) unidos; ${result.stats.links.relaxed} com a espera reduzida à folga real`,
+    );
+  else console.log(`Dependências: ${result.stats.crew} "equipe segue" + ${result.stats.sequence} de sequência no local`);
   console.log(`Linha de base: "${result.baseline.name}" com ${result.baseline.snapshot.length} blocos`);
   if (result.measurement) {
     console.log(
@@ -137,7 +174,12 @@ function report(result: PrevisionImport, workName: string, calendar?: LobCalenda
 }
 
 async function main() {
-  console.log(`${values.apply ? 'GRAVAÇÃO' : 'SIMULAÇÃO (use --apply para gravar)'} — ${file}`);
+  if (listOnly) {
+    for (const p of await listPrevisionGraphqlProjects()) console.log(`${p.id.padStart(7)}  ${p.name}`);
+    return;
+  }
+  const source = fromApi ? `Prevision, obra ${values.prevision}${values.json ? ` (${values.json})` : ' (API)'}` : file!;
+  console.log(`${values.apply ? 'GRAVAÇÃO' : 'SIMULAÇÃO (use --apply para gravar)'} — ${source}`);
   console.log(`Banco: ${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).host}`);
   const client = getServiceClient();
   const works = await client.from('works').select('id, name, code');
@@ -153,10 +195,35 @@ async function main() {
   if (busy.length)
     fail(`${work.name} já tem dados na Linha de Balanço (${busy.map(t => `${current[t].length} ${t}`).join(', ')}). Nada foi gravado.`);
 
-  const project = parseMspdi(fs.readFileSync(file, 'utf8'));
-  // Dias úteis pelo calendário já configurado na obra (ausente = segunda a sexta sem feriados).
-  const calendar = current.calendar;
-  const schedule = readPrevisionSchedule(project, calendar);
+  // Dias úteis pelo calendário já configurado na obra (ausente = segunda a sexta sem feriados). Pela
+  // API, a obra sem calendário próprio recebe o do Prevision, e as durações ficam iguais às dele.
+  let calendar = current.calendar;
+  let newCalendar: LobCalendar | undefined;
+  let apiProject: PrevisionApiProject | undefined;
+  if (fromApi) {
+    apiProject = values.json
+      ? (JSON.parse(fs.readFileSync(values.json, 'utf8')) as PrevisionApiProject)
+      : await fetchPrevisionGraphqlProject(values.prevision!);
+    if (String(apiProject.id) !== values.prevision)
+      fail(`O arquivo ${values.json} é da obra ${apiProject.id} do Prevision, não da ${values.prevision}.`);
+    if (values['salvar-json']) fs.writeFileSync(values['salvar-json'], JSON.stringify(apiProject));
+    console.log(`Prevision: ${apiProject.name} (${apiProject.activities.length} atividades)`);
+    const theirs = previsionApiCalendar(apiProject);
+    if (!calendar) calendar = newCalendar = theirs;
+    else if (!sameLobCalendar(calendar, theirs))
+      console.log('A obra já tem calendário próprio, diferente do Prevision: ele foi mantido, e as durações são contadas por ele.');
+  }
+  const fromReport = !apiProject && /\.csv$/i.test(file!);
+  const schedule = apiProject
+    ? readPrevisionApiSchedule(apiProject, calendar)
+    : fromReport
+      ? readProgressReportSchedule(
+          fs.readFileSync(file!, 'utf8'),
+          calendar,
+          current.locals.map(l => l.name),
+        )
+      : readPrevisionSchedule(parseMspdi(fs.readFileSync(file!, 'utf8')), calendar);
+  const sourceName = apiProject ? `API, obra ${apiProject.id}` : fromReport ? 'Avanço Físico-Financeiro' : path.basename(file!);
   const result = buildPrevisionImport(schedule, {
     workId: work.id,
     workName: work.name,
@@ -164,10 +231,16 @@ async function main() {
     now: new Date().toISOString(),
     newId: randomUUID,
     measurementDate,
-    sourceName: path.basename(file),
+    sourceName,
     existingLocals: current.locals,
     calendar,
+    // Sem dependências reais, os fluxos são deduzidos mesmo com --sem-fluxos (que só deixa de gravá-los):
+    // é deles que sai a espera das dependências de sequência.
+    withFlows: !(values['sem-fluxos'] && schedule.links),
+    ...(fromReport ? { sourceLabel: values.origem ?? 'Relatório', reorderLocals: true } : {}),
   });
+  if (result.localUpdates.length) console.log(`Locais já cadastrados que mudam de posição: ${result.localUpdates.length}`);
+  if (newCalendar) console.log(`Calendário do Prevision a gravar na obra: ${lobCalendarLabel(newCalendar)}`);
   const flows = values['sem-fluxos'] ? [] : result.flows;
   report({ ...result, flows }, work.name, calendar);
   const existingFlows = flows.length ? await listFlows() : [];
@@ -188,9 +261,10 @@ async function main() {
       measurements: result.measurement ? [result.measurement] : [],
       items: result.items,
     },
-    update: EMPTY(),
+    update: { ...EMPTY(), locals: result.localUpdates },
     delete: EMPTY(),
     removeFiles: [],
+    ...(newCalendar ? { calendar: { value: newCalendar, updatedBy: actor.data.id, updatedAt: new Date().toISOString() } } : {}),
   };
   try {
     await applyLobMutation(mutation);
@@ -216,6 +290,15 @@ async function main() {
           );
         if (undo) console.error(`  não consegui apagar de ${table}: ${undo.message}`);
       }
+    for (const moved of result.localUpdates) {
+      const before = current.locals.find(l => l.id === moved.id)!;
+      const { error: undo } = await client.from('lob_locals').update({ order_index: before.orderIndex }).eq('id', moved.id);
+      if (undo) console.error(`  não consegui devolver a posição de ${before.name}: ${undo.message}`);
+    }
+    if (newCalendar) {
+      const { error: undo } = await client.from('lob_calendars').delete().eq('work_id', work.id);
+      if (undo) console.error(`  não consegui apagar o calendário: ${undo.message}`);
+    }
     process.exit(1);
   }
   console.log(`\nLinha de Balanço gravada: ${result.activities.length} blocos, ${result.dependencies.length} dependências.`);
