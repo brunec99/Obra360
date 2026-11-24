@@ -5,12 +5,15 @@ preenchido no Obra 360 e enviado ao Sienge pela API REST `construction-daily-rep
 do dia. A obra piloto é o Atmos (empreendimento 32 do Sienge), que já tem 368 diários lançados à mão no
 Sienge.
 
-**Situação (24/11/2026, fim do dia):** código no branch `diario-de-obra`, em revisão no PR #10, **ainda não
-publicado** (o `main` não tem o diário). **A migração `0059_daily_report.sql` foi aplicada no `takt-hub` em
-24/11/2026**, numa transação, e conferida (tabelas, RLS, grant para `service_role`, bucket `diario` privado,
-leitura pela API REST). **A integração com o Sienge foi validada com gravações reais no Atmos** (diários de
-teste criados e excluídos em seguida; ver "Testes reais no Sienge"). O módulo nasce sem ninguém liberado,
-fora os administradores.
+**Situação (24/11/2026, noite):** **publicado** no `main` em `5d1a24c` (PR #10); a imagem foi gerada e o
+servidor da ATR já serve arquivos desse build (conferido pela data de um arquivo estático público, 20:17 UTC).
+**A migração `0059_daily_report.sql` foi aplicada no `takt-hub` em 24/11/2026**, numa transação, e conferida
+(tabelas, RLS, grant para `service_role`, bucket `diario` privado, leitura pela API REST). **A integração com o
+Sienge foi validada com gravações reais no Atmos** (diários de teste criados e excluídos em seguida; ver
+"Testes reais no Sienge"). **O módulo foi liberado para 20 engenheiros** das obras ligadas ao Sienge
+(`profiles.module_access` com `diario`, gravado direto no banco) e eles receberam por e-mail, em 24/11, o
+passo a passo com o pedido de uso e de retorno. Ficaram de fora os engenheiros da Takt (o Tauá não está
+ligado ao Sienge) e quem tem perfil de consulta.
 
 ## O que a tela faz
 
@@ -230,7 +233,6 @@ Em 24/11/2026, no branch `diario-de-obra`:
 
 ## Pendências
 
-- **Publicar** (merge do PR #10 no `main`). A 0059 já está aplicada.
 - **Primeiro diário de verdade pela tela**, no Atmos, com quem preenche hoje no Sienge.
 - **Cada pessoa ligar o usuário do Sienge** na primeira vez que abrir o diário (o aviso no alto pede).
 - **Ligar os locais que faltam.** No Atmos, os 19 locais com correspondente claro no Sienge foram ligados
