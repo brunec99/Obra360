@@ -5,6 +5,7 @@ import {
   calendarPreviewText,
   DAY_LABEL_MIN_PX,
   dragShifts,
+  filterPredecessorOptions,
   GEOMETRY,
   HEADER_SCALE_PX,
   headerScaleFor,
@@ -513,4 +514,21 @@ test('calendarPreviewText: a frase da prévia da mudança de calendário', () =>
   );
   assert.equal(calendarPreviewText({ ...preview, changedBlocks: 0 }, 40), 'Nenhum bloco muda de data com este calendário.');
   assert.match(calendarPreviewText({ changedBlocks: 0, movedStarts: 0 }, 0), /ainda não tem blocos/);
+});
+
+test('busca de predecessora: ignora acento e maiúscula, e cada palavra precisa aparecer', () => {
+  const options = [
+    { id: 'a', label: 'Alvenaria · 12º pavimento' },
+    { id: 'b', label: 'Alvenaria · 2º pavimento' },
+    { id: 'c', label: 'Instalações elétricas · 12º pavimento' },
+    { id: 'd', label: 'Forro · Térreo' },
+  ];
+  const ids = (query: string) => filterPredecessorOptions(options, query).map(o => o.id);
+  assert.deepEqual(ids(''), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(ids('   '), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(ids('ALV'), ['a', 'b']);
+  assert.deepEqual(ids('instalacoes eletricas'), ['c']);
+  assert.deepEqual(ids('12 alv'), ['a']);
+  assert.deepEqual(ids('terreo'), ['d']);
+  assert.deepEqual(ids('pintura'), []);
 });

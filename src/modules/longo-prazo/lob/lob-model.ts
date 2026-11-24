@@ -854,3 +854,28 @@ export function typicalDurations(activities: Pick<LobActivity, 'serviceId' | 'du
 
 /** Quantos caracteres do nome cabem num bloco: ~6 px por caractere a 10,5 px, com 5 px de margem. */
 export const labelChars = (width: number) => Math.floor((width - 10) / 6);
+
+// ─── Busca de predecessora no painel do bloco (23/11/2026) ───────────────────
+
+/** Opção do campo "adicionar predecessora": um bloco, com o rótulo "Serviço · Local". */
+export interface PredecessorOption {
+  id: string;
+  label: string;
+}
+
+/** Quantas opções a lista mostra de uma vez; o resto aparece ao refinar a busca. */
+export const PREDECESSOR_OPTIONS_LIMIT = 50;
+
+const searchKey = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/** Filtra as candidatas pelo que foi digitado: sem diferenciar maiúsculas nem acentos, e cada
+ * palavra precisa aparecer no rótulo, em qualquer ordem ("alv 12" acha "Alvenaria · 12º pavimento").
+ * Busca vazia devolve tudo, na ordem recebida. */
+export function filterPredecessorOptions<T extends PredecessorOption>(options: T[], query: string): T[] {
+  const words = searchKey(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return options;
+  return options.filter(option => {
+    const key = searchKey(option.label);
+    return words.every(word => key.includes(word));
+  });
+}

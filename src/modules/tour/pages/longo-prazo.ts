@@ -75,7 +75,7 @@ export const steps: TourStep[] = [
   {
     target: 'longo-lob-painel',
     title: 'Bloco selecionado',
-    body: 'Fica acima do gráfico e se preenche ao clicar num bloco. Início, duração, equipe, predecessoras com a espera, quantos blocos acompanham ao arrastar, o atraso com o motivo da medição, as datas reais e as fotos da última medição.',
+    body: 'Fica acima do gráfico e se preenche ao clicar num bloco. Início, duração, equipe, predecessoras com a espera (para ligar uma nova, digite parte do serviço ou do local no campo de busca), quantos blocos acompanham ao arrastar, o atraso com o motivo da medição, as datas reais e as fotos da última medição.',
   },
   {
     target: 'longo-lob-criar-pendencia',

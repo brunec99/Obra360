@@ -23,6 +23,7 @@ import { useConfirm } from '@/modules/layout/confirm';
 import { useToast } from '@/modules/layout/toast';
 import { formatDate, formatTimestamp } from '@/shared/format';
 import { DEVIATION_COLORS, deviationText } from './lob-model';
+import { PredecessorPicker } from './predecessor-picker';
 
 /** Painel "Atividade selecionada" (acima do gráfico desde 11/11/2026, a pedido do usuário; antes era lateral) da Linha de Balanço (modelo de 04/11/2026, tela 1): tudo o
  * que um bloco tem se edita aqui, campo a campo, e cada campo grava sozinho ao sair ou no Enter.
@@ -156,6 +157,8 @@ export function LobActivityPanel({
   const [busy, setBusy] = useState(false);
   const [newPredecessor, setNewPredecessor] = useState('');
   const [newLag, setNewLag] = useState('0');
+  /** Muda a cada predecessora ligada, para o campo de busca voltar em branco. */
+  const [pickerVersion, setPickerVersion] = useState(0);
   const [viewing, setViewing] = useState<LobPhoto>();
 
   const service = data.services.find(s => s.id === activity.serviceId);
@@ -235,6 +238,7 @@ export function LobActivityPanel({
     ) {
       setNewPredecessor('');
       setNewLag('0');
+      setPickerVersion(v => v + 1);
     }
   };
 
@@ -431,20 +435,14 @@ export function LobActivityPanel({
               <label htmlFor="lob-new-predecessor" className="sr-only">
                 Adicionar predecessora
               </label>
-              <select
+              <PredecessorPicker
+                key={`${activity.id}:${pickerVersion}`}
                 id="lob-new-predecessor"
-                className="field min-w-0 flex-1 py-1 text-xs"
+                options={candidates.map(a => ({ id: a.id, label: label(a) }))}
                 value={newPredecessor}
-                disabled={disabled || !candidates.length}
-                onChange={event => setNewPredecessor(event.target.value)}
-              >
-                <option value="">{candidates.length ? 'adicionar predecessora…' : 'nenhum bloco disponível'}</option>
-                {candidates.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {label(a)}
-                  </option>
-                ))}
-              </select>
+                disabled={disabled}
+                onChange={setNewPredecessor}
+              />
               <input
                 type="number"
                 className="field w-16 px-1.5 py-1 text-right text-xs tabular-nums"

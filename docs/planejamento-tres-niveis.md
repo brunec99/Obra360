@@ -2018,3 +2018,35 @@ Sequência do `ci.yml` rodada local, toda verde: `verify:portal-kit`, `typecheck
 
 - Atalhos de período ("este mês", "próximos 30 dias", ano) e filtro de data nas visões Planejador de Equipe e Uso dos Recursos.
 
+
+
+## Longo prazo: busca ao adicionar predecessora na Linha de Balanço (23/11/2026)
+
+Jorge Lucas, na conversa "Feedback Obra 360" de 23/11/2026: no quadro que abre acima da Linha de Balanço, ao adicionar uma predecessora, não havia filtro; era preciso procurar na lista à mão ou ir apertando a letra inicial. No Atmos a lista tem cerca de 600 blocos.
+
+### Comportamento entregue
+
+- No painel "Atividade selecionada", a lista suspensa "adicionar predecessora…" virou um **campo de busca** ("buscar predecessora…"). Ao digitar, a lista abaixo fica só com os blocos que combinam.
+- A busca olha o rótulo "Serviço · Local", não diferencia maiúsculas nem acentos, e cada palavra digitada precisa aparecer, em qualquer ordem: "alv 12" acha "Alvenaria · 12º pavimento".
+- Clicar no campo sem digitar abre a lista inteira, na mesma ordem de antes (local, depois serviço). A lista mostra até 50 blocos por vez; havendo mais, o rodapé diz quantos faltam e pede para refinar.
+- Teclado: setas percorrem, Enter escolhe, Esc fecha. Depois de escolher, a espera e o botão "Ligar" seguem como eram; ao ligar, o campo volta em branco.
+- As candidatas são as mesmas de antes: qualquer bloco que ainda não seja predecessora e que não feche um ciclo.
+
+### Decisões
+
+- Campo de busca com lista, e não um filtro ao lado da lista suspensa antiga: um controle só, e a lista suspensa nativa não permite buscar no meio do texto.
+- Sem migração e sem mudança no servidor: `src/modules/longo-prazo/lob/predecessor-picker.tsx` (campo), `filterPredecessorOptions` em `lob-model.ts` (regra, testada em `tests/lob-model.test.ts`) e a troca em `lob-activity-panel.tsx`; mais o tour e o manual da Claudia do longo prazo.
+- O editor de **Fluxos de serviços** continua com a lista suspensa nas predecessoras: ali a lista é de serviços do fluxo (dezenas), não de blocos.
+
+### Validação (23/11/2026)
+
+- Sequência do `ci.yml` rodada local, toda verde: `verify:portal-kit`, `typecheck`, `lint` (sem erros; só os avisos que já existiam), `format:check`, `npm test` (1.693 testes), `validate:migrations`, `build` e `test:e2e`.
+- Tela aberta no navegador com dados simulados (`next dev` + Supabase falso + Playwright respondendo `/api/*`; 20 locais × 12 serviços = 240 blocos): o campo abre com 50 blocos e o rodapé "Mais 189 blocos"; "eletricas 12" deixa só "Instalações elétricas · 12º pavimento"; "ALV" deixa os 20 de Alvenaria; setas + Enter escolhem; "Ligar" envia `add_dependency` com o bloco certo e o campo volta em branco; texto sem resultado mostra "Nenhum bloco com esse texto."; Esc fecha. Sem erro no console.
+
+### Não verificado
+
+- A tela não foi aberta logada com os dados reais do Atmos (cerca de 600 blocos).
+
+### Próximas etapas (não implementado)
+
+- A mesma busca nas predecessoras do editor de Fluxos de serviços, se a equipe pedir.
