@@ -7,6 +7,7 @@ import type { AgentBriefing, BriefingLevel, FindingLevel, FindingSeverity } from
 import { formatUsd } from '@/domain/agent-cost';
 import { renderMarkdown } from '@/modules/curto-prazo/justifications-view';
 import { Drawer } from '@/modules/layout/drawer';
+import { PENDING_CHANGED_EVENT, sendPendingCommand } from '@/modules/pendencias/api';
 import { useToast } from '@/modules/layout/toast';
 import { usePlanning } from '@/modules/planejamento/planning-provider';
 import { Callout } from '@/modules/planejamento/ui';
@@ -92,7 +93,7 @@ const SEVERITY: Record<FindingSeverity, { label: string; className: string }> = 
 };
 const LEVEL_LABEL: Record<FindingLevel, string> = { cruzado: 'Cruzado', curto: 'Curto', medio: 'Médio', longo: 'Longo' };
 const READ_LEVEL: Record<BriefingLevel, string> = { longo: 'longo', medio: 'médio', curto: 'curto' };
-const KIND_LABEL: Record<ProposalKind, string> = { levar: 'Levar', criar: 'Criar', apontar: 'Apontar' };
+const KIND_LABEL: Record<ProposalKind, string> = { levar: 'Levar', criar: 'Criar', apontar: 'Apontar', restricao: 'Restrição' };
 /** Linhas da proposta mostradas abertas; o resto fica num "Ver as outras", porque uma proposta pode
  * ter até 60 linhas e o painel é estreito. */
 const VISIBLE_LINES = 10;
@@ -144,7 +145,9 @@ const withData = (session: Session, update: (data: AgentOverview) => AgentOvervi
  * comando, porque o apontamento vai num comando só com várias linhas. */
 export function appliedTitle(proposal: AgentProposal) {
   const count = proposal.lines.length;
-  const verbs: Record<ProposalKind, [string, string, string]> = {
+  if (proposal.kind === 'restricao')
+    return count === 1 ? '1 restrição criada no Quadro de Restrições.' : `${count} restrições criadas no Quadro de Restrições.`;
+  const verbs: Record<Exclude<ProposalKind, 'restricao'>, [string, string, string]> = {
     levar: ['levada', 'levadas', 'para a'],
     criar: ['criada', 'criadas', 'na'],
     apontar: ['apontada', 'apontadas', 'na'],
@@ -152,6 +155,31 @@ export function appliedTitle(proposal: AgentProposal) {
   const [one, many, preposition] = verbs[proposal.kind];
   const lines = count === 1 ? `1 linha ${one}` : `${count} linhas ${many}`;
   return proposal.weekStart ? `${lines} ${preposition} semana de ${formatDate(proposal.weekStart)}.` : `${lines}.`;
+}
+
+/** Passos de uma proposta: os comandos do planejamento e, na proposta de restrições (24/11/2026), os do
+ * Quadro de Restrições, nessa ordem. */
+export const proposalSteps = (proposal: AgentProposal) => proposal.commands.length + (proposal.pendingCommands?.length ?? 0);
+/** Só comandos do Quadro de Restrições: não depende dos dados do planejamento carregados na tela. */
+export const isBoardOnly = (proposal: AgentProposal) => proposal.commands.length === 0 && proposalSteps(proposal) > 0;
+/** Não acontece na prática (quem aplica confere antes); existe para o tipo. */
+export const NOT_LOADED = () => Promise.reject(new Error('Os dados da obra ainda não carregaram.'));
+/** Grava o passo `step` da proposta pelo caminho normal de cada um: `execute` (planejamento) ou a rota do
+ * quadro, que confere o módulo liberado, o responsável e a origem como no botão "Nova restrição". */
+export async function runProposalStep(
+  proposal: AgentProposal,
+  step: number,
+  execute: (command: AgentProposal['commands'][number]) => Promise<unknown>,
+  fallbackWorkId: string,
+) {
+  if (step < proposal.commands.length) {
+    await execute(proposal.commands[step]);
+    return;
+  }
+  const command = proposal.pendingCommands?.[step - proposal.commands.length];
+  if (!command) return;
+  await sendPendingCommand(command, proposal.workId ?? (command.type === 'create_card' ? command.workId : fallbackWorkId));
+  window.dispatchEvent(new Event(PENDING_CHANGED_EVENT));
 }
 
 /** Textarea de 2 linhas que cresce com o texto até o `max-h` do CSS. */
@@ -295,7 +323,7 @@ export function AgentButton() {
   /** Aplica pelo caminho normal de gravação (`execute`: permissões, projeção otimista, recarga), um
    * comando por vez; em erro para no comando que falhou e guarda quantos já entraram. */
   const applyProposal = async (turnId: number, card: ProposalCard) => {
-    if (planning.state !== 'ready') {
+    if (planning.state !== 'ready' && !isBoardOnly(card.proposal)) {
       toast({
         title: 'Os dados da obra ainda não carregaram.',
         description: 'Espere a tela terminar de carregar e tente de novo.',
@@ -306,9 +334,9 @@ export function AgentButton() {
     const { proposal, state } = card;
     let done = state.status === 'falhou' ? state.done : 0;
     try {
-      for (; done < proposal.commands.length; done += 1) {
+      for (; done < proposalSteps(proposal); done += 1) {
         setProposalState(turnId, proposal.id, { status: 'aplicando', done });
-        await planning.execute(proposal.commands[done]);
+        await runProposalStep(proposal, done, command => (planning.state === 'ready' ? planning.execute(command) : NOT_LOADED()), workId);
       }
       setProposalState(turnId, proposal.id, { status: 'aplicada' });
       toast({ title: appliedTitle(proposal), tone: 'success' });
@@ -757,7 +785,9 @@ export function ProposalCardView({
   onDiscard: () => void;
 }) {
   const { proposal, state } = card;
-  const total = proposal.commands.length;
+  const total = proposalSteps(proposal);
+  // O Quadro de Restrições aceita cards de qualquer papel com o módulo liberado (regra 1 do quadro).
+  const mayApply = canEdit || proposal.kind === 'restricao';
   const shown = proposal.lines.slice(0, VISIBLE_LINES);
   const rest = proposal.lines.slice(VISIBLE_LINES);
   const tone =
@@ -815,7 +845,7 @@ export function ProposalCardView({
         )}
         {(state.status === 'pendente' || state.status === 'falhou') && (
           <>
-            {canEdit ? (
+            {mayApply ? (
               <button type="button" className="button px-3 py-1.5 text-xs" onClick={onApply}>
                 {state.status === 'falhou' ? 'Tentar de novo' : 'Aplicar'}
               </button>

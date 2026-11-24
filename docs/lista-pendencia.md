@@ -182,3 +182,7 @@ Sequência do `ci.yml` rodada local, toda verde: `typecheck`, `lint` (sem erros;
 
 - Oferecer as linhas do Gantt de legalização no campo "Ligar a" do formulário "+ Nova pendência" do quadro (hoje só tarefas do plano do mês e serviços da Linha de Balanço).
 - Filtro de origem próprio para "Gantt de legalização" no quadro.
+
+## Criar pela Claudia (24/11/2026)
+
+A Claudia cadastra cards pelo chat, de qualquer tela da obra: consulta o quadro, não duplica e devolve uma proposta que a pessoa aplica. Os comandos são `create_card` comuns, enviados a `POST /api/pendencias/commands`; nada mudou nas regras nem no banco. A tela do quadro relê quando uma proposta é aplicada (evento `obra360:restricoes-mudaram` em `src/modules/pendencias/api.ts`). Detalhes, decisões e validação em `docs/agente-ia.md`, seção "Restrições pelo chat (24/11/2026)".

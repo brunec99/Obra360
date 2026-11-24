@@ -79,6 +79,8 @@ test('as especificações das ferramentas têm nome, descrição e esquema de en
       'propor_levar',
       'propor_criar_linhas',
       'propor_apontar',
+      'listar_restricoes',
+      'propor_restricoes',
       'consultar_manual',
     ],
   );

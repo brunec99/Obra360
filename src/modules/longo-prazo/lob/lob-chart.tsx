@@ -62,7 +62,7 @@ export type { LobZoom } from './lob-model';
 
 /** Linha de Balanço no estilo Prevision (aba 1, modelo aprovado em 04/11/2026). Um <svg> por obra:
  * eixo vertical = locais de baixo para cima, eixo horizontal = tempo; cada bloco é um serviço num
- * local, na cor do serviço, com a parte medida cheia e a parte a fazer a 42%. Rótulos dos locais
+ * local, na cor do serviço, com a parte medida transparente (a 42%) e a parte a fazer cheia (invertido em 24/11/2026). Rótulos dos locais
  * ficam fixos à esquerda (coluna `position: sticky`) enquanto o gráfico rola. Toda a geometria vem
  * de `lob-model.ts`; aqui ficam só o desenho e a interação (seleção, tooltip, arrasto, teclado).
  * Os dias sem trabalho do calendário da obra (`data.calendar`: fins de semana, feriados e recessos)
@@ -111,6 +111,9 @@ export interface LobChartProps {
   onSelect: (id: string | undefined) => void;
   /** Ao soltar o arrasto (ou pelas setas), com a data já no dia útil. */
   onMove: (id: string, start: string) => void;
+  /** Duplo clique num bloco (24/11/2026): quem recebe abre os detalhes dele num diálogo, como o duplo
+   * clique na tarefa do médio prazo. */
+  onOpen?: (id: string) => void;
   /** Quando muda, rola a área para "hoje" ficar visível. */
   scrollToTodayToken?: number;
 }
@@ -120,6 +123,7 @@ export interface LobChartProps {
 const STYLE = `
 .lob-block{transition:transform 220ms cubic-bezier(.2,.8,.2,1),opacity 150ms ease;outline:none}
 .lob-block:hover .lob-base{fill-opacity:.62}
+.lob-block:hover .lob-todo{fill-opacity:.86}
 .lob-block:focus-visible .lob-base{stroke:var(--color-primary);stroke-width:2}
 .lob-ghost{cursor:help}
 .lob-ghost:hover{stroke-width:1.75}
@@ -351,6 +355,49 @@ const Ghosts = memo(function Ghosts({ ghosts }: { ghosts: LobLayout['ghosts'] })
 /** O par em destaque: o tracejado da linha de base reforçado e uma linha fina do término dele ao
  * término do bloco de hoje, para ver quem é de quem e para que lado foi o desvio. Por cima dos blocos
  * e sem eventos de ponteiro. */
+/** O que prende o bloco selecionado (24/11/2026, pedido do usuário): linhas vermelhas finas das
+ * predecessoras até ele e dele até as sucessoras, com seta no destino. Só as dependências do selecionado,
+ * e só entre blocos visíveis; durante o arrasto as linhas somem (as posições estão mudando). */
+function DependencyLinks({
+  selected,
+  dependencies,
+  blockById,
+}: {
+  selected: LobBlock;
+  dependencies: LobData['dependencies'];
+  blockById: ReadonlyMap<string, LobBlock>;
+}) {
+  const links = dependencies
+    .filter(d => d.predecessorId === selected.activity.id || d.successorId === selected.activity.id)
+    .map(d => ({ id: d.id, from: blockById.get(d.predecessorId), to: blockById.get(d.successorId) }))
+    .filter((l): l is { id: string; from: LobBlock; to: LobBlock } => !!l.from && !!l.to);
+  if (!links.length) return null;
+  return (
+    <g pointerEvents="none" aria-hidden="true" data-links="dependencias">
+      {links.map(({ id, from, to }) => {
+        const x1 = from.x + from.w,
+          y1 = from.y + from.h / 2,
+          x2 = to.x,
+          y2 = to.y + to.h / 2;
+        const bend = Math.max(14, Math.abs(x2 - x1) / 2);
+        return (
+          <g key={id}>
+            <path
+              d={`M${x1} ${y1} C${x1 + bend} ${y1} ${x2 - bend} ${y2} ${x2 - 4} ${y2}`}
+              fill="none"
+              stroke={CHART.late}
+              strokeWidth={1.25}
+              strokeLinecap="round"
+            />
+            <path d={`M${x2} ${y2} l-5 -3 v6 z`} fill={CHART.late} />
+            <circle cx={x1} cy={y1} r={1.75} fill={CHART.late} />
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 function PairLink({ block, ghost }: { block: LobBlock; ghost: LobGhost }) {
   const days = block.deviation?.status === 'compared' ? block.deviation.finishDays : 0;
   const color = days > 0 ? DEVIATION_COLORS.late : days < 0 ? DEVIATION_COLORS.ahead : CHART.ink;
@@ -535,8 +582,20 @@ const RowBlocks = memo(function RowBlocks({
             tabIndex={selected ? 0 : -1}
             aria-label={aria}
           >
+            {/* Invertido em 24/11/2026 (pedido do usuário): o que já foi medido fica transparente (a 42%) e
+                o que falta fazer fica cheio, da direita para a esquerda. Bloco concluído = todo transparente;
+                bloco futuro = todo cheio; o que resta no passado salta aos olhos. */}
             <rect className="lob-base" width={w} height={b.h} rx={3} fill={b.service.color} fillOpacity={0.42} />
-            {measured > 0 && <rect width={Math.max(1.5, (w * measured) / 100)} height={b.h} rx={3} fill={b.service.color} />}
+            {measured < 100 && (
+              <rect
+                className="lob-todo"
+                x={measured > 0 ? Math.min(w - 1.5, (w * measured) / 100) : 0}
+                width={measured > 0 ? Math.max(1.5, w - (w * measured) / 100) : w}
+                height={b.h}
+                rx={3}
+                fill={b.service.color}
+              />
+            )}
             {late && (
               <rect x={-0.75} y={-0.75} width={w + 1.5} height={b.h + 1.5} rx={3.5} fill="none" stroke={CHART.late} strokeWidth={1.75} />
             )}
@@ -570,7 +629,8 @@ const RowBlocks = memo(function RowBlocks({
                 y={b.h / 2 + fontSize / 3}
                 fontSize={fontSize}
                 fontWeight={600}
-                fill={inkOn(b.service.color, measured >= 50 ? 1 : 0.42)}
+                // O rótulo começa na esquerda, que é a parte medida (transparente) assim que ela tem largura para ele.
+                fill={inkOn(b.service.color, (w * measured) / 100 >= 24 ? 0.42 : 1)}
                 pointerEvents="none"
               >
                 {label}
@@ -1165,6 +1225,11 @@ export function LobChart(props: LobChartProps) {
             onPointerOver={onPointerOver}
             onPointerLeave={() => setHover(undefined)}
             onClick={onClick}
+            onDoubleClick={e => {
+              // Com o ponteiro capturado pelo arrasto, o alvo pode ser o próprio <svg>: vale o bloco selecionado.
+              const id = idAt(e.target) ?? selectedId;
+              if (id && layout.blockById.has(id)) props.onOpen?.(id);
+            }}
             onKeyDown={onSvgKeyDown}
           >
             <style>{STYLE}</style>
@@ -1195,6 +1260,9 @@ export function LobChart(props: LobChartProps) {
                 ))}
               </g>
               {activeBlock && activeGhost && <PairLink block={activeBlock} ghost={activeGhost} />}
+              {selectedBlock && !drag && (
+                <DependencyLinks selected={selectedBlock} dependencies={dependencies} blockById={layout.blockById} />
+              )}
             </g>
             <Markers layout={layout} today={today} />
             {dragHint}

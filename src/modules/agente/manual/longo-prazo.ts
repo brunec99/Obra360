@@ -377,7 +377,7 @@ No fim da visão. Uma linha de base é uma fotografia imutável do cronograma do
     ],
     screen: 'longo-prazo',
     body: `## O que a tela mostra
-A visão "Linha de Balanço" é o cronograma de longo prazo da obra no estilo do Prevision. No eixo vertical estão os locais da obra, de baixo para cima (Térreo embaixo); no horizontal, o tempo em semanas, com os meses no alto. Cada bloco é um serviço num local, na cor do serviço: a parte cheia é o que já foi medido e a parte clara é o que falta. Um bloco fica com contorno vermelho quando o previsto até hoje passa do medido em 10 pontos ou mais ("atrasado"). A linha tracejada âmbar é hoje; as linhas azuis com "M1", "M2"… são as datas das medições salvas. Serviços que acontecem ao mesmo tempo no mesmo local (por exemplo, as instalações elétrica e hidráulica do mesmo pavimento) aparecem um acima do outro, em faixas mais finas dentro da linha do local, que fica mais alta só nesse caso; clique na faixa para escolher o serviço.
+A visão "Linha de Balanço" é o cronograma de longo prazo da obra no estilo do Prevision. No eixo vertical estão os locais da obra, de baixo para cima (Térreo embaixo); no horizontal, o tempo em semanas, com os meses no alto. Cada bloco é um serviço num local, na cor do serviço: a parte transparente é o que já foi medido e a parte cheia é o que falta (invertido em 24/11/2026). Um bloco fica com contorno vermelho quando o previsto até hoje passa do medido em 10 pontos ou mais ("atrasado"). A linha tracejada âmbar é hoje; as linhas azuis com "M1", "M2"… são as datas das medições salvas. Serviços que acontecem ao mesmo tempo no mesmo local (por exemplo, as instalações elétrica e hidráulica do mesmo pavimento) aparecem um acima do outro, em faixas mais finas dentro da linha do local, que fica mais alta só nesse caso; clique na faixa para escolher o serviço.
 
 Atmos, Brizz, Essenza e Tauá abrem com a Linha de Balanço transcrita do Prevision (datas, avanço na M1 e linha de base; nas três últimas, dependências e calendário); Blentt e Mozine, do relatório "Avanço Físico-Financeiro" delas. Cargas únicas, sem sincronização.
 
@@ -700,6 +700,35 @@ Na visão Custos, o botão "Buscar do Sienge" aparece para quem pode editar (pla
 - Itens digitados ou colados da planilha (código sem "UC") nunca são mexidos pela busca. Se o mesmo orçamento já tinha sido colado da planilha, exclua esses itens para o custo não contar duas vezes.
 - Mensagens: "O usuário de API do Sienge não tem esta consulta liberada" pede liberar as "Planilhas de Orçamento" no Painel de Integrações do Sienge; "Sienge não configurado" indica que faltam as variáveis do Sienge no servidor (é com quem administra o servidor); "Limite de consultas ao Sienge atingido" pede esperar um minuto.
 - Se o avanço físico ou o IDP não batem com o Prevision: o Prevision pesa pelo financeiro; aqui o peso só vira custo quando todos os pacotes com blocos têm custo apropriado. Até lá vale a duração, e os números ficam diferentes.`,
+  },
+  {
+    id: 'longo-prazo-bloco-linhas-restricoes-detalhes',
+    title: 'Linha de Balanço: linhas vermelhas do bloco, restrições do serviço e janela de detalhes',
+    summary: 'Ao clicar num bloco: linhas vermelhas do que o prende, restrições do serviço no painel; dois cliques abrem os detalhes.',
+    keywords: [
+      'linhas vermelhas',
+      'linha vermelha fina',
+      'o que prende o bloco',
+      'restrições do serviço',
+      'restrições do bloco',
+      'duplo clique',
+      'dois cliques',
+      'janela de detalhes',
+      'detalhes da atividade',
+      'predecessoras no gráfico',
+    ],
+    screen: 'longo-prazo',
+    body: `## Um clique: o que prende o bloco
+
+Desde 24/11/2026, ao clicar num bloco da visão "Linha de Balanço", o gráfico desenha **linhas vermelhas finas** com seta: de cada **predecessora** até o bloco e do bloco até cada **sucessora**. São as dependências cadastradas em "Depois de" (inclusive as de "equipe segue"); só aparecem as do bloco selecionado, entre blocos visíveis no filtro, e somem enquanto você arrasta. Bloco sem dependência não ganha linha. Não confunda com o **contorno** vermelho, que marca atraso.
+
+## Restrições do serviço no painel
+
+No painel do bloco, abaixo de equipe e unidade, a lista **"Restrições do serviço (N em aberto)"** mostra os cards do Quadro de Restrições (aba 1.4) ligados ao serviço do bloco: título, sinal de prazo ("Atrasada…", "Começa em…"), coluna, data de entrega, "começar até", responsável, motivo da pausa e o começo da descrição. Clicar no título abre o card no quadro. As concluídas e canceladas ficam em "Ver N já concluídas ou canceladas". As restrições são do **serviço inteiro**, em todos os locais, como o botão "Criar pendência do serviço", e a lista atualiza quando um card é criado por ele ou pela Claudia. Restrições avulsas ou ligadas a tarefas do médio prazo não aparecem aqui: estão no quadro. A lista só existe para quem tem o Quadro de Restrições liberado.
+
+## Dois cliques: janela de detalhes
+
+Dois cliques num bloco abrem os **detalhes numa janela**, como o duplo clique numa tarefa do médio prazo: é o mesmo painel (datas, duração, dependências, equipe, unidade, restrições do serviço, situação, fotos da medição e excluir), com os mesmos campos editáveis para quem edita. Esc, o "X" ou um clique fora fecham. O painel acima do gráfico continua aparecendo com um clique.`,
   },
   {
     id: 'longo-prazo-curva-s',

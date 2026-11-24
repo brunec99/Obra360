@@ -68,6 +68,7 @@ import { LobChart, type LobZoom } from './lob-chart';
 import { CRITICAL_COLOR, ZOOM_SCALE_MAX, ZOOM_SCALE_MIN, ZOOM_SCALE_STEP, signedWorkdays } from './lob-model';
 import { LobTable } from './lob-table';
 import { LobActivityPanel } from './lob-activity-panel';
+import { useServiceRestrictions } from './service-restrictions';
 import { LobLocalsPanel } from './lob-locals-panel';
 import { LobLaunchDialog } from './lob-launch-dialog';
 import { LobBaselinesPanel } from './lob-baselines-panel';
@@ -463,6 +464,34 @@ function IdpCard({
 
 // ─── A visão ─────────────────────────────────────────────────────────────────────
 
+/** Diálogo dos detalhes do bloco (duplo clique no gráfico, 24/11/2026): o mesmo painel da atividade
+ * selecionada, em janela modal. Esc e o clique fora fecham. */
+function ActivityDetailsDialog({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => dialog?.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      aria-label="Detalhes da atividade"
+      data-tour="longo-lob-detalhes"
+      onCancel={e => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={e => {
+        if (e.target === ref.current) onClose();
+      }}
+      className="m-auto max-h-[92vh] w-[min(95vw,64rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-xl backdrop:bg-slate-900/55"
+    >
+      <div className="max-h-[92vh] overflow-y-auto p-5">{children}</div>
+    </dialog>
+  );
+}
+
 function LobViewInner({ workId }: { workId: string }) {
   const context = usePlanning();
   const confirm = useConfirm();
@@ -486,6 +515,8 @@ function LobViewInner({ workId }: { workId: string }) {
   const [showCritical, setShowCritical] = useState(false);
   const [showTable, setShowTable] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
+  /** Duplo clique no bloco (24/11/2026): os detalhes dele abrem num diálogo, como no médio prazo. */
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // `?lancar=<fluxo>` (vindo da visão Fluxos) já abre o diálogo com o fluxo escolhido; o efeito
   // abaixo tira o parâmetro do endereço para um recarregamento não reabrir.
   const launchParam = searchParams.get('lancar');
@@ -500,6 +531,8 @@ function LobViewInner({ workId }: { workId: string }) {
   const developer = useDeveloper(),
     modules = useModules();
   const canPend = hasSectionAccess('restricoes', { developer, modules });
+  // Restrições de cada serviço, para o painel do bloco (24/11/2026): cards do quadro ligados a serviços.
+  const restrictions = useServiceRestrictions(workId, canPend);
   const [pending, setPending] = useState<PendingSource>();
 
   const ready = context.state === 'ready' ? context : undefined;
@@ -937,8 +970,10 @@ function LobViewInner({ workId }: { workId: string }) {
         </Popover>
         <HelpNote title="Como funciona: Linha de Balanço" compact>
           <p>
-            Cada bloco é um <strong>serviço num local</strong>, com início e duração em dias úteis. A parte cheia é o que já foi medido; o
-            contorno vermelho marca atraso (previsto até hoje acima do medido).
+            Cada bloco é um <strong>serviço num local</strong>, com início e duração em dias úteis. A parte transparente é o que já foi
+            medido e a parte cheia é o que falta fazer: serviço concluído fica todo transparente e serviço futuro, todo cheio. O contorno
+            vermelho marca atraso (previsto até hoje acima do medido). Ao clicar num bloco, linhas vermelhas finas ligam-no às predecessoras
+            e às sucessoras; dois cliques abrem os detalhes numa janela.
           </p>
           <p>
             Os dias úteis são os do <strong>Calendário</strong> da obra: os dias da semana trabalhados (de início, segunda a sexta) e os
@@ -1057,11 +1092,17 @@ function LobViewInner({ workId }: { workId: string }) {
             onClose={() => setSelectedId(undefined)}
             onSelect={setSelectedId}
             onCreatePending={canPend ? createPending : undefined}
+            restrictions={canPend ? restrictions.state : undefined}
+            workId={workId}
           />
         ) : data.activities.length ? (
           <div className="text-sm text-slate-500">
             <p className="eyebrow">Atividade selecionada</p>
-            <p className="mt-2">Clique num bloco para ver detalhes: datas, duração, dependências, equipe, situação e fotos da medição.</p>
+            <p className="mt-2">
+              Clique num bloco para ver detalhes: datas, duração, dependências, equipe, restrições do serviço, situação e fotos da medição.
+              As linhas vermelhas finas mostram o que prende o bloco (de quem ele depende e quem depende dele). Dois cliques abrem os
+              detalhes numa janela.
+            </p>
             {!readOnly && (
               <p className="mt-2 text-xs">
                 {locked
@@ -1302,6 +1343,10 @@ function LobViewInner({ workId }: { workId: string }) {
             readOnly={readOnly || busy || locked}
             onSelect={setSelectedId}
             onMove={move}
+            onOpen={id => {
+              setSelectedId(id);
+              setDetailsOpen(true);
+            }}
             scrollToTodayToken={todayToken}
           />
         )}
@@ -1350,7 +1395,36 @@ function LobViewInner({ workId }: { workId: string }) {
       {panel === 'calendar' && (
         <LobCalendarDialog data={data} today={today} canEdit={!readOnly} onApply={applyCalendar} onClose={() => setPanel(undefined)} />
       )}
-      {pending && <CreatePendingDialog workId={workId} source={pending} open onClose={() => setPending(undefined)} />}
+      {detailsOpen && selected && (
+        <ActivityDetailsDialog onClose={() => setDetailsOpen(false)}>
+          <LobActivityPanel
+            key={selected.id}
+            activity={selected}
+            data={data}
+            baseline={baseline}
+            percents={percents}
+            today={today}
+            readOnly={readOnly}
+            onExecute={run}
+            onClose={() => setDetailsOpen(false)}
+            onSelect={setSelectedId}
+            onCreatePending={canPend ? createPending : undefined}
+            restrictions={canPend ? restrictions.state : undefined}
+            workId={workId}
+          />
+        </ActivityDetailsDialog>
+      )}
+      {pending && (
+        <CreatePendingDialog
+          workId={workId}
+          source={pending}
+          open
+          onClose={() => {
+            setPending(undefined);
+            void restrictions.reload();
+          }}
+        />
+      )}
       {panel === 'late' && (
         <LateDialog
           rows={lateRows}

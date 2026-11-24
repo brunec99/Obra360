@@ -31,7 +31,7 @@ import { addDays, startOfWeek } from '../../domain/validation';
 import { weekNumberFrom } from '../../domain/week-numbering';
 import { bucketKey, bucketLabel, isBucketKey, type PeriodGrouping, type PeriodSelection } from '../../modules/dashboard/period';
 import { boardStatusLabels, releaseLabels, statusLabels, wagonLabel } from '../../shared/format';
-import { AGENT_TOOL_SPECS, runAgentTool, type AgentToolSpec, type ToolContext, type ToolOutcome } from './agent-tools';
+import { AGENT_TOOL_SPECS, runAgentTool, runAgentToolAsync, type AgentToolSpec, type ToolContext, type ToolOutcome } from './agent-tools';
 import { SAFETY_TOOL_SPEC, safetyReport, TERMINALITY_TOOL_SPEC, terminalityReport, type ModuleReportEntry } from './agent-module-reports';
 import { selectWorkPlanning, type Planning } from './get-planning';
 
@@ -225,6 +225,8 @@ const WORK_TOOLS = [
   'propor_levar',
   'propor_criar_linhas',
   'propor_apontar',
+  'listar_restricoes',
+  'propor_restricoes',
 ];
 /** O módulo de cada ferramenta antiga, para o selo "Curto prazo · Mozine". */
 const WORK_TOOL_AREA: Record<string, string> = {
@@ -234,6 +236,8 @@ const WORK_TOOL_AREA: Record<string, string> = {
   propor_levar: 'Curto prazo',
   propor_criar_linhas: 'Curto prazo',
   propor_apontar: 'Curto prazo',
+  listar_restricoes: 'Quadro de Restrições',
+  propor_restricoes: 'Quadro de Restrições',
 };
 /** O plano que `listar_servicos_macro` lê é o do Planejador; desde 04/11/2026 a visão padrão da aba 1 é a Linha de
  * Balanço nova, lida por `consultar_lob`. A frase evita que o modelo confunda as duas. */
@@ -335,7 +339,7 @@ async function runWorkTool(name: string, args: Record<string, unknown>, ctx: Glo
   const { work } = resolved;
   const loaded = await attempt(() => ctx.loader.workContext(work.id), ctx, name, work.id);
   if (!loaded.ok) return readFailure('o planejamento', work);
-  const outcome = runAgentTool(name, withoutObra(args), loaded.value);
+  const outcome = await runAgentToolAsync(name, withoutObra(args), loaded.value);
   const result = `${workPrefix(work)} ${outcome.result}`;
   if (outcome.error) return { result, error: true, workIds: [work.id] };
   return {

@@ -16,6 +16,7 @@ import { loadSafety, SafetyUnavailableError } from '../repositories/supabase/saf
 import { loadLob, LobUnavailableError } from '../repositories/supabase/lob-repository';
 import { readDashboardExtras } from '../repositories/supabase/dashboard-extras';
 import { readPortfolioSources } from '../repositories/supabase/portfolio-sources';
+import { createRestrictionLoader } from './restrictions';
 import { composePortfolio, portfolioRange, portfolioText } from '../../modules/dashboard/portfolio/compose';
 
 /** Dados da Claudia geral (08/11/2026). Cada ferramenta pede só a obra e o módulo de que precisa, e o
@@ -116,6 +117,8 @@ export function createAgentDataLoader(access: LoaderAccess): AgentDataLoader {
       weekOne: info.weekOne,
       longTermPlan: plan,
       newId: () => crypto.randomUUID(),
+      // Quadro de Restrições (24/11/2026): lido só quando listar_restricoes ou propor_restricoes pedem.
+      restrictions: createRestrictionLoader(workId, { developer, modules }),
     };
   });
 

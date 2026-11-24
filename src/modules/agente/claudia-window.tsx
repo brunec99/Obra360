@@ -23,7 +23,18 @@ import { useToast } from '@/modules/layout/toast';
 import { usePlanning } from '@/modules/planejamento/planning-provider';
 import { Callout } from '@/modules/planejamento/ui';
 import { AGENT } from './agent-identity';
-import { appliedTitle, grow, messageOf, ProposalCardView, readJson, WorkOverviewTab } from './agent-panel';
+import {
+  appliedTitle,
+  grow,
+  isBoardOnly,
+  messageOf,
+  NOT_LOADED,
+  ProposalCardView,
+  proposalSteps,
+  readJson,
+  runProposalStep,
+  WorkOverviewTab,
+} from './agent-panel';
 import {
   addTurn,
   buildHistory,
@@ -400,7 +411,7 @@ export function ClaudiaProvider({ userId, enabled = true, children }: { userId?:
   const apply = useCallback(
     async (topicId: string, turnId: string, card: ProposalCard) => {
       const current = live.current.planning;
-      if (current.state !== 'ready') {
+      if (current.state !== 'ready' && !isBoardOnly(card.proposal)) {
         toast({
           title: 'Os dados das obras ainda não carregaram.',
           description: 'Espere a tela terminar de carregar e tente de novo.',
@@ -411,10 +422,15 @@ export function ClaudiaProvider({ userId, enabled = true, children }: { userId?:
       const { proposal, state } = card;
       let done = state.status === 'falhou' ? state.done : 0;
       try {
-        for (; done < proposal.commands.length; done += 1) {
+        for (; done < proposalSteps(proposal); done += 1) {
           const step = done;
           setStore(previous => setProposalState(previous, topicId, turnId, proposal.id, { status: 'aplicando', done: step }));
-          await current.execute(proposal.commands[step]);
+          await runProposalStep(
+            proposal,
+            step,
+            command => (current.state === 'ready' ? current.execute(command) : NOT_LOADED()),
+            proposal.workId ?? '',
+          );
         }
         setStore(previous => setProposalState(previous, topicId, turnId, proposal.id, { status: 'aplicada' }));
         toast({
