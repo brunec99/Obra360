@@ -78,7 +78,7 @@ export const steps: TourStep[] = [
   {
     target: 'config-user-works',
     title: 'Obras liberadas',
-    body: 'Cada célula cruza uma pessoa com uma obra: preenchida, com o visto, é obra liberada. Clique para liberar ou revogar; quem não tem a obra liberada não a vê na lista de obras.',
+    body: 'Cada célula cruza uma pessoa com uma obra: preenchida, com o visto, é obra liberada. Clique para liberar ou revogar; quem não tem a obra liberada não a vê na lista de obras. Admin vê todas as obras: as células dele ficam marcadas em cinza, sem clique.',
   },
   {
     target: 'config-user-modules',

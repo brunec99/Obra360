@@ -213,7 +213,7 @@ O papel **TST** (técnico de segurança do trabalho) é, no resto do sistema, ig
 
 Regras que valem para todos:
 
-- **Obra liberada é por pessoa.** Mesmo um administrador só vê as obras liberadas para ele (pode liberar para si mesmo na grade de Configurações). Alterar obra não liberada dá "Você não tem acesso a esta obra."
+- **Obra liberada é por pessoa, menos para o administrador.** Desde 24/11/2026 o administrador vê **todas as obras**: obra nova entra sozinha para todos os admins, quem vira admin recebe todas, e na grade de Configurações as células de obra do admin ficam marcadas em cinza, sem clique (tentar revogar dá "Administradores veem todas as obras. Para tirar uma obra, mude antes o papel da pessoa."). Os demais papéis só veem as obras liberadas para eles. Se alguém não consegue cadastrar uma obra por "Código de obra já utilizado." e não a vê na lista, a obra já existe e falta um administrador liberá-la para essa pessoa. Alterar obra não liberada dá "Você não tem acesso a esta obra."
 - Quem é Consulta recebe **"Seu perfil permite apenas consulta."** ao tentar alterar algo; os botões de edição nem aparecem.
 - Um administrador não tira o próprio papel de admin nem exclui o próprio perfil: outro admin faz isso.
 

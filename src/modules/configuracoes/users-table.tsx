@@ -95,14 +95,21 @@ function Toggle({
 
 function AccessCell({ user, work }: { user: User; work: Work }) {
   const { busy, run } = useAccessCommand();
-  const granted = user.workIds.includes(work.id);
+  // Administrador vê todas as obras (24/11/2026): a célula fica marcada e travada, como a dos módulos.
+  const admin = user.role === 'admin';
+  const granted = admin || user.workIds.includes(work.id);
   return (
     <Toggle
       tourId="config-user-works"
       on={granted}
+      locked={admin}
       busy={busy}
       label={`${work.name} para ${user.name}`}
-      title={`${user.name} · ${work.name}: ${granted ? 'liberada. Clique para revogar.' : 'sem acesso. Clique para liberar.'}`}
+      title={
+        admin
+          ? `${work.name}: administradores veem todas as obras.`
+          : `${user.name} · ${work.name}: ${granted ? 'liberada. Clique para revogar.' : 'sem acesso. Clique para liberar.'}`
+      }
       onClick={() => run({ type: granted ? 'revoke_access' : 'grant_access', userId: user.id, workId: work.id })}
     />
   );

@@ -177,7 +177,10 @@ export function applyCommandLocally(planning: Planning, command: Command, id: st
           : command.type === 'revoke_access'
             ? { workIds: user.workIds.filter(id => id !== command.workId) }
             : command.type === 'set_role'
-              ? { role: command.role }
+              ? // Quem vira admin passa a ver todas as obras, como o servidor grava.
+                command.role === 'admin'
+                ? { role: command.role, workIds: [...user.workIds, ...data.works.map(w => w.id).filter(id => !user.workIds.includes(id))] }
+                : { role: command.role }
               : {
                   modules: normalizeModules(
                     command.enabled ? [...(user.modules ?? []), command.section] : (user.modules ?? []).filter(s => s !== command.section),

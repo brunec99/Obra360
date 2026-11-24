@@ -268,7 +268,8 @@ export function accessBatchChange(
 ): { workIds?: string[]; modules?: string[] } | null {
   const change: { workIds?: string[]; modules?: string[] } = {};
   const works = [...new Set(batch.workIds ?? [])];
-  if (works.length) {
+  // Administrador vê todas as obras (24/11/2026): a revogação em lote não tira obra de admin.
+  if (works.length && (batch.enabled || user.role !== 'admin')) {
     const next = batch.enabled
       ? [...user.workIds, ...works.filter(id => !user.workIds.includes(id))]
       : user.workIds.filter(id => !works.includes(id));

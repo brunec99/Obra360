@@ -2002,6 +2002,8 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       if (command.type === 'grant_access') {
         if (!target.workIds.includes(command.workId)) target.workIds.push(command.workId);
       } else {
+        if (target.role === 'admin')
+          throw new Error('Administradores veem todas as obras. Para tirar uma obra, mude antes o papel da pessoa.');
         target.workIds = target.workIds.filter(id => id !== command.workId);
       }
       touch(target);
@@ -2314,6 +2316,16 @@ export function applyCommand(data: PlanningData, command: Command, context: Comm
       entityId = sequence.id;
       break;
     }
+  }
+  // Administrador vê todas as obras (24/11/2026): obra nova entra para todos os admins, quem vira admin
+  // recebe todas e a revogação em lote não tira obra de admin. Vale para as obras carregadas neste
+  // recorte; o banco garante o resto (gatilhos da migração 0058).
+  for (const user of data.users) {
+    if (user.role !== 'admin') continue;
+    const missing = data.works.filter(w => !user.workIds.includes(w.id));
+    if (!missing.length) continue;
+    user.workIds = [...user.workIds, ...missing.map(w => w.id)];
+    touch(user);
   }
   data.history.push({
     id: newId(),
