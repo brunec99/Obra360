@@ -77,6 +77,14 @@ export function CostsSiengeDialog({
   const close = () => dialog.current?.close();
 
   const budget = state.status === 'ready' ? state.budget : null;
+  // Dentro do intervalo mínimo o servidor devolve a mesma leitura: o botão espera o horário.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!budget?.nextReadAt) return;
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [budget?.nextReadAt]);
+  const waitUntil = budget?.nextReadAt && Date.parse(budget.nextReadAt) > now ? budget.nextReadAt : null;
   const lines = useMemo(() => (budget ? siengeCostLines(budget.lines, detail) : []), [budget, detail]);
   const chosen = useMemo(() => lines.filter(line => selected.has(line.sheetId)), [lines, selected]);
   const countBySheet = useMemo(() => {
@@ -155,9 +163,15 @@ export function CostsSiengeDialog({
                   Empreendimento <b>{budget.buildingId}</b> · orçamento de <b>{formatMoney(budget.total)}</b> · lido às{' '}
                   {timeOf(budget.readAt)}
                 </p>
-                <button type="button" className="button-ghost" onClick={reload}>
+                <button
+                  type="button"
+                  className="button-ghost"
+                  onClick={reload}
+                  disabled={!!waitUntil}
+                  title={waitUntil ? `Para poupar a cota do Sienge, nova leitura a partir das ${timeOf(waitUntil)}.` : undefined}
+                >
                   <RefreshCw size={14} aria-hidden />
-                  Ler de novo
+                  {waitUntil ? `Ler de novo às ${timeOf(waitUntil)}` : 'Ler de novo'}
                 </button>
               </div>
 

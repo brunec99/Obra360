@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { requireModuleAccess } from '@/infrastructure/auth/supabase-server';
 import { getServiceClient } from '@/infrastructure/repositories/supabase/client';
 import { fetchBudget, SIENGE_NOT_CONFIGURED, SiengeError, siengeConfigFromEnv } from '@/infrastructure/integrations/sienge/client';
+import { BudgetCache } from '@/infrastructure/integrations/sienge/budget-cache';
 import { logRouteError } from '@/infrastructure/log';
-import type { SiengeBudget } from '@/domain/sienge-budget';
 
 export const runtime = 'nodejs';
 // Um orçamento grande (o do Atmos tem cerca de 11 mil linhas) são dezenas de páginas no Sienge.
@@ -13,10 +13,10 @@ const fail = (error: string, status: number, extra: Record<string, unknown> = {}
   NextResponse.json({ error, ...extra }, { status, headers });
 const missingColumn = (code?: string) => code === '42703' || code === 'PGRST204' || code === '42P01' || code === 'PGRST205';
 
-/** A última leitura de cada empreendimento fica dez minutos na memória do servidor: reabrir o diálogo
- * não repete as dezenas de chamadas ao Sienge. `atualizar=1` força nova leitura. */
-const CACHE_MS = 10 * 60 * 1000;
-const cache = new Map<number, { at: number; budget: SiengeBudget }>();
+/** A última leitura de cada empreendimento fica 15 minutos na memória do servidor e vale para todos:
+ * reabrir o diálogo ou "Ler de novo" dentro da janela não repete as dezenas de chamadas pagas ao
+ * Sienge, e dois pedidos ao mesmo tempo viram uma leitura só (24/11/2026). */
+const cache = new BudgetCache(fetchBudget);
 
 /** Orçamento do Sienge da obra (23/11/2026), para o "Buscar do Sienge" da visão Custos da Linha de
  * Balanço: lê o empreendimento ligado à obra nas Configurações e devolve os itens com valor de cada
@@ -50,13 +50,9 @@ export async function GET(request: NextRequest) {
       },
     );
 
-  const refresh = request.nextUrl.searchParams.get('atualizar') === '1';
-  const cached = cache.get(buildingId);
-  if (!refresh && cached && Date.now() - cached.at < CACHE_MS) return NextResponse.json(cached.budget, { headers });
+  // `atualizar=1` (o "Ler de novo") segue aceito, mas só lê no Sienge depois do intervalo mínimo.
   try {
-    const budget = await fetchBudget(buildingId);
-    cache.set(buildingId, { at: Date.now(), budget });
-    return NextResponse.json(budget, { headers });
+    return NextResponse.json(await cache.get(buildingId), { headers });
   } catch (cause) {
     if (cause instanceof SiengeError) return fail(cause.message, cause.status);
     logRouteError('GET /api/sienge/budget', cause, { actorId: profile.id, workId, buildingId });
