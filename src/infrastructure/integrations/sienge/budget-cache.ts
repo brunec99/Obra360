@@ -8,6 +8,8 @@ export const BUDGET_MIN_INTERVAL_MS = 15 * 60 * 1000;
 export type BudgetWithNext = SiengeBudget & { nextReadAt: string };
 
 /** Guarda a última leitura de cada empreendimento e junta pedidos simultâneos numa leitura só. */
+// shortcut: janela na memória de um processo (o container de produção é um só); evoluir para Redis ou
+// banco se o Obra 360 passar a rodar com mais de uma réplica, senão cada uma lê o Sienge por conta própria.
 export class BudgetCache {
   private readonly last = new Map<number, { at: number; budget: SiengeBudget }>();
   private readonly pending = new Map<number, Promise<SiengeBudget>>();

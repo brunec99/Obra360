@@ -10,6 +10,8 @@
  * Cada leitura (um "Buscar do Sienge", uma lista de empreendimentos) vira um item com chave própria
  * (`obra360:sienge:<origem>:<hora>.<id>`): o receptor substitui por chave e o Portal soma por dia. */
 
+// shortcut: sinal de vida só vai junto com uma leitura, então dia sem "Buscar do Sienge" fica "não medido"
+// no painel (não zero); evoluir para um sinal diário se o Obra 360 ganhar rotina agendada no servidor.
 const SISTEMA = 'obra360';
 const RECEPTOR_PADRAO = 'https://srkbewdqjdpndhqnpspm.supabase.co/functions/v1/api-consumo-receber';
 const TIMEOUT_MS = 10_000;
