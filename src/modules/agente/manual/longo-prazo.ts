@@ -640,6 +640,11 @@ Planejador, gestor e admin medem; o perfil de consulta vê as medições e as fo
       'colar do orçamento',
       'não apropriados',
       'valor agregado',
+      'sienge',
+      'buscar do sienge',
+      'orçamento do sienge',
+      'integração com o sienge',
+      'unidade construtiva',
       'em dia atenção atrasado',
     ],
     screen: 'longo-prazo',
@@ -674,11 +679,24 @@ Aberta pelo botão "Custos" da Linha de Balanço (o selo mostra quantos pacotes 
 - **Não apropriados**: itens sem pacote. Eles não entram no peso.
 - Planejador, gestor e admin apropriam. O perfil de consulta vê a visão com as porcentagens de cada item e pacote, nunca os valores em reais; o peso e o IDP saem iguais.
 
+- **"Buscar do Sienge"**: traz o orçamento direto do Sienge, sem planilha (detalhes abaixo).
 ## Fora desta etapa
 Os Dashboards (aba 0 e o geral) ainda não mostram o IDP.
 
 ## Sugerir com a Claudia
-Na visão Custos, o botão "Sugerir com a Claudia" aparece para quem pode editar, sempre que há itens do orçamento sem pacote. Ao clicar, a Claudia lê o código e a descrição de cada item não apropriado e propõe o pacote de serviço da Linha de Balanço a que ele pertence; o valor em reais não é enviado à IA. Custos indiretos, como administração, canteiro e taxas, ela deixa sem pacote. Orçamentos grandes vão em lotes de 300 itens, com o andamento na tela ("lote 2 de 5") e a opção de cancelar os lotes seguintes; cada clique lê até 3.000 itens. As sugestões entram só na tela, sem gravar nada: cada item sugerido ganha o selo "Sugestão da Claudia", com "confira" quando ela ficou em dúvida, e todos aparecem juntos no quadro "Sugestões da Claudia", com os duvidosos primeiro. O engenheiro da obra confere, troca o pacote onde estiver errado (ou devolve o item a "Não apropriado") e clica em "Salvar"; "Desfazer sugestões" devolve de uma vez os itens sugeridos a não apropriados. O selo some quando a pessoa mexe no item ou salva. A planilha do orçamento continua entrando por "Colar do orçamento" e pode ser a exportação do Sienge com as colunas código, descrição e valor; não existe ligação direta com o Sienge. O uso da Claudia aqui conta no mesmo limite mensal de IA da obra e da pessoa.
+Na visão Custos, o botão "Sugerir com a Claudia" aparece para quem pode editar, sempre que há itens do orçamento sem pacote. Ao clicar, a Claudia lê o código e a descrição de cada item não apropriado e propõe o pacote de serviço da Linha de Balanço a que ele pertence; o valor em reais não é enviado à IA. Custos indiretos, como administração, canteiro e taxas, ela deixa sem pacote. Orçamentos grandes vão em lotes de 300 itens, com o andamento na tela ("lote 2 de 5") e a opção de cancelar os lotes seguintes; cada clique lê até 3.000 itens. As sugestões entram só na tela, sem gravar nada: cada item sugerido ganha o selo "Sugestão da Claudia", com "confira" quando ela ficou em dúvida, e todos aparecem juntos no quadro "Sugestões da Claudia", com os duvidosos primeiro. O engenheiro da obra confere, troca o pacote onde estiver errado (ou devolve o item a "Não apropriado") e clica em "Salvar"; "Desfazer sugestões" devolve de uma vez os itens sugeridos a não apropriados. O selo some quando a pessoa mexe no item ou salva. O orçamento entra por "Buscar do Sienge" (ligação direta, ver abaixo) ou por "Colar do orçamento", que aceita a exportação do Sienge com as colunas código, descrição e valor. O uso da Claudia aqui conta no mesmo limite mensal de IA da obra e da pessoa.
+
+## Buscar do Sienge
+Na visão Custos, o botão "Buscar do Sienge" aparece para quem pode editar (planejador, gestor e admin). Ele lê o orçamento do empreendimento do Sienge ligado à obra; o sistema só consulta o Sienge, nada é alterado lá.
+- **Ligação da obra**: é feita uma vez, pelo administrador, em Configurações da obra, seção "Orçamento do Sienge" (escolhe o empreendimento; o orçamento da obra fica no empreendimento "(ENG)"). Sem a ligação, o diálogo avisa "Esta obra ainda não está ligada a um empreendimento do Sienge" e mostra o link "Abrir Configurações da obra".
+- **Leitura**: ao abrir, o diálogo mostra "Lendo o orçamento no Sienge…"; um orçamento grande leva cerca de um minuto. A leitura fica guardada por dez minutos; "Ler de novo" busca outra vez.
+- **Nível de detalhe**: "Por grupo de serviço" (padrão e recomendado: cada grupo do orçamento, como "ALVENARIA DE VEDAÇÃO - Mão de Obra / Serviços", vira uma linha com a soma dos itens dele) ou "Item a item" (cada insumo ou serviço vira uma linha, com o grupo na frente da descrição).
+- **Unidades construtivas**: a tabela lista as unidades do orçamento no Sienge (Projetos, Edificação, Máquinas e equipamentos…) com linhas e valor; desmarque as que não devem vir, por exemplo as de custo indireto. Itens com valor zero no Sienge ficam de fora.
+- **Prévia**: uma linha diz quantas linhas vêm, o total, quantas são novas, atualizadas e iguais, e quantos itens saem da tela.
+- **"Trazer N linhas"** põe as linhas na tela, sem gravar: as novas entram como não apropriadas, para apontar ao pacote à mão ou com "Sugerir com a Claudia". Só "Salvar" grava.
+- **Nova busca**: cada linha é reconhecida pelo código, que leva a unidade construtiva na frente ("UC7 03.001.004"). O item que já estava apropriado mantém o pacote e só atualiza a descrição e o valor. Os itens do Sienge das unidades marcadas que não vieram na busca (saíram do orçamento, zeraram ou estavam em outro nível de detalhe) saem da tela, para o custo não contar duas vezes. Ao trocar o nível de detalhe, a linha nova herda o pacote quando os itens do mesmo ramo estavam todos no mesmo pacote.
+- Itens digitados ou colados da planilha (código sem "UC") nunca são mexidos pela busca. Se o mesmo orçamento já tinha sido colado da planilha, exclua esses itens para o custo não contar duas vezes.
+- Mensagens: "O usuário de API do Sienge não tem esta consulta liberada" pede liberar as "Planilhas de Orçamento" no Painel de Integrações do Sienge; "Sienge não configurado" indica que faltam as variáveis do Sienge no servidor (é com quem administra o servidor); "Limite de consultas ao Sienge atingido" pede esperar um minuto.
 - Se o avanço físico ou o IDP não batem com o Prevision: o Prevision pesa pelo financeiro; aqui o peso só vira custo quando todos os pacotes com blocos têm custo apropriado. Até lá vale a duração, e os números ficam diferentes.`,
   },
   {

@@ -1824,7 +1824,7 @@ A parte do Quadro de Restrições está em [Lista de pendência](lista-pendencia
 
 - **Calendário com feriados e recessos na Linha de Balanço.** Hoje o calendário é de segunda a sexta. Ligar feriados muda o término calculado de todos os blocos (a duração é em dias úteis), então pede cadastro por obra, migração e a conversão das durações já gravadas; fica para uma etapa própria, com modelo antes. **Feito em 23/11/2026**, sem conversão das durações (ver a seção do retorno do Jorge).
 - **Cenários.** Simular mudanças sem alterar o planejamento vigente e guardar o cenário com nome. Hoje o caminho é salvar uma linha de base antes de mexer e restaurá-la.
-- **Sienge direto.** Buscar o orçamento pela API do Sienge depende de credenciais de API da ATR.
+- **Sienge direto.** Buscar o orçamento pela API do Sienge depende de credenciais de API da ATR. **Feito em 23/11/2026** (ver [Orçamento direto do Sienge](#longo-prazo-orçamento-direto-do-sienge-na-visão-custos-23112026)).
 - Levar o caminho crítico para a tabela e para o relatório da Claudia.
 
 ## Médio prazo: salvamento automático no lugar do "Revisar e salvar" (17/11/2026)
@@ -1983,7 +1983,7 @@ Regras puras em `column-widths.tsx` (`parseStoredWidths`, `serializeStoredWidths
 - O IDP contra a linha de base, depois de uma mudança de calendário, ainda calcula o previsto do bloco congelado por início + duração no calendário atual.
 - No Atmos, as durações importadas do Prevision já incluem os feriados (para manter o término); marcar esses feriados no calendário empurra os términos. A prévia mostra isso antes de gravar, e a conversão das durações não foi feita.
 - A Curva S não tem custo realizado (curva financeira) nem exportação, e os dashboards continuam lendo o Planejador antigo.
-- Cenários e integração direta com o Sienge continuam pendentes.
+- Cenários continuam pendentes. A integração direta com o Sienge foi feita no mesmo dia (seção própria, abaixo).
 
 ## Médio prazo: filtro de data (23/11/2026)
 
@@ -2050,3 +2050,66 @@ Jorge Lucas, na conversa "Feedback Obra 360" de 23/11/2026: no quadro que abre a
 ### Próximas etapas (não implementado)
 
 - A mesma busca nas predecessoras do editor de Fluxos de serviços, se a equipe pedir.
+
+## Longo prazo: orçamento direto do Sienge na visão Custos (23/11/2026)
+
+### Pedido
+
+Do usuário, em 23/11/2026: para facilitar o vínculo entre as tarefas do planejamento de longo prazo e o orçamento, testar a ligação com a API do Sienge dentro do sistema; depois do teste no Atmos (empreendimento 32), deixar pronto para todas as obras.
+
+### O que a consulta ao Sienge mostrou
+
+- Credencial usada: o usuário de API `atrincorporadora-bruno` (subdomínio `atrincorporadora`), o mesmo do App-ATR, só com leituras. Liberado: Empreendimentos (`/v1/enterprises`), Centros de custo e as Planilhas de Orçamento (`/v1/building-cost-estimations/{obra}/sheets` e `.../sheets/{unidade}/items`). Bloqueado (403): Acompanhamentos de obra (`/v1/building-projects/progress-logs`), que não é usado aqui.
+- São 73 empreendimentos. Cada obra tem dois, "(ADM)" e "(ENG)"; o orçamento fica no ENG (Atmos 32, Essenza 33, Mozine 34, Blentt 35, MySunset 36, Brizz Smart Stay 40, Sonatta 42, Bioma 44). Há nomes repetidos de tabelas antigas (Essenza 20 e 33, Mozine 24 e 34) e um auxiliar "ATMOS - IMPORTAÇÃO ORÇAMENTO" (110).
+- Orçamento do Atmos (32): 10 unidades construtivas, 10.789 linhas, 9.414 itens (folhas), 1.566 deles com valor, total de R$ 48.396.732,45. A soma dos itens de cada unidade bate com o total que o Sienge dá na raiz da unidade. "Personalização" (6.172 itens, R$ 5.500,00) e "Assistência técnica" (1.658 itens, R$ 0,00) são quase só itens zerados.
+- A árvore tem quatro níveis; só o último tem serviço, quantidade e total. Os itens são insumos e serviços ("Areia Média", "Cimento CP II") e só fazem sentido com o grupo acima ("CANALETA REFORÇO MEZANINO - Materiais"). No Atmos são 241 grupos com valor.
+- O código da EAP se repete entre as unidades (toda unidade começa em "01"; 256 códigos repetidos no Atmos).
+
+### Comportamento entregue
+
+- **Ligação da obra com o Sienge.** Configurações da obra ganhou a seção "Orçamento do Sienge": mostra o empreendimento ligado e, para o administrador, "Escolher o empreendimento" (lista lida do Sienge, com o empreendimento ENG de mesmo nome da obra já marcado como sugestão), "Salvar" e "Desfazer a ligação". Os demais perfis só veem.
+- **"Buscar do Sienge" na visão Custos**, ao lado de "Colar do orçamento", para quem edita. O diálogo lê o orçamento do empreendimento ligado e mostra o total, o nível de detalhe, as unidades construtivas (com linhas e valor, marcáveis) e a prévia do que muda na tela.
+- **Nível de detalhe.** "Por grupo de serviço" (padrão): cada grupo vira uma linha com a soma dos itens. "Item a item": cada insumo ou serviço vira uma linha, com a descrição "grupo › item". Itens com valor zero ficam de fora.
+- **Código.** Cada linha leva a unidade construtiva na frente do código da EAP: "UC7 03.001.004". É a chave do vínculo.
+- **Trazer.** As linhas entram no rascunho da tela como não apropriadas (apontar à mão ou com "Sugerir com a Claudia"); só "Salvar" grava, pelo `save_costs` de sempre.
+- **Nova busca.** O item com o mesmo código mantém o pacote e atualiza descrição e valor. Os itens do Sienge das unidades marcadas que não vieram (saíram do orçamento, zeraram ou estavam em outro nível de detalhe) saem do rascunho. Ao trocar o nível de detalhe, a linha nova herda o pacote do grupo acima ou, de grupo para baixo, dos itens quando todos estão no mesmo pacote. Itens digitados ou colados (código sem "UC") e os de unidades não marcadas não mudam.
+- O sistema só lê o Sienge.
+
+### Arquitetura
+
+- `src/domain/sienge-budget.ts`: funções puras (lista de empreendimentos, itens de uma unidade, linhas por nível de detalhe, código `UC`, sugestão de empreendimento pelo nome).
+- `src/infrastructure/integrations/sienge/client.ts`: cliente só de leitura, autenticação Basic, intervalo mínimo de 320 ms entre chamadas (teto do Sienge: 200 por minuto), até três tentativas em 429 e 5xx, páginas de 200, três unidades lidas ao mesmo tempo. Só as rotas REST; as de dados em massa (`/bulk-data`, cota de 20 chamadas por dia) ficam de fora.
+- `GET /api/sienge/enterprises` (só administrador) e `GET /api/sienge/budget?workId=` (módulo longo prazo, perfil que edita, acesso à obra). O orçamento lido fica dez minutos na memória do servidor por empreendimento; `atualizar=1` força nova leitura.
+- `work_settings.sienge_building_id` (migração `0057_sienge_link.sql`), lida e gravada por `/api/work-settings` (`siengeBuildingId`; gravação só de administrador). Sem a coluna, a seção avisa e o resto das configurações segue funcionando.
+- Tela: `src/modules/configuracoes/sienge-link.tsx`, `src/modules/longo-prazo/lob/costs-sienge-dialog.tsx` e a junção com o rascunho em `costs-sienge.ts` (`mergeSiengeBudget`).
+- Variáveis de servidor: `SIENGE_SUBDOMAIN`, `SIENGE_API_USER`, `SIENGE_API_PASSWORD` (documentadas no `.env.example`). Sem elas a busca responde "Sienge não configurado".
+
+### Decisões
+
+- **Sem coluna nova nos itens de custo.** O vínculo com o Sienge vai no código do item ("UC…"), que já existia; a gravação continua a mesma.
+- **Por grupo como padrão.** O grupo é a unidade que corresponde a um pacote de serviço; item a item são 1.566 linhas de insumos no Atmos.
+- **Itens do Sienge que não vieram saem do rascunho**, sem opção de manter: manter contaria o custo duas vezes, principalmente ao trocar o nível de detalhe.
+- **Só o administrador liga a obra ao empreendimento**, porque a ligação decide de qual empreendimento a obra enxerga o orçamento. A busca em si é de quem edita o longo prazo da obra, como o resto da visão Custos.
+- **A sugestão pelo nome não grava sozinha.** Com nomes repetidos no Sienge, vale o ENG de código maior, e o administrador confere antes de salvar.
+- **Nada do orçamento fica guardado fora dos itens de custo.** A leitura é feita na hora (com a memória de dez minutos), sem tabela de espelho nem sincronização agendada.
+
+### Validação (23/11/2026)
+
+- Sequência do `ci.yml` rodada local: `verify:portal-kit`, `typecheck`, `lint` (sem erros; só avisos que já existiam), `npm test` (1.707 testes, com `tests/sienge-budget.test.ts` novo), `validate:migrations`, `build` e `test:e2e`, todos verdes. O `format:check` acusou só três arquivos de outro trabalho em andamento na mesma pasta (importação do Prevision), fora desta entrega.
+- Leitura real no Sienge pelo cliente novo (`fetchBudget(32)`, Atmos): 20,5 s, 10 unidades construtivas, 1.566 itens com valor, 241 linhas por grupo, total de R$ 48.396.732,45 nos dois níveis de detalhe, códigos sem repetição. A sugestão pelo nome acertou Atmos (32), Essenza (33), Mozine (34), Blentt (35), MySunset (36), Brizz (40), Sonatta (42) e Bioma (44); "Tauá" e "My Sunset" (com espaço) ficaram sem sugestão.
+- Tela aberta no navegador com dados simulados (`next dev` + Supabase falso + Playwright respondendo `/api/*`, com o orçamento real do Atmos nas respostas do Sienge): sem ligação, o diálogo avisa e aponta as Configurações; nas Configurações, a lista abre com "Atmos (ENG) (código 32)" marcado e "Salvar" grava; o diálogo mostra 241 linhas por grupo e 1.566 item a item; desmarcando a unidade 4 ficam 237 linhas e R$ 44.990.455,98; "Trazer" põe 237 itens não apropriados na tela; a segunda busca mostra "0 novas, 237 iguais" e o botão desabilitado.
+
+### Não verificado
+
+- A tela não foi usada logada em produção: o servidor da ATR ainda não tem as três variáveis `SIENGE_*`. A migração 0057 foi **aplicada no `takt-hub` em 23/11/2026** (numa transação; as 8 linhas de `work_settings` foram preservadas e nenhuma obra está ligada ainda).
+- As rotas `/api/sienge/*` não foram chamadas com sessão real (no navegador, as respostas foram simuladas com os dados reais do Sienge).
+- Só o orçamento do Atmos foi lido inteiro; as outras obras não foram conferidas.
+
+### Próximas etapas (não implementado)
+
+- Pôr as variáveis `SIENGE_*` no servidor da ATR (Thiago) e ligar cada obra ao seu empreendimento em Configurações da obra.
+- Custo realizado (apropriações e contas a pagar) para a curva financeira; pede liberar outras rotas no usuário de API.
+- Medições do Sienge (Acompanhamentos de obra), hoje bloqueadas para o usuário de API.
+- A Claudia ainda não consulta o Sienge; ela só conhece a tela pelo manual.
+
+---

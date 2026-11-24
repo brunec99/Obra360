@@ -348,6 +348,13 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
       'O checklist pelo QR não grava (a empresa do operador é obrigatória ali) e a segunda inspeção do mesmo checklist no dia é recusada; o resto da aba 3.2 segue normal.',
     critical: false,
   },
+  {
+    migration: '0057_sienge_link',
+    label: 'Ligação da obra com o empreendimento do Sienge (orçamento da visão Custos)',
+    probe: { kind: 'column', table: 'work_settings', column: 'sienge_building_id' },
+    effect: 'A obra não pode ser ligada ao Sienge e o "Buscar do Sienge" da visão Custos fica indisponível; o resto segue normal.',
+    critical: false,
+  },
 ];
 
 export type MigrationStatus = { migration: string; label: string; effect: string; critical: boolean; applied: boolean; detail?: string };

@@ -10,6 +10,10 @@ export type WorkSettings = {
   longitude: number | null;
   /** Falso enquanto a migração 0029 não foi aplicada: o local não pode ser lido nem salvo. */
   locationAvailable: boolean;
+  /** Código do empreendimento do Sienge ligado à obra (orçamento da visão Custos), ou nulo. */
+  siengeBuildingId: number | null;
+  /** Falso enquanto a migração 0057 não foi aplicada: a ligação não pode ser lida nem salva. */
+  siengeAvailable: boolean;
 };
 type State = { status: 'loading' } | { status: 'error' } | ({ status: 'ready' } & WorkSettings);
 
@@ -20,7 +24,8 @@ export function locationOf(settings: Pick<WorkSettings, 'place' | 'latitude' | '
   return { place, latitude, longitude };
 }
 
-/** Configurações da obra que vivem fora do snapshot (`/api/work-settings`): a semana 1 e o local.
+/** Configurações da obra que vivem fora do snapshot (`/api/work-settings`): a semana 1, o local e o
+ * empreendimento do Sienge.
  * Enquanto carregam, ou se falharem, quem usa cai no comportamento automático — a planilha não
  * espera por elas. Cada `save*` manda só a sua chave; a rota preserva o resto. */
 export function useWorkSettings(workId: string) {
@@ -43,7 +48,7 @@ export function useWorkSettings(workId: string) {
     };
   }, [workId]);
   const save = useCallback(
-    async (patch: { weekOneStart?: string | null; location?: WorkLocation | null }) => {
+    async (patch: { weekOneStart?: string | null; location?: WorkLocation | null; siengeBuildingId?: number | null }) => {
       const res = await fetch('/api/work-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -57,13 +62,17 @@ export function useWorkSettings(workId: string) {
   );
   const saveWeekOne = useCallback((weekOneStart: string | null) => save({ weekOneStart }), [save]);
   const saveLocation = useCallback((location: WorkLocation | null) => save({ location }), [save]);
+  const saveSiengeBuilding = useCallback((siengeBuildingId: number | null) => save({ siengeBuildingId }), [save]);
   const ready = state.status === 'ready';
   return {
     state,
     weekOneStart: ready ? state.weekOneStart : null,
     location: ready ? locationOf(state) : null,
     locationAvailable: ready && state.locationAvailable,
+    siengeBuildingId: ready ? (state.siengeBuildingId ?? null) : null,
+    siengeAvailable: ready && !!state.siengeAvailable,
     saveWeekOne,
     saveLocation,
+    saveSiengeBuilding,
   };
 }

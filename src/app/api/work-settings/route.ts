@@ -3,6 +3,7 @@ import { getRouteProfile } from '@/infrastructure/auth/supabase-server';
 import { getServiceClient } from '@/infrastructure/repositories/supabase/client';
 import { normalizeWeekOne } from '@/domain/week-numbering';
 import { validateDate } from '@/domain/validation';
+import { parseSiengeBuildingId } from '@/domain/sienge-budget';
 
 export const runtime = 'nodejs';
 const headers = { 'Cache-Control': 'no-store' };
@@ -12,29 +13,53 @@ const missingTable = (code?: string) => code === '42P01' || code === 'PGRST205';
 const missingColumn = (code?: string) => code === '42703' || code === 'PGRST204';
 const MIGRATION_0025 = 'Aplique a migração 0025_work_settings.sql no Supabase para salvar a semana 1.';
 const MIGRATION_0029 = 'Aplique a migração 0029_work_location.sql no Supabase para salvar o local da obra.';
+const MIGRATION_0057 = 'Aplique a migração 0057_sienge_link.sql no Supabase para ligar a obra ao Sienge.';
 
-type Row = { week_one_start?: string | null; place?: string | null; latitude?: number | null; longitude?: number | null };
+type Row = {
+  week_one_start?: string | null;
+  place?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  sienge_building_id?: number | null;
+};
 type Location = { place: string; latitude: number; longitude: number };
 
-const UNAVAILABLE = { available: false, weekOneStart: null, place: null, latitude: null, longitude: null, locationAvailable: false };
-const settingsOf = (row: Row | null, locationAvailable: boolean) => ({
+const UNAVAILABLE = {
+  available: false,
+  weekOneStart: null,
+  place: null,
+  latitude: null,
+  longitude: null,
+  locationAvailable: false,
+  siengeBuildingId: null,
+  siengeAvailable: false,
+};
+const settingsOf = (row: Row | null, locationAvailable: boolean, siengeAvailable: boolean) => ({
   available: true,
   weekOneStart: row?.week_one_start ?? null,
   place: locationAvailable ? (row?.place ?? null) : null,
   latitude: locationAvailable ? (row?.latitude ?? null) : null,
   longitude: locationAvailable ? (row?.longitude ?? null) : null,
   locationAvailable,
+  siengeBuildingId: siengeAvailable ? (row?.sienge_building_id ?? null) : null,
+  siengeAvailable,
 });
 
-/** Lê a linha da obra. Sem as colunas da 0029 relê só a semana 1 e marca o local como indisponível,
- * para a semana 1 continuar funcionando numa base que ainda não recebeu a migração nova. */
-async function readRow(workId: string): Promise<{ row: Row | null; locationAvailable: boolean; error: { code?: string } | null }> {
+/** Lê a linha da obra. Sem a coluna da 0057 relê sem ela e marca o Sienge como indisponível; sem as
+ * colunas da 0029 relê só a semana 1 e marca o local como indisponível. Assim a semana 1 continua
+ * funcionando numa base que ainda não recebeu as migrações novas. */
+async function readRow(
+  workId: string,
+): Promise<{ row: Row | null; locationAvailable: boolean; siengeAvailable: boolean; error: { code?: string } | null }> {
   const table = () => getServiceClient().from('work_settings');
+  const all = await table().select('week_one_start, place, latitude, longitude, sienge_building_id').eq('work_id', workId).maybeSingle();
+  if (!all.error) return { row: (all.data as Row | null) ?? null, locationAvailable: true, siengeAvailable: true, error: null };
+  if (!missingColumn(all.error.code)) return { row: null, locationAvailable: true, siengeAvailable: true, error: all.error };
   const full = await table().select('week_one_start, place, latitude, longitude').eq('work_id', workId).maybeSingle();
-  if (!full.error) return { row: (full.data as Row | null) ?? null, locationAvailable: true, error: null };
-  if (!missingColumn(full.error.code)) return { row: null, locationAvailable: true, error: full.error };
+  if (!full.error) return { row: (full.data as Row | null) ?? null, locationAvailable: true, siengeAvailable: false, error: null };
+  if (!missingColumn(full.error.code)) return { row: null, locationAvailable: true, siengeAvailable: false, error: full.error };
   const partial = await table().select('week_one_start').eq('work_id', workId).maybeSingle();
-  return { row: (partial.data as Row | null) ?? null, locationAvailable: false, error: partial.error };
+  return { row: (partial.data as Row | null) ?? null, locationAvailable: false, siengeAvailable: false, error: partial.error };
 }
 
 /** Valida o local vindo do cliente: nome de 1 a 120 caracteres e coordenadas dentro do globo. Devolve
@@ -58,21 +83,22 @@ export async function GET(request: NextRequest) {
   try {
     const profile = await getRouteProfile();
     if (!profile?.workIds.includes(workId)) return responseError('Você não tem acesso a esta obra.', 403);
-    const { row, locationAvailable, error } = await readRow(workId);
+    const { row, locationAvailable, siengeAvailable, error } = await readRow(workId);
     if (error)
       return missingTable(error.code)
         ? NextResponse.json(UNAVAILABLE, { headers })
         : responseError('Não foi possível ler as configurações da obra.', 502);
-    return NextResponse.json(settingsOf(row, locationAvailable), { headers });
+    return NextResponse.json(settingsOf(row, locationAvailable, siengeAvailable), { headers });
   } catch {
     return responseError('Falha ao ler as configurações da obra.', 502);
   }
 }
 
-/** Atualização parcial: só as chaves presentes no corpo mudam (`weekOneStart` e/ou `location`); o
- * resto vem da linha atual. `location: null` limpa as três colunas. */
+/** Atualização parcial: só as chaves presentes no corpo mudam (`weekOneStart`, `location` e/ou
+ * `siengeBuildingId`); o resto vem da linha atual. `location: null` limpa as três colunas e
+ * `siengeBuildingId: null` desfaz a ligação com o Sienge, que só o administrador grava. */
 export async function PUT(request: NextRequest) {
-  let body: { workId?: unknown; weekOneStart?: unknown; location?: unknown };
+  let body: { workId?: unknown; weekOneStart?: unknown; location?: unknown; siengeBuildingId?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -83,7 +109,8 @@ export async function PUT(request: NextRequest) {
   if (!workId) return responseError('Obra não informada.', 400);
   const hasWeekOne = 'weekOneStart' in body;
   const hasLocation = 'location' in body;
-  if (!hasWeekOne && !hasLocation) return responseError('Nada para salvar.', 400);
+  const hasSienge = 'siengeBuildingId' in body;
+  if (!hasWeekOne && !hasLocation && !hasSienge) return responseError('Nada para salvar.', 400);
   let weekOneStart: string | null = null;
   if (hasWeekOne && body.weekOneStart !== null) {
     if (typeof body.weekOneStart !== 'string') return responseError('Data da semana 1 inválida.', 400);
@@ -100,6 +127,11 @@ export async function PUT(request: NextRequest) {
     if (typeof parsed === 'string') return responseError(parsed, 400);
     location = parsed;
   }
+  let siengeBuildingId: number | null = null;
+  if (hasSienge && body.siengeBuildingId !== null) {
+    siengeBuildingId = parseSiengeBuildingId(body.siengeBuildingId);
+    if (siengeBuildingId === null) return responseError('Código do empreendimento do Sienge inválido.', 400);
+  }
   try {
     const profile = await getRouteProfile();
     if (!profile?.workIds.includes(workId)) return responseError('Você não tem acesso a esta obra.', 403);
@@ -108,6 +140,8 @@ export async function PUT(request: NextRequest) {
     if (current.error)
       return responseError(missingTable(current.error.code) ? MIGRATION_0025 : 'Não foi possível ler as configurações da obra.', 502);
     if (hasLocation && !current.locationAvailable) return responseError(MIGRATION_0029, 502);
+    if (hasSienge && profile.role !== 'admin') return responseError('Só o administrador liga a obra ao Sienge.', 403);
+    if (hasSienge && !current.siengeAvailable) return responseError(MIGRATION_0057, 502);
     const row = current.row;
     const merged: Row & { work_id: string; updated_at: string; updated_by: string } = {
       work_id: workId,
@@ -121,17 +155,20 @@ export async function PUT(request: NextRequest) {
       merged.latitude = hasLocation ? (location?.latitude ?? null) : (row?.latitude ?? null);
       merged.longitude = hasLocation ? (location?.longitude ?? null) : (row?.longitude ?? null);
     }
+    if (current.siengeAvailable) merged.sienge_building_id = hasSienge ? siengeBuildingId : (row?.sienge_building_id ?? null);
     const { error } = await getServiceClient().from('work_settings').upsert(merged);
     if (error)
       return responseError(
         missingTable(error.code)
           ? MIGRATION_0025
           : missingColumn(error.code)
-            ? MIGRATION_0029
+            ? hasSienge
+              ? MIGRATION_0057
+              : MIGRATION_0029
             : 'Não foi possível salvar as configurações da obra.',
         502,
       );
-    return NextResponse.json(settingsOf(merged, current.locationAvailable), { headers });
+    return NextResponse.json(settingsOf(merged, current.locationAvailable, current.siengeAvailable), { headers });
   } catch {
     return responseError('Falha ao salvar as configurações da obra.', 502);
   }

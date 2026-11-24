@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent } from 'react';
-import { ClipboardPaste, Plus, RefreshCw, Sparkles, Trash2, Undo2 } from 'lucide-react';
+import { ClipboardPaste, DownloadCloud, Plus, RefreshCw, Sparkles, Trash2, Undo2 } from 'lucide-react';
 import { LOB_LIMITS, type LobCostAccess, type LobId, type LobService } from '@/domain/lob';
 import {
   formatIdp,
@@ -27,6 +27,8 @@ import { useLob } from './lob-api';
 import { CommitField } from './lob-activity-panel';
 import { Pill } from './measurement-sheet';
 import { CostsImportDialog } from './costs-import-dialog';
+import { mergeSiengeBudget } from './costs-sienge';
+import { CostsSiengeDialog } from './costs-sienge-dialog';
 import { requestCostSuggestions } from './costs-suggest-api';
 import {
   addItems,
@@ -204,6 +206,7 @@ export function CostsView({ workId }: { workId: string }) {
   const [draft, setDraft] = useState<DraftCost[] | null>(null);
   const [selectedId, setSelectedId] = useState<LobId>();
   const [importing, setImporting] = useState(false);
+  const [fetchingSienge, setFetchingSienge] = useState(false);
   const [saving, setSaving] = useState(false);
   const [retrying, setRetrying] = useState(false);
   /** Itens que a Claudia apontou nesta sessão (pacote e confiança); o selo vale enquanto o item seguir lá. */
@@ -406,6 +409,16 @@ export function CostsView({ workId }: { workId: string }) {
               {suggesting ? 'A Claudia está sugerindo…' : 'Sugerir com a Claudia'}
             </button>
           )}
+          <button
+            type="button"
+            className="button-ghost"
+            disabled={saving || !!suggesting}
+            title="Traz o orçamento do empreendimento do Sienge ligado à obra. Nada é gravado: você confere e salva."
+            onClick={() => setFetchingSienge(true)}
+          >
+            <DownloadCloud size={15} aria-hidden />
+            Buscar do Sienge
+          </button>
           <button
             data-tour="longo-custos-colar"
             type="button"
@@ -823,6 +836,25 @@ export function CostsView({ workId }: { workId: string }) {
             });
           }}
           onClose={() => setImporting(false)}
+        />
+      )}
+      {fetchingSienge && (
+        <CostsSiengeDialog
+          workId={workId}
+          draft={costs}
+          onImport={(lines, sheetIds) => {
+            const context = draftContext();
+            const { summary } = mergeSiengeBudget(costsRef.current, lines, sheetIds, context);
+            edit(current => mergeSiengeBudget(current, lines, sheetIds, context).draft);
+            toast({
+              title: `Orçamento do Sienge na tela: ${plural(lines.length, 'linha', 'linhas')}`,
+              description: `${plural(summary.added, 'nova', 'novas')}, ${plural(summary.updated, 'atualizada', 'atualizadas')}${
+                summary.removed ? `, ${plural(summary.removed, 'item saiu', 'itens saíram')}` : ''
+              }. Confira e clique em Salvar para gravar.`,
+              tone: 'info',
+            });
+          }}
+          onClose={() => setFetchingSienge(false)}
         />
       )}
     </section>

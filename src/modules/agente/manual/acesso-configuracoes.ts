@@ -426,9 +426,9 @@ Embaixo da lista, **"Alocar recursos: Curto prazo"** leva à planilha onde as eq
   },
   {
     id: 'obra-configuracoes-semana-local',
-    title: 'Configurações da obra: semana 1, local da obra e locais da obra',
+    title: 'Configurações da obra: semana 1, local da obra, locais da obra e orçamento do Sienge',
     summary:
-      'Semana 1 que numera o curto prazo, local da obra (tempo nos PDFs) e locais da obra: torres e pavimentos da coluna Local do curto prazo.',
+      'Semana 1 que numera o curto prazo, local da obra (tempo nos PDFs), locais da obra (torres e pavimentos da coluna Local) e o empreendimento do Sienge.',
     keywords: [
       'semana 1',
       'numeração das semanas',
@@ -449,6 +449,10 @@ Embaixo da lista, **"Alocar recursos: Curto prazo"** leva à planilha onde as eq
       'torre',
       'pavimento',
       'coluna local',
+      'sienge',
+      'orçamento do sienge',
+      'empreendimento do sienge',
+      'ligar a obra ao sienge',
     ],
     screen: 'configuracoes',
     body: `## Numeração das semanas (semana 1)
@@ -507,7 +511,19 @@ Consulta vê a lista, mas não edita ("Seu perfil permite consulta aos locais.")
 
 ## Quem pode alterar e avisos
 
-Planejador, gestor e admin com a obra liberada alteram a semana 1 e o local; Consulta só vê ("Seu perfil permite consulta ao local da obra."). Se aparecer um aviso amarelo pedindo para aplicar uma **migração**, a função ainda não está habilitada no banco: avise quem mantém o sistema. "Não foi possível ler a configuração. Atualize a página para tentar de novo." é falha de leitura momentânea.`,
+Planejador, gestor e admin com a obra liberada alteram a semana 1 e o local; Consulta só vê ("Seu perfil permite consulta ao local da obra."). Se aparecer um aviso amarelo pedindo para aplicar uma **migração**, a função ainda não está habilitada no banco: avise quem mantém o sistema. "Não foi possível ler a configuração. Atualize a página para tentar de novo." é falha de leitura momentânea.
+
+## Orçamento do Sienge
+
+Liga a obra a um **empreendimento do Sienge**. É dele que a visão Custos do longo prazo (aba 1.1) busca o orçamento pelo botão "Buscar do Sienge". O sistema só lê o Sienge; nada é alterado lá.
+
+O painel mostra "Ligada ao empreendimento N" (com o nome, depois de aberta a lista) ou "Esta obra ainda não está ligada ao Sienge: o orçamento entra só por 'Colar do orçamento'". Todos veem a ligação; **só o administrador** escolhe, troca ou desfaz.
+
+- **Escolher**: o administrador clica em "Escolher o empreendimento" (ou "Trocar o empreendimento"), espera "Lendo os empreendimentos do Sienge…", escolhe na lista "Empreendimento do Sienge" e clica em "Salvar". No Sienge cada obra costuma ter dois empreendimentos, "(ADM)" e "(ENG)": o orçamento da obra fica no **ENG**. Quando o nome da obra bate com um empreendimento ENG, ele já vem marcado, com o aviso "Pelo nome da obra, o empreendimento parece ser … Confira antes de salvar."
+- **"Desfazer a ligação"** tira o empreendimento; os itens de custo já gravados continuam na obra.
+- "Só o administrador liga a obra ao Sienge." aparece para os demais perfis.
+- "Sienge não configurado: defina SIENGE_SUBDOMAIN, SIENGE_API_USER e SIENGE_API_PASSWORD no servidor." indica que faltam as variáveis no servidor, com quem o administra.
+- "Para ligar a obra ao Sienge, aplique a migração 0057_sienge_link.sql" indica banco sem a coluna da ligação.`,
   },
   {
     id: 'navegacao-geral',
