@@ -4,7 +4,9 @@ import type { TourStep } from '../tours';
  * sozinhos, porque os alvos delas não estão na tela. Os passos seguem a ordem visual: primeiro o comum
  * a todas, depois Linha de Balanço, Custos (11/11/2026, o peso do IDP), Fluxos de serviços e Medições
  * (04/11/2026), a Curva S (23/11/2026), o Gantt de legalização (04/11/2026), o Planejador e, por fim, "Vagões" (o quadro de
- * restrições saiu daqui em 10/11/2026: virou a "Lista de pendência" da aba 2). */
+ * restrições saiu daqui em 10/11/2026: virou a "Lista de pendência" da aba 2). Em 25/11/2026 entraram a chave
+ * "Arrastar: Pacote | Bloco", o botão "Editar o pacote" (só aparece com um bloco selecionado e as datas liberadas;
+ * sem ele na tela o passo é pulado, e o passo do painel cita o botão) e o "Histórico". */
 export const steps: TourStep[] = [
   {
     title: 'Aba 1.1 · Cronograma de longo prazo',
@@ -60,7 +62,7 @@ export const steps: TourStep[] = [
   {
     target: 'longo-lob-grafico',
     title: 'Linha de Balanço',
-    body: 'Locais de baixo para cima e o tempo na horizontal. Cada bloco é um serviço num local: a parte cheia é o que já foi medido, a clara o que falta, e o contorno vermelho marca atraso. Com as datas liberadas no cadeado, arraste um bloco para mudar a data: as sucessoras acompanham, e ele nunca entra antes das predecessoras. Com um bloco selecionado, as setas movem um dia útil.',
+    body: 'Locais de baixo para cima e o tempo na horizontal. Cada bloco é um serviço num local: a parte cheia é o que já foi medido, a clara o que falta, e o contorno vermelho marca atraso. Com as datas liberadas no cadeado, arraste um bloco para mudar a data (o pacote inteiro ou só o bloco, conforme a chave "Arrastar"): as sucessoras são empurradas quando preciso, e nada entra antes das predecessoras. Com um bloco selecionado, as setas movem um dia útil.',
   },
   {
     target: 'longo-lob-critico',
@@ -73,9 +75,19 @@ export const steps: TourStep[] = [
     body: 'A tela abre com as datas travadas, para ninguém reprogramar sem querer: arrastar e as setas não mudam nada. Clique no cadeado para liberar a edição e de novo para travar. A escolha fica guardada neste navegador.',
   },
   {
+    target: 'lob-drag-mode',
+    title: 'Arrastar: Pacote | Bloco',
+    body: 'Diz o que anda quando você arrasta um bloco. Em Pacote (o padrão), clicar num bloco destaca o serviço em todos os locais, e arrastar qualquer bloco dele move todos os blocos não iniciados do serviço o mesmo número de dias úteis, sem mudar o ritmo entre os locais; as setas ← → fazem o mesmo (com Shift, uma semana). Para trás, o pacote para na primeira predecessora de outro serviço, e o aviso diz qual. Em Bloco, ou com Alt + arrastar, só aquele bloco anda. A escolha fica guardada neste navegador, para cada pessoa.',
+  },
+  {
     target: 'longo-lob-painel',
     title: 'Bloco selecionado',
-    body: 'Fica acima do gráfico e se preenche ao clicar num bloco. Início, duração, equipe, predecessoras com a espera (para ligar uma nova, digite parte do serviço ou do local no campo de busca), quantos blocos acompanham ao arrastar, o atraso com o motivo da medição, as datas reais e as fotos da última medição.',
+    body: 'Fica acima do gráfico e se preenche ao clicar num bloco. Início, duração, equipe, predecessoras com a espera (para ligar uma nova, digite parte do serviço ou do local no campo de busca), quantos blocos acompanham ao arrastar, o atraso com o motivo da medição, as datas reais e as fotos da última medição. Com as datas liberadas, o botão "Editar o pacote", ao lado do nome do serviço, muda todos os locais do serviço de uma vez.',
+  },
+  {
+    target: 'lob-edit-package',
+    title: 'Editar o pacote',
+    body: 'Aparece no bloco selecionado, ao lado do nome do serviço, para quem edita e com as datas liberadas. Aplica de uma vez, nos locais marcados do pacote, a mesma duração, o ritmo (encadear os locais ou manter os inícios) e as predecessoras de outros pacotes; blocos já iniciados ficam de fora. A prévia mostra os blocos e as ligações que mudam e o término da obra, e "Aplicar" grava tudo junto, depois de guardar uma linha de base automática.',
   },
   {
     target: 'longo-lob-criar-pendencia',
@@ -85,7 +97,7 @@ export const steps: TourStep[] = [
   {
     target: 'longo-lob-desfazer',
     title: 'Desfazer',
-    body: 'Volta a última mudança de datas (arraste, duração, dependência ou restauração). Ctrl+Z também funciona fora de um campo.',
+    body: 'Volta a última mudança de datas (arraste do bloco ou do pacote, duração, dependência ou restauração); depois de "Editar o pacote", volta também as ligações. Ctrl+Z também funciona fora de um campo.',
   },
   {
     target: 'longo-lob-tabela',
@@ -101,6 +113,11 @@ export const steps: TourStep[] = [
     target: 'longo-lob-calendario',
     title: 'Calendário da obra',
     body: 'Os dias da semana trabalhados e os dias sem trabalho (feriados e recessos) desta obra. Antes de gravar, a prévia mostra quantos blocos mudam de data. No gráfico, os dias sem trabalho aparecem grifados em cinza nos zooms Semana e Mês.',
+  },
+  {
+    target: 'lob-history',
+    title: 'Histórico',
+    body: 'As últimas 100 alterações da Linha de Balanço: quando, quem, o que mudou e quantos blocos. Conta a partir de 25/11/2026 (antes disso o sistema não guardava o autor). As medições não entram, porque já têm o autor delas, e as mudanças de custo aparecem só como contagem, sem valores.',
   },
   {
     target: 'longo-lob-linha-base',

@@ -30,9 +30,10 @@ import { leadTimeDeadline } from '../../domain/rules';
 import { addDays, startOfWeek } from '../../domain/validation';
 import { weekNumberFrom } from '../../domain/week-numbering';
 import { bucketKey, bucketLabel, isBucketKey, type PeriodGrouping, type PeriodSelection } from '../../modules/dashboard/period';
-import { boardStatusLabels, releaseLabels, statusLabels, wagonLabel } from '../../shared/format';
+import { boardStatusLabels, formatTimestamp, releaseLabels, statusLabels, wagonLabel } from '../../shared/format';
 import { AGENT_TOOL_SPECS, runAgentTool, runAgentToolAsync, type AgentToolSpec, type ToolContext, type ToolOutcome } from './agent-tools';
 import { SAFETY_TOOL_SPEC, safetyReport, TERMINALITY_TOOL_SPEC, terminalityReport, type ModuleReportEntry } from './agent-module-reports';
+import type { LobHistoryItem } from './lob-history';
 import { selectWorkPlanning, type Planning } from './get-planning';
 
 /** Ferramentas da Claudia geral (08/11/2026, aprovada pelo usuário): a janela flutuante do admin, em qualquer
@@ -78,6 +79,9 @@ export interface AgentDataLoader {
   terminality(workId: string): Promise<TerminalityData | null>;
   safety(workId: string): Promise<SafetyData | null>;
   lob(workId: string): Promise<LobData | null>;
+  /** As `limit` alterações mais recentes da Linha de Balanço (25/11/2026), da mais nova para a mais antiga; null =
+   * histórico indisponível. Opcional: sem ele (carregadores de teste e do smoke), `consultar_lob` não traz o histórico. */
+  lobHistory?: (workId: string, limit: number) => Promise<LobHistoryItem[] | null>;
   workSettings(workId: string): Promise<WorkSettingsInfo>;
   /** Comparação entre obras (os mesmos números do Dashboard geral) já em texto compacto, uma linha por obra. */
   portfolio(selection: PeriodSelection, workIds: string[]): Promise<string>;
@@ -112,6 +116,10 @@ const MAX_ITEMS = 40;
 const MAX_LATE_BLOCKS = 15;
 const MAX_RELEASES = 5;
 const MAX_TEAMS = 200;
+/** Quantas alterações do histórico da Linha de Balanço `consultar_lob` traz (25/11/2026). */
+export const LOB_HISTORY_ITEMS = 10;
+/** Desde quando o histórico guarda o autor (antes disso o sistema não registrava quem alterou). */
+const LOB_HISTORY_SINCE = '25/11/2026';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isDate = (value: string) => DATE.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -309,7 +317,7 @@ const VAGOES_SPEC: AgentToolSpec = {
 const LOB_SPEC: AgentToolSpec = {
   name: 'consultar_lob',
   description:
-    'Linha de Balanço da obra (aba 1.1, visão padrão "Linha de Balanço": blocos por serviço × local, medidos em rodadas): avanço físico medido × previsto para hoje da obra e de cada serviço, o IDP (índice de desempenho de prazo = % físico real ÷ % físico planejado na última medição fechada, contra a linha de base manual mais recente ou o cronograma atual; 1,00 ou mais em dia, 0,90 a 0,99 atenção, abaixo de 0,90 atrasado) da obra e de cada serviço, blocos atrasados com o atraso em dias úteis e o motivo informado na medição, e a última medição fechada. Avanço, previsto e IDP vêm no mesmo peso, dito no texto: por custo quando todos os pacotes de serviço com blocos têm custo apropriado, senão pela duração (valores em reais não saem desta ferramenta). Para o plano do Planejador (serviço por pavimentos), use listar_servicos_macro.',
+    'Linha de Balanço da obra (aba 1.1, visão padrão "Linha de Balanço": blocos por serviço × local, medidos em rodadas): avanço físico medido × previsto para hoje da obra e de cada serviço, o IDP (índice de desempenho de prazo = % físico real ÷ % físico planejado na última medição fechada, contra a linha de base manual mais recente ou o cronograma atual; 1,00 ou mais em dia, 0,90 a 0,99 atenção, abaixo de 0,90 atrasado) da obra e de cada serviço, blocos atrasados com o atraso em dias úteis e o motivo informado na medição, e a última medição fechada. Avanço, previsto e IDP vêm no mesmo peso, dito no texto: por custo quando todos os pacotes de serviço com blocos têm custo apropriado, senão pela duração (valores em reais não saem desta ferramenta). Traz também as 10 alterações mais recentes do histórico da Linha de Balanço: quem alterou, o que mudou, quando e quantos blocos (o histórico conta desde 25/11/2026; medições não entram, e custos aparecem só como contagem). Só lê: mover o pacote, editar o pacote ou mudar datas não se faz pelo chat; oriente a pessoa a usar a tela (chave "Arrastar: Pacote | Bloco" e botão "Editar o pacote"). Para o plano do Planejador (serviço por pavimentos), use listar_servicos_macro.',
   input_schema: { type: 'object', properties: { obra: OBRA_INPUT }, additionalProperties: false },
 };
 
@@ -712,16 +720,54 @@ const lateLine = (
 ) =>
   `- ${serviceName.get(a.serviceId) ?? '?'} · ${localName.get(a.localId) ?? '?'} | previsto ${pct(plannedPercent(a, today, calendar))} | medido ${pct(measured[a.id] ?? 0)} | atraso de ${plural(days, 'dia útil', 'dias úteis')}${causes.get(a.id) ? ` | motivo: ${causes.get(a.id)}` : ''}`;
 
+/** "25/11/2026 14:03" no fuso das obras; carimbo inválido volta como veio. */
+const stampOf = (value: string) => (Number.isNaN(Date.parse(value)) ? value : formatTimestamp(value).replace(',', ''));
+
+/** As alterações mais recentes do histórico da Linha de Balanço em texto (25/11/2026): quando, quem, o que mudou
+ * e quantos blocos. `null` = histórico indisponível no sistema. Puro. */
+export function lobHistoryReport(history: readonly LobHistoryItem[] | null): string {
+  if (!history) return 'Histórico de alterações: ainda não disponível no sistema.';
+  const items = history.slice(0, LOB_HISTORY_ITEMS);
+  if (!items.length)
+    return `Histórico de alterações: nenhuma alteração registrada desde ${LOB_HISTORY_SINCE} (antes disso o sistema não guardava quem alterou).`;
+  const lines = [
+    `Últimas alterações (${items.length}, da mais recente para a mais antiga; o histórico conta desde ${LOB_HISTORY_SINCE}, sem as medições, e custos aparecem só como contagem):`,
+    'quando | quem | o que mudou | blocos',
+  ];
+  for (const item of items) {
+    const blocks = Number.isFinite(item.blocks) ? String(item.blocks) : '-';
+    lines.push(
+      `${stampOf(item.occurredAt)} | ${item.authorName.trim() || 'autor não identificado'} | ${cut(item.text.trim() || item.action, 160)} | ${blocks}`,
+    );
+  }
+  return lines.join('\n');
+}
+
 async function lobTool(args: Record<string, unknown>, ctx: GlobalToolContext): Promise<GlobalToolOutcome> {
   const resolved = resolveWork(args.obra, ctx);
   if ('error' in resolved) return failure(resolved.error);
   const { work } = resolved;
-  const loaded = await attempt(() => ctx.loader.lob(work.id), ctx, 'consultar_lob', work.id);
+  const readHistory = ctx.loader.lobHistory;
+  // O histórico é lido junto com a Linha de Balanço; se ele falhar, a consulta sai sem ele, com o aviso.
+  const [loaded, history] = await Promise.all([
+    attempt(() => ctx.loader.lob(work.id), ctx, 'consultar_lob', work.id),
+    readHistory ? attempt(() => readHistory(work.id, LOB_HISTORY_ITEMS), ctx, 'consultar_lob', work.id) : undefined,
+  ]);
   if (!loaded.ok) return readFailure('a Linha de Balanço', work);
-  const result = loaded.value
-    ? lobReport(loaded.value, work, ctx.today)
-    : `${workPrefix(work)} A Linha de Balanço ainda não está disponível no sistema.`;
-  return { result, consulted: `Linha de Balanço · ${work.name}`, workIds: [work.id] };
+  if (!loaded.value)
+    return {
+      result: `${workPrefix(work)} A Linha de Balanço ainda não está disponível no sistema.`,
+      consulted: `Linha de Balanço · ${work.name}`,
+      workIds: [work.id],
+    };
+  const report = lobReport(loaded.value, work, ctx.today);
+  const historyText = !history ? '' : history.ok ? lobHistoryReport(history.value) : 'Histórico de alterações: não foi possível ler agora.';
+  return {
+    // Obra com muitos serviços: o corte de `MAX_RESULT_CHARS` cai na tabela, nunca no histórico do fim.
+    result: historyText ? `${capResult(report, MAX_RESULT_CHARS - historyText.length - 2)}\n\n${historyText}` : report,
+    consulted: `Linha de Balanço · ${work.name}`,
+    workIds: [work.id],
+  };
 }
 
 // ─── Configurações da obra ──────────────────────────────────────────────────────

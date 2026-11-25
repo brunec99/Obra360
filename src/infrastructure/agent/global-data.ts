@@ -14,6 +14,7 @@ import { getServiceClient } from '../repositories/supabase/client';
 import { loadTerminality, TerminalityUnavailableError } from '../repositories/supabase/terminality-repository';
 import { loadSafety, SafetyUnavailableError } from '../repositories/supabase/safety-repository';
 import { loadLob, LobUnavailableError } from '../repositories/supabase/lob-repository';
+import { listLobHistory } from '../repositories/supabase/lob-history-repository';
 import { readDashboardExtras } from '../repositories/supabase/dashboard-extras';
 import { readPortfolioSources } from '../repositories/supabase/portfolio-sources';
 import { createRestrictionLoader } from './restrictions';
@@ -155,6 +156,12 @@ export function createAgentDataLoader(access: LoaderAccess): AgentDataLoader {
       if (!developer && !modules.includes('longo-prazo')) return null;
       return orUnavailable(() => loadLob(workId), LobUnavailableError);
     }),
+    // Histórico da Linha de Balanço (25/11/2026): o mesmo recorte de acesso da leitura acima.
+    lobHistory: async (workId: string, limit: number) => {
+      guard(workId);
+      if (!developer && !modules.includes('longo-prazo')) return null;
+      return listLobHistory(workId, limit);
+    },
     workSettings: async (workId: string) => {
       guard(workId);
       return settings(workId);

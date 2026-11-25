@@ -4,7 +4,8 @@ import type { ManualSection } from './types';
  * cadastro de serviços, o gráfico, linhas de base e medições, a geração de vagões e a curva de avanço
  * (o módulo de restrições saiu em 10/11/2026: virou o Quadro de Restrições, aba 1.4). Escrito a partir do código dos componentes; quando o
  * tour ou a documentação divergiam, valeu o código. Em 04/11/2026 entraram a Linha de Balanço, os
- * fluxos de serviços, as medições e o Gantt de legalização; em 11/11/2026, o IDP e a visão Custos. */
+ * fluxos de serviços, as medições e o Gantt de legalização; em 11/11/2026, o IDP e a visão Custos; em 25/11/2026,
+ * mover e editar o pacote (pedido do Jorge Lucas, Atmos) e o histórico da Linha de Balanço. */
 export const sections: ManualSection[] = [
   {
     id: 'longo-prazo-visao-geral',
@@ -388,10 +389,10 @@ No alto: Serviços (com quantos lançamentos e blocos), Locais, Término previst
 
 ## Arrastar, desfazer e teclado
 - A tela abre com as **datas travadas** (botão do cadeado, "Datas travadas", no cabeçalho do gráfico), para ninguém reprogramar sem querer: travada, arrastar e as setas não mudam nada. Clique no cadeado para liberar ("Datas liberadas") e de novo para travar; a escolha fica guardada no navegador. O painel do bloco selecionado continua editando início e duração mesmo com a trava.
-- Com as datas liberadas, arraste um bloco para a direita ou para a esquerda para mudar a data de início. As sucessoras (os blocos que dependem dele, inclusive o mesmo serviço no local seguinte) se deslocam junto enquanto você arrasta, já na posição em que vão ficar, e a dica diz o novo início e quantos blocos acompanham. Um bloco nunca entra antes do fim das predecessoras mais a espera: puxar para trás só vai até essa folga ("limite das predecessoras").
-- Ao soltar, a mudança aparece na hora e é gravada em segundo plano: ao lado de "Desfazer" aparece "Salvando…" e depois "Salvo". Dá para continuar arrastando outros blocos; as gravações seguem em fila. Se a gravação falhar ou for recusada, a tela volta ao que estava, mostra o motivo e indica "Não salvou".
-- "Desfazer" (ou Ctrl+Z fora de um campo) volta a última mudança de datas, do bloco e das sucessoras, de uma vez.
-- Com um bloco selecionado, as setas esquerda e direita do teclado movem um dia útil. A tecla H (ou o botão "Hoje") leva o gráfico para hoje.
+- Com as datas liberadas, arraste um bloco para mudar o início. A chave "Arrastar: Pacote | Bloco" decide o que anda: em Pacote (padrão), os blocos não iniciados do serviço; em Bloco, ou com Alt + arrastar, só ele. As sucessoras empurradas aparecem já na posição final, e a dica diz o novo início e quantos blocos andam. Nenhum bloco entra antes do fim das predecessoras mais a espera ("limite das predecessoras").
+- Ao soltar, a mudança aparece na hora e é gravada em segundo plano ("Salvando…" e depois "Salvo", ao lado de "Desfazer"). Dá para seguir arrastando: as gravações vão em fila. Se a gravação falhar ou for recusada, a tela volta ao que estava, mostra o motivo e indica "Não salvou".
+- "Desfazer" (ou Ctrl+Z fora de um campo) volta a última mudança de datas, com as sucessoras.
+- Com um bloco selecionado, ← e → movem um dia útil e Shift + seta, uma semana (no modo Pacote, o pacote). A tecla H (ou o botão "Hoje") leva o gráfico para hoje.
 - Perfil de consulta vê o gráfico e não arrasta.
 
 ## Filtros, zoom e tabela
@@ -404,7 +405,7 @@ No alto: Serviços (com quantos lançamentos e blocos), Locais, Término previst
 - "Atrasos" abre a lista dos blocos atrasados (previsto, medido e atraso em dias úteis); clicar num deles seleciona o bloco no gráfico.
 
 ## Painel do bloco selecionado
-Início e duração (em dias úteis) editáveis, término calculado, as datas da linha de base escolhida com o desvio do bloco, equipe e unidade do serviço, observação, as predecessoras ("Depois de", com a espera em dias e a ligação "equipe segue" para o mesmo serviço no local anterior; para ligar uma nova, o campo "buscar predecessora…" filtra os blocos enquanto você digita parte do serviço ou do local, sem diferenciar acento nem maiúscula e com as palavras em qualquer ordem, por exemplo "alv 12" acha "Alvenaria · 12º pavimento"; escolha o bloco na lista, informe a espera em dias úteis e clique em "Ligar"), quantos blocos acompanham ao arrastar, o aviso de atraso com o motivo informado na medição, as datas reais (início real e término real, que a medição preenche e aqui podem ser corrigidas), as fotos da última medição e "Excluir bloco". Um bloco já medido não pode ser excluído.
+"Editar o pacote" (ao lado do serviço) muda o pacote em massa. Início e duração (em dias úteis) editáveis, término calculado, as datas da linha de base escolhida com o desvio do bloco, equipe e unidade do serviço, observação, as predecessoras ("Depois de", com a espera em dias e a ligação "equipe segue" para o mesmo serviço no local anterior; para ligar uma nova, o campo "buscar predecessora…" filtra os blocos enquanto você digita parte do serviço ou do local, sem diferenciar acento nem maiúscula e com as palavras em qualquer ordem, por exemplo "alv 12" acha "Alvenaria · 12º pavimento"; escolha o bloco na lista, informe a espera em dias úteis e clique em "Ligar"), quantos blocos acompanham ao arrastar, o aviso de atraso com o motivo informado na medição, as datas reais (início real e término real, que a medição preenche e aqui podem ser corrigidas), as fotos da última medição e "Excluir bloco". Um bloco já medido não pode ser excluído.
 
 **"Criar pendência do serviço"**, logo abaixo de equipe e unidade, cria um card no "Quadro de Restrições" (aba 1.4) ligado ao serviço do bloco (ao serviço inteiro, não ao local). Você informa só o título, o tempo de execução em dias úteis e o responsável: a entrega é o dia útil anterior ao primeiro início do serviço na obra (o bloco que começa mais cedo) e acompanha a reprogramação. O botão só aparece para quem tem o Quadro de Restrições (aba 1.4) liberado; o perfil não muda isso.
 
@@ -735,6 +736,112 @@ No painel do bloco, abaixo de equipe e unidade, a lista **"Restrições do servi
 ## Dois cliques: janela de detalhes
 
 Dois cliques num bloco abrem os **detalhes numa janela**, como o duplo clique numa tarefa do médio prazo: é o mesmo painel (datas, duração, dependências, equipe, unidade, restrições do serviço, situação, fotos da medição e excluir), com os mesmos campos editáveis para quem edita. Esc, o "X" ou um clique fora fecham. O painel acima do gráfico continua aparecendo com um clique.`,
+  },
+  {
+    id: 'longo-prazo-lob-pacote',
+    title: 'Linha de Balanço: mover o pacote inteiro (Arrastar: Pacote | Bloco) e editar o pacote em massa',
+    summary: 'Chave Pacote | Bloco (mover todos os locais do serviço) e "Editar o pacote": duração, ritmo e predecessoras em massa.',
+    keywords: [
+      'pacote',
+      'mover pacote',
+      'mover o pacote inteiro',
+      'arrastar o pacote',
+      'arrastar pacote ou bloco',
+      'modo pacote',
+      'modo bloco',
+      'alt arrastar',
+      'todos os pavimentos juntos',
+      'todos os pavimentos',
+      'todos os locais de uma vez',
+      'deslocar todos juntos',
+      'editar o pacote',
+      'em massa',
+      'configuração em massa',
+      'mesma duração',
+      'mesma predecessora',
+      'mesma lógica de predecessoras',
+      'predecessoras em massa',
+      'encadear',
+      'manter os inícios',
+      'substituir as ligações',
+      'somar às ligações',
+      'blocos iniciados',
+      'antes da edição do pacote',
+      'claudia move o pacote',
+    ],
+    screen: 'longo-prazo',
+    body: `## Para que serve
+Desde 25/11/2026 (pedido do Jorge Lucas, do Atmos), a Linha de Balanço move e configura o **pacote inteiro**. Pacote é o serviço, com todos os blocos dele nos locais da obra. Antes era preciso arrastar ou editar pavimento por pavimento.
+
+## A chave "Arrastar: Pacote | Bloco"
+Fica no cabeçalho do gráfico, ao lado do cadeado. Abre em **Pacote**, e a escolha fica guardada neste navegador, para cada pessoa. Arrastar só funciona com as datas liberadas no cadeado; o perfil de consulta não vê a chave e não arrasta.
+- **Pacote**: clicar num bloco destaca o serviço em todos os locais, e arrastar qualquer bloco dele move todos os blocos **não iniciados** do mesmo serviço o mesmo número de dias úteis. O ritmo entre os locais não muda, e nenhum bloco cai em dia sem trabalho do calendário da obra.
+- **Bloco**: arrastar move só aquele bloco, como antes. No modo Pacote, **Alt + arrastar** também move só o bloco, sem trocar a chave.
+- **Bloco iniciado** fica onde está: é o que tem início real, que a medição preenche no primeiro avanço acima de 0%.
+
+## Regras do movimento do pacote
+- **Para a frente**: as sucessoras de outros pacotes são empurradas só quando é preciso, isto é, quando o pacote invadiria a espera delas. As que têm folga ficam onde estão.
+- **Para trás**: o pacote inteiro para quando o primeiro bloco encosta numa predecessora de fora (o fim dela mais a espera). O aviso diz qual.
+- As sucessoras nunca são puxadas para trás. A folga que se abre aparece no aviso.
+- **Teclado**: com um bloco selecionado no modo Pacote, as setas ← e → movem o pacote 1 dia útil, e Shift + seta, 1 semana.
+- Um arrasto é uma gravação só e um Ctrl+Z só: "Desfazer" volta o pacote e as sucessoras empurradas de uma vez.
+
+## O botão "Editar o pacote"
+Fica no painel do bloco selecionado (e na janela de detalhes, aberta com dois cliques), ao lado do nome do serviço. Só aparece com as datas liberadas no cadeado; quem só consulta não vê o botão. A janela tem:
+- **Pacote**: o serviço do bloco selecionado.
+- **Locais**: todos vêm marcados; use "Todos", "Nenhum" ou marque um a um. Os blocos já iniciados ficam de fora.
+- **Duração**: vazio mantém a duração de cada bloco; preenchido, aplica N dias úteis em todos os locais marcados.
+- **Ritmo**: "Encadear" (padrão) deixa o primeiro local onde está e faz cada um dos seguintes começar depois do término do anterior mais a espera, na ordem de hoje pela data de início. Pode trazer locais para trás, mas nunca antes de uma predecessora de fora, e as ligações "equipe segue" do pacote passam a ter essa espera. "Manter os inícios" não mexe no início dos blocos.
+- **Predecessoras de outros pacotes**: cada linha tem o pacote, o local (o mesmo local, de 1 a 3 abaixo ou de 1 a 3 acima) e a espera em dias úteis. Escolha "Substituir as ligações que vêm desses pacotes" (padrão) ou "Somar às ligações atuais". Local sem bloco correspondente é pulado e aparece listado; regra que fecha ciclo é recusada ("Essa lógica fecha um ciclo entre os pacotes").
+- **Prévia**: os blocos que mudam, as ligações que entram (+) e saem (−), as sucessoras empurradas, as folgas novas e o término do pacote e da obra.
+- **"Aplicar"** grava tudo ou nada. Antes, o sistema guarda a linha de base automática "Antes da edição do pacote dd/mm/aaaa".
+- **Desfazer**: Ctrl+Z desfaz as datas e as ligações enquanto a tela estiver aberta. Depois, a linha de base automática devolve as datas, mas não as ligações.
+
+Outros avisos: "Marque ao menos um local", "Os locais marcados só têm blocos já iniciados, que não entram na edição em massa", "A predecessora precisa ser de outro pacote. A ordem entre os locais do próprio pacote é o ritmo" e "Nada a mudar: o pacote já está assim".
+
+## Atmos: ligações da importação
+No Atmos, as ligações entre os blocos foram deduzidas na importação do Prevision. Elas vão ser trocadas pelas ligações reais do Prevision depois que o Jorge Lucas conferir a lista de conflitos, o que ainda não foi feito. Até lá, mover e editar o pacote usam as ligações deduzidas.
+
+## A assistente não move nem edita pacotes
+A assistente de IA não move pacotes, não muda datas e não edita o pacote pelo chat; isso fica para uma próxima etapa. Ela também não propõe mudanças no cronograma. Quem pedir deve usar a tela: a chave "Arrastar: Pacote | Bloco" e o botão "Editar o pacote", na visão "Linha de Balanço".`,
+  },
+  {
+    id: 'longo-prazo-lob-historico',
+    title: 'Histórico da Linha de Balanço: quem alterou, o que mudou e quando',
+    summary: 'Botão "Histórico": as últimas 100 alterações da Linha de Balanço, com quem fez, o que mudou e quantos blocos.',
+    keywords: [
+      'histórico',
+      'histórico da linha de balanço',
+      'histórico de alterações',
+      'quem alterou',
+      'quem mexeu',
+      'quem mudou',
+      'o que mudou',
+      'últimas alterações',
+      'autor da alteração',
+      'quem moveu o bloco',
+      'registro de alterações',
+    ],
+    screen: 'longo-prazo',
+    body: `## Onde fica
+Botão **"Histórico"**, na barra de ações da Linha de Balanço, ao lado de "Calendário" (desde 25/11/2026). Abre uma gaveta com as **últimas 100 alterações** da Linha de Balanço da obra, da mais recente para a mais antiga.
+
+## O que cada linha mostra
+- **Quando**: data e hora.
+- **Quem**: a pessoa que fez a alteração.
+- **O que mudou**: uma frase, por exemplo um pacote movido ou editado, um bloco arrastado ou o calendário alterado.
+- **Blocos**: quantos blocos a alteração mexeu.
+
+## O que não aparece
+- Alterações anteriores a 25/11/2026: antes disso o sistema não guardava quem fez cada mudança.
+- As medições: cada medição já tem o autor dela, na visão "Medições".
+- Os valores de custo: as mudanças na visão Custos entram só como contagem, sem valores.
+
+## Para voltar atrás
+O histórico só mostra; ele não desfaz. Para voltar datas, use "Desfazer" (Ctrl+Z) enquanto a tela estiver aberta ou restaure uma linha de base, como as automáticas "Antes do lançamento…", "Antes da edição do pacote…" e "Antes da mudança de calendário…".
+
+## Pela assistente
+A assistente geral dos administradores, ao consultar a Linha de Balanço de uma obra, traz também as 10 alterações mais recentes: quando, quem, o que mudou e quantos blocos. A assistente do painel da obra não lê a Linha de Balanço; para ela, o caminho é o botão "Histórico".`,
   },
   {
     id: 'longo-prazo-curva-s',

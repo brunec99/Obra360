@@ -39,7 +39,7 @@ const VIEWS = [
 ] as const;
 type View = (typeof VIEWS)[number]['id'];
 const DESCRIPTIONS: Record<View, string> = {
-  lob: 'Linha de Balanço da obra: cada bloco é um serviço num local, com o que já foi medido. Arraste para reprogramar; as sucessoras acompanham.',
+  lob: 'Linha de Balanço da obra: cada bloco é um serviço num local, com o que já foi medido. Arraste para reprogramar o pacote inteiro (ou só o bloco, no modo Bloco); as sucessoras acompanham.',
   fluxos: 'Fluxos de serviços: a sequência padrão da empresa, com duração por local e dependências, pronta para lançar em qualquer obra.',
   medicoes: 'Medições: o acumulado realizado de cada serviço em cada local, com foto do que avançou.',
   'curva-s':
@@ -73,8 +73,11 @@ export default async function Page({
       <p>
         <strong>Linha de Balanço</strong> é o cronograma de longo prazo: uma atividade por serviço × local, no estilo do Prevision. Os
         blocos nascem do lançamento de um <strong>fluxo de serviços</strong> (a sequência padrão da empresa, com duração por local e
-        dependências) nos locais da obra, com a data de início, o sentido e o ritmo escolhidos. Arrastar um bloco empurra as sucessoras;
-        cada bloco mostra a parte já medida e fica vermelho quando o previsto até hoje passa do medido.
+        dependências) nos locais da obra, com a data de início, o sentido e o ritmo escolhidos. No modo <strong>Pacote</strong>, arrastar um
+        bloco move todos os blocos ainda não iniciados do mesmo serviço; no modo <strong>Bloco</strong> (ou com Alt), só aquele. As
+        sucessoras são empurradas quando preciso e nunca puxadas. <strong>Editar o pacote</strong>, no painel do bloco, aplica a mesma
+        duração, o mesmo ritmo e as mesmas predecessoras em todos os locais de uma vez, e o <strong>Histórico</strong> mostra quem alterou o
+        quê. Cada bloco mostra a parte já medida e fica vermelho quando o previsto até hoje passa do medido.
       </p>
       <p>
         <strong>Medições</strong> são rodadas com data: o acumulado realizado de cada bloco, com foto obrigatória de cada avanço. Elas

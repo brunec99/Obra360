@@ -1803,8 +1803,21 @@ test('set_activity_dates: a data pedida cai em dia útil e a rede segura quem fi
   );
 });
 
-test('comandos de datas: só mover/esticar e devolver datas seguem o caminho curto', () => {
-  assert.deepEqual([...LOB_SCHEDULE_COMMANDS], ['update_activity', 'set_activity_dates']);
+test('comandos de datas: só mover/esticar, devolver datas e mover o pacote seguem o caminho curto', () => {
+  assert.deepEqual([...LOB_SCHEDULE_COMMANDS], ['update_activity', 'set_activity_dates', 'move_service']);
+  // "Editar o pacote" mexe em ligações e grava linha de base: vai pelo caminho completo.
+  assert.ok(
+    !isLobScheduleCommand({
+      type: 'edit_service',
+      workId: W,
+      serviceId: 's1',
+      localIds: [],
+      rhythm: 'chain',
+      lagDays: 0,
+      rules: [],
+      mode: 'replace',
+    }),
+  );
   assert.ok(isLobScheduleCommand({ type: 'update_activity', activityId: 'a11', start: '2026-10-12' }));
   assert.ok(isLobScheduleCommand({ type: 'set_activity_dates', workId: W, items: [] }));
   assert.ok(!isLobScheduleCommand({ type: 'restore_baseline', baselineId: 'b1' }));

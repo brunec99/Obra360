@@ -26,6 +26,8 @@ import {
   withSignedUrls,
 } from '@/infrastructure/repositories/supabase/lob-repository';
 import { getServiceClient } from '@/infrastructure/repositories/supabase/client';
+import { recordLobHistory } from '@/infrastructure/repositories/supabase/lob-history-repository';
+import { buildLobHistoryEntry } from '@/application/use-cases/lob-history';
 import { commandContext } from '@/infrastructure/clock';
 import { logRouteError } from '@/infrastructure/log';
 
@@ -38,6 +40,22 @@ async function loadPlannerDocument(workId: string): Promise<LongTermPlanDocument
   const { data, error } = await getServiceClient().from('long_term_plans').select('document').eq('work_id', workId).maybeSingle();
   if (error) return undefined;
   return (data as { document: LongTermPlanDocument } | null)?.document;
+}
+
+/** Histórico (25/11/2026): quem, quando, o quê e as datas antes e depois. Gravado depois do comando;
+ * se o histórico falhar, o comando continua valendo e o erro só vai para o log. */
+async function recordHistory(
+  before: Parameters<typeof buildLobHistoryEntry>[0],
+  command: LobCommand,
+  mutation: LobMutation,
+  context: ReturnType<typeof commandContext>,
+) {
+  try {
+    const entry = buildLobHistoryEntry(before, command, mutation, context);
+    if (entry) await recordLobHistory(entry);
+  } catch (error) {
+    logRouteError('POST /api/lob/commands (histórico)', error, { actorId: context.actorId, type: command.type });
+  }
 }
 
 /** Um comando por requisição: descobre a obra, confere o acesso, aplica as regras
@@ -76,14 +94,16 @@ export async function POST(request: Request) {
     if (isLobScheduleCommand(command)) {
       const schedule = await loadLobSchedule(workId);
       let mutation: LobMutation;
+      const context = commandContext(profile.id);
       try {
-        mutation = planLobCommand(schedule, command, commandContext(profile.id));
+        mutation = planLobCommand(schedule, command, context);
       } catch (error) {
         if (isLobCommandError(error) || error instanceof Error) return responseError(error.message, 400);
         throw error;
       }
       if (mutation.workId !== workId) return responseError('Você não tem acesso a esta obra.', 403);
       await applyLobMutation(mutation);
+      await recordHistory(schedule, command, mutation, context);
       const body: LobScheduleResponse = { available: true, partial: true, activities: mutation.update.activities };
       return NextResponse.json(body, { headers });
     }
@@ -94,8 +114,9 @@ export async function POST(request: Request) {
     // Sem a 0056 não há onde gravar o calendário: recusa antes de calcular datas com ele.
     if (command.type === 'set_calendar' && !calendarAvailable) return responseError(new LobCalendarUnavailableError().message, 503);
     let mutation: LobMutation;
+    const context = commandContext(profile.id);
     try {
-      mutation = planLobCommand(current, command, commandContext(profile.id), extras);
+      mutation = planLobCommand(current, command, context, extras);
     } catch (error) {
       if (isLobCommandError(error) || error instanceof Error) return responseError(error.message, 400);
       throw error;
@@ -106,6 +127,7 @@ export async function POST(request: Request) {
       if (!photo || !(await photoFilesExist(photo))) return responseError('Envie a foto antes de registrá-la.', 400);
     }
     await applyLobMutation(mutation);
+    await recordHistory(current, command, mutation, context);
     const reloaded = await loadLobWithCosts(workId);
     const fresh = await withSignedUrls(reloaded.data);
     const costAccess: LobCostAccess = reloaded.costsAvailable ? 'full' : 'unavailable';

@@ -28,7 +28,9 @@ import {
   type LobData,
   type LobDependency,
   type LobLaunch,
+  type LobLinkRevert,
   type LobLocal,
+  type LobPackageEdit,
   type LobMeasurement,
   type LobMeasurementItem,
   type LobPhoto,
@@ -39,6 +41,7 @@ import {
   type ServiceFlow,
 } from '../../domain/lob';
 import { normalizeLobCalendar, sameLobCalendar } from '../../domain/lob-calendar';
+import { isStartedActivity, PACKAGE_LIMITS, planPackageEdit, planPackageMove } from '../../domain/lob-package';
 import { isLocalDate, type LongTermPlanDocument } from '../../domain/long-term-plan';
 import { formatDate } from '../../shared/format';
 
@@ -131,6 +134,9 @@ export const LOB_COMMAND_TYPES = [
   'save_costs',
   'set_calendar',
   'set_activity_dates',
+  'move_service',
+  'edit_service',
+  'revert_service_edit',
 ] as const satisfies readonly LobCommand['type'][];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -242,6 +248,102 @@ function parseCosts(c: Record<string, unknown>): Pick<Extract<LobCommand, { type
     return id;
   });
   return { upsert, remove };
+}
+
+/** Lista de datas de blocos (`set_activity_dates` e o "Desfazer" de "Editar o pacote"). */
+function parseDateItems(value: unknown) {
+  if (!Array.isArray(value)) fail('Lista de datas inválida.');
+  const rawItems = value as unknown[];
+  if (rawItems.length > LOB_LIMITS.activities) fail(`Devolva no máximo ${LOB_LIMITS.activities} blocos por vez.`);
+  const seen = new Set<string>();
+  return rawItems.map(raw => {
+    const i = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const activityId = requiredId(i.activityId, 'Bloco não informado.');
+    if (seen.has(activityId)) fail('Um bloco aparece duas vezes na lista de datas.');
+    seen.add(activityId);
+    return {
+      activityId,
+      start: date(i.start, 'Data de início'),
+      durationDays: integer(
+        i.durationDays,
+        1,
+        LOB_LIMITS.durationDays,
+        `Duração inválida: informe de 1 a ${LOB_LIMITS.durationDays} dias úteis.`,
+      ),
+    };
+  });
+}
+const lag = (value: unknown) =>
+  integer(
+    value ?? 0,
+    -LOB_LIMITS.lagDays,
+    LOB_LIMITS.lagDays,
+    `Espera inválida: use de −${LOB_LIMITS.lagDays} a ${LOB_LIMITS.lagDays} dias úteis.`,
+  );
+
+/** "Editar o pacote" (25/11/2026): só forma e tipos; pacote, locais e ciclo ficam em `planPackageEdit`. */
+function parsePackageEdit(c: Record<string, unknown>): LobPackageEdit {
+  const serviceId = requiredId(c.serviceId, 'Pacote não informado.');
+  if (!Array.isArray(c.localIds) || !c.localIds.length) fail('Marque ao menos um local.');
+  const localIds = [...new Set((c.localIds as unknown[]).map(id => requiredId(id, 'Local inválido.')))];
+  if (localIds.length > LOB_LIMITS.locals) fail(`Marque no máximo ${LOB_LIMITS.locals} locais.`);
+  const durationDays =
+    c.durationDays === undefined || c.durationDays === null || c.durationDays === ''
+      ? undefined
+      : integer(c.durationDays, 1, LOB_LIMITS.durationDays, `Duração inválida: informe de 1 a ${LOB_LIMITS.durationDays} dias úteis.`);
+  if (!Array.isArray(c.rules)) fail('Lista de predecessoras inválida.');
+  const rawRules = c.rules as unknown[];
+  if (rawRules.length > PACKAGE_LIMITS.rules) fail(`Use no máximo ${PACKAGE_LIMITS.rules} predecessoras por vez.`);
+  const rules = rawRules.map(raw => {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    return {
+      serviceId: requiredId(r.serviceId, 'Pacote da predecessora não informado.'),
+      localOffset: integer(
+        r.localOffset ?? 0,
+        -PACKAGE_LIMITS.localOffset,
+        PACKAGE_LIMITS.localOffset,
+        `Local da predecessora inválido: use até ${PACKAGE_LIMITS.localOffset} locais abaixo ou acima.`,
+      ),
+      lagDays: lag(r.lagDays),
+    };
+  });
+  if (new Set(rules.map(r => `${r.serviceId}|${r.localOffset}`)).size !== rules.length)
+    fail('A mesma predecessora aparece duas vezes. Deixe uma linha por pacote e local.');
+  return {
+    serviceId,
+    localIds,
+    durationDays,
+    rhythm: c.rhythm === 'keep' ? 'keep' : 'chain',
+    lagDays: lag(c.lagDays),
+    rules,
+    mode: c.mode === 'add' ? 'add' : 'replace',
+  };
+}
+
+/** Ligações a devolver no "Desfazer" de "Editar o pacote". */
+function parseLinkRevert(value: unknown): LobLinkRevert {
+  const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  if (!Array.isArray(v.remove) || !Array.isArray(v.restore) || !Array.isArray(v.update)) fail('Lista de ligações inválida.');
+  const all = [...(v.remove as unknown[]), ...(v.restore as unknown[]), ...(v.update as unknown[])];
+  if (all.length > LOB_LIMITS.activities) fail('Ligações demais para desfazer de uma vez.');
+  return {
+    remove: (v.remove as unknown[]).map(id => requiredId(id, 'Ligação inválida.')),
+    restore: (v.restore as unknown[]).map(raw => {
+      const d = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      return {
+        id: requiredId(d.id, 'Ligação inválida.'),
+        predecessorId: requiredId(d.predecessorId, 'Predecessora não informada.'),
+        successorId: requiredId(d.successorId, 'Sucessora não informada.'),
+        lagDays: lag(d.lagDays),
+        kind: d.kind === 'crew' ? ('crew' as const) : ('fs' as const),
+        createdAt: typeof d.createdAt === 'string' && !Number.isNaN(Date.parse(d.createdAt)) ? d.createdAt : undefined,
+      };
+    }),
+    update: (v.update as unknown[]).map(raw => {
+      const d = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      return { dependencyId: requiredId(d.dependencyId, 'Ligação inválida.'), lagDays: lag(d.lagDays) };
+    }),
+  };
 }
 
 /** Confere forma e tipos de um comando vindo do navegador. Regras de negócio ficam no planejador. */
@@ -438,29 +540,26 @@ export function parseLobCommand(input: unknown): LobCommand {
       return { type, workId: workId(), calendar };
     }
     case 'set_activity_dates': {
-      if (!Array.isArray(c.items)) fail('Lista de datas inválida.');
-      const rawItems = c.items as unknown[];
-      if (!rawItems.length) fail('Nenhuma data para devolver.');
-      if (rawItems.length > LOB_LIMITS.activities) fail(`Devolva no máximo ${LOB_LIMITS.activities} blocos por vez.`);
-      const seen = new Set<string>();
-      const items = rawItems.map(raw => {
-        const i = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-        const activityId = requiredId(i.activityId, 'Bloco não informado.');
-        if (seen.has(activityId)) fail('Um bloco aparece duas vezes na lista de datas.');
-        seen.add(activityId);
-        return {
-          activityId,
-          start: date(i.start, 'Data de início'),
-          durationDays: integer(
-            i.durationDays,
-            1,
-            LOB_LIMITS.durationDays,
-            `Duração inválida: informe de 1 a ${LOB_LIMITS.durationDays} dias úteis.`,
-          ),
-        };
-      });
+      const items = parseDateItems(c.items);
+      if (!items.length) fail('Nenhuma data para devolver.');
       return { type, workId: workId(), items };
     }
+    case 'move_service':
+      return {
+        type,
+        workId: workId(),
+        serviceId: requiredId(c.serviceId, 'Pacote não informado.'),
+        deltaDays: integer(
+          c.deltaDays,
+          -PACKAGE_LIMITS.deltaDays,
+          PACKAGE_LIMITS.deltaDays,
+          `Deslocamento inválido: use de −${PACKAGE_LIMITS.deltaDays} a ${PACKAGE_LIMITS.deltaDays} dias úteis.`,
+        ),
+      };
+    case 'edit_service':
+      return { type, workId: workId(), ...parsePackageEdit(c) };
+    case 'revert_service_edit':
+      return { type, workId: workId(), items: parseDateItems(c.items), links: parseLinkRevert(c.links) };
   }
   return fail('Comando desconhecido.');
 }
@@ -1190,6 +1289,88 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
       if (!mutation.update.activities.length) fail('Os blocos já estão nessas datas.');
       return mutation;
     }
+    // ─── Pacote inteiro (25/11/2026) ──────────────────────────────────────────
+    case 'move_service': {
+      const blocks = data.activities.filter(a => a.serviceId === command.serviceId);
+      if (!blocks.length) fail('Este pacote não tem blocos. Recarregue a página.');
+      if (blocks.every(isStartedActivity)) fail('Todos os blocos deste pacote já começaram: nenhum se move com o pacote.');
+      const result = planPackageMove(data.activities, data.dependencies, command.serviceId, command.deltaDays, calendar);
+      if (!result.applied) {
+        const limiter = result.limiter;
+        const a = limiter && data.activities.find(x => x.id === limiter.activityId);
+        const p = limiter && data.activities.find(x => x.id === limiter.predecessorId);
+        fail(
+          a && p
+            ? `Não dá para antecipar: ${label(data, a)} já começa logo depois de ${label(data, p)}.`
+            : 'O pacote já está nessas datas.',
+        );
+      }
+      pushChanged(mutation, result.changed, now);
+      mutation.summary = { applied: result.applied, moved: result.moved.length, kept: result.kept.length, pushed: result.pushed };
+      return mutation;
+    }
+    case 'edit_service': {
+      const { type: _type, workId: _work, ...edit } = command;
+      const plan = planPackageEdit(data, edit, { workId, now, newId: context.newId });
+      if (plan.changed.length) {
+        // Regra 11: antes de mexer nas datas, a foto automática do cronograma.
+        if (data.baselines.length >= LOB_LIMITS.baselines)
+          fail(`A obra já tem ${LOB_LIMITS.baselines} linhas de base. Exclua alguma antes de editar o pacote.`);
+        const name = automaticBaselineName(data, `Antes da edição do pacote ${formatDate(today)}`);
+        mutation.insert.baselines.push(snapshotBaseline(data, name, true, context));
+      }
+      mutation.delete.dependencies.push(...plan.remove);
+      mutation.insert.dependencies.push(...plan.insert);
+      mutation.update.dependencies.push(...plan.update);
+      pushChanged(mutation, plan.changed, now);
+      mutation.summary = {
+        changedBlocks: plan.changedBlocks,
+        pushed: plan.pushed,
+        kept: plan.kept.length,
+        linksAdded: plan.insert.length,
+        linksRemoved: plan.remove.length,
+        linksUpdated: plan.update.length,
+      };
+      return mutation;
+    }
+    case 'revert_service_edit': {
+      const known = byId(data.activities);
+      const deps = byId(data.dependencies);
+      for (const item of command.items) if (!known.has(item.activityId)) fail('Um dos blocos não existe mais. Recarregue a página.');
+      for (const id of [...command.links.remove, ...command.links.update.map(u => u.dependencyId)])
+        if (!deps.has(id)) fail('Uma das ligações mudou desde a edição. Recarregue a página e use a linha de base automática.');
+      for (const d of command.links.restore) {
+        if (deps.has(d.id)) fail('Uma das ligações já voltou. Recarregue a página.');
+        if (!known.has(d.predecessorId) || !known.has(d.successorId)) fail('Um dos blocos não existe mais. Recarregue a página.');
+      }
+      const removed = new Set(command.links.remove);
+      const lags = new Map(command.links.update.map(u => [u.dependencyId, u.lagDays]));
+      const restored: LobDependency[] = command.links.restore.map(d => ({ ...d, workId, createdAt: d.createdAt ?? now }));
+      const finalDeps = [
+        ...data.dependencies.filter(d => !removed.has(d.id)).map(d => (lags.has(d.id) ? { ...d, lagDays: lags.get(d.id)! } : d)),
+        ...restored,
+      ];
+      mutation.delete.dependencies.push(...command.links.remove);
+      mutation.insert.dependencies.push(...restored);
+      mutation.update.dependencies.push(...finalDeps.filter(d => lags.has(d.id)));
+      const wanted = byId(command.items.map(i => ({ id: i.activityId, ...i })));
+      const dated = data.activities.map(a => {
+        const w = wanted.get(a.id);
+        return w ? { ...a, start: nextWorkday(w.start, calendar), durationDays: w.durationDays } : a;
+      });
+      pushChanged(
+        mutation,
+        dated.filter((a, i) => a.start !== data.activities[i].start || a.durationDays !== data.activities[i].durationDays),
+        now,
+      );
+      pushChanged(mutation, cascade(dated, finalDeps, calendar), now);
+      mutation.update.activities = mutation.update.activities.filter(a => {
+        const current = known.get(a.id)!;
+        return current.start !== a.start || current.durationDays !== a.durationDays;
+      });
+      if (!mutation.update.activities.length && !removed.size && !restored.length && !lags.size) fail('Nada a desfazer.');
+      return mutation;
+    }
   }
   return fail('Comando desconhecido.');
 }
@@ -1198,7 +1379,11 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
 
 /** Comandos de datas (mover, esticar, devolver): a tela aplica na hora, com as mesmas regras
  * (`planLobCommand`), e o servidor responde só com os blocos que gravou, sem reler a obra. */
-export const LOB_SCHEDULE_COMMANDS = ['update_activity', 'set_activity_dates'] as const satisfies readonly LobCommand['type'][];
+export const LOB_SCHEDULE_COMMANDS = [
+  'update_activity',
+  'set_activity_dates',
+  'move_service',
+] as const satisfies readonly LobCommand['type'][];
 export type LobScheduleCommand = Extract<LobCommand, { type: (typeof LOB_SCHEDULE_COMMANDS)[number] }>;
 export const isLobScheduleCommand = (command: LobCommand): command is LobScheduleCommand =>
   (LOB_SCHEDULE_COMMANDS as readonly string[]).includes(command.type);

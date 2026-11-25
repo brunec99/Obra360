@@ -18,6 +18,7 @@ import {
   delayDays,
   isLate,
   plannedPercent,
+  workdaysBetween,
   type LobActivity,
   type LobBaseline,
   type LobCalendar,
@@ -26,6 +27,7 @@ import {
   type LobService,
   type LocalDate,
 } from '@/domain/lob';
+import { createPackageMovePlanner, type PackageMovePlanner } from '@/domain/lob-package';
 import { daysBetween } from '@/domain/long-term-plan';
 import { CHART } from '@/shared/palette';
 import { formatDate } from '@/shared/format';
@@ -49,6 +51,7 @@ import {
   sameBlocks,
   sameShifts,
   shortDate,
+  signedWorkdays,
   typicalDurations,
   weekdayDate,
   type LobBlock,
@@ -73,7 +76,12 @@ export type { LobZoom } from './lob-model';
  * o mouse num dos dois, e o bloco ganha o selo do desvio do término ("+12d", "−3d") quando o zoom dá
  * espaço. Arrasto (23/11/2026): a cada dia que o ponteiro muda, o planejador de movimentos (a mesma
  * regra do servidor) diz onde o bloco e as sucessoras vão parar, e todos se deslocam juntos; ao soltar,
- * quem recebe `onMove` aplica na hora, então não há mais "bloco à espera do servidor". */
+ * quem recebe `onMove` aplica na hora, então não há mais "bloco à espera do servidor".
+ *
+ * Pacote inteiro (25/11/2026, pedido do Jorge Lucas): com `packageMode`, arrastar um bloco (ou as setas)
+ * move todos os blocos não iniciados do mesmo serviço juntos, com a prévia do planejador de pacote (a
+ * mesma regra do servidor); Alt + arrastar move só o bloco, como antes. O pacote do bloco selecionado
+ * fica em destaque e os demais esmaecem, como no modo de caminho crítico. */
 
 export interface LobChartProps {
   data: LobData;
@@ -111,6 +119,13 @@ export interface LobChartProps {
   onSelect: (id: string | undefined) => void;
   /** Ao soltar o arrasto (ou pelas setas), com a data já no dia útil. */
   onMove: (id: string, start: string) => void;
+  /** Arrasto do pacote inteiro ligado (25/11/2026): arrastar um bloco ou usar as setas move todos os
+   * blocos não iniciados do serviço dele; Alt + arrastar move só o bloco. O pacote do bloco selecionado
+   * fica em destaque. Só vale com `onMovePackage`. */
+  packageMode?: boolean;
+  /** Ao soltar o arrasto do pacote (ou pelas setas): o deslocamento PEDIDO, em dias úteis com sinal.
+   * Quem recebe confere o limite das predecessoras (o pacote pode andar menos, ou nada) e grava. */
+  onMovePackage?: (serviceId: string, deltaDays: number) => void;
   /** Duplo clique num bloco (24/11/2026): quem recebe abre os detalhes dele num diálogo, como o duplo
    * clique na tarefa do médio prazo. */
   onOpen?: (id: string) => void;
@@ -137,6 +152,9 @@ const idAt = (target: EventTarget | null) => (target as Element | null)?.closest
 /** O tracejado da linha de base sob o ponteiro (só onde nenhum bloco o cobre: os blocos ficam por cima). */
 const ghostAt = (target: EventTarget | null) => (target as Element | null)?.closest?.('[data-gid]')?.getAttribute('data-gid') ?? undefined;
 const escapeId = (id: string) => (typeof CSS !== 'undefined' && 'escape' in CSS ? CSS.escape(id) : id);
+/** Dias úteis de `from` até `to`, com sinal (negativo = para trás): o deslocamento do arrasto do pacote. */
+const workdayShift = (from: LocalDate, to: LocalDate, calendar?: LobCalendar) =>
+  to >= from ? workdaysBetween(from, to, calendar) : -workdaysBetween(to, from, calendar);
 const percentText = (value: number) => `${String(Math.round(value * 10) / 10).replace('.', ',')}%`;
 const sameSet = (a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | undefined) => {
   if (a === b) return true;
@@ -495,6 +513,11 @@ interface RowBlocksProps {
   /** Selo do desvio contra a linha de base dentro do bloco (o zoom dá espaço). */
   badges: boolean;
   readOnly: boolean;
+  /** Arrasto do pacote ligado: muda só o texto lido do bloco. */
+  packageMode: boolean;
+  /** Pacote em destaque (o do bloco selecionado, ou o que está sendo arrastado): os blocos de outros
+   * serviços esmaecem, menos os que o arrasto empurra. */
+  focusServiceId?: string;
 }
 /** Uma linha só redesenha quando algo DELA muda: os blocos (comparados um a um, porque o layout é
  * refeito a cada alteração da obra), a seleção, o deslocamento do arrasto. É o que mantém o arrasto e
@@ -508,6 +531,8 @@ const sameRow = (a: RowBlocksProps, b: RowBlocksProps) =>
   a.criticalMode === b.criticalMode &&
   a.badges === b.badges &&
   a.readOnly === b.readOnly &&
+  a.packageMode === b.packageMode &&
+  a.focusServiceId === b.focusServiceId &&
   sameShifts(a.shifts, b.shifts) &&
   sameBlocks(a.blocks, b.blocks);
 
@@ -523,9 +548,15 @@ const RowBlocks = memo(function RowBlocks({
   shifts,
   badges,
   readOnly,
+  packageMode,
+  focusServiceId,
   calendar,
 }: RowBlocksProps) {
-  const hint = readOnly ? '' : '. Arraste ou use as setas para mover';
+  const hint = readOnly
+    ? ''
+    : packageMode
+      ? '. Arraste ou use as setas para mover o pacote inteiro; Alt + arrastar move só o bloco'
+      : '. Arraste ou use as setas para mover';
   return (
     <>
       {blocks.map(b => {
@@ -539,9 +570,13 @@ const RowBlocks = memo(function RowBlocks({
         const criticalRing = criticalMode && isCritical;
         const criticalOut = late ? 2.75 : 1;
         const selectedOut = criticalRing ? criticalOut + 2 : 2;
-        // O selecionado não esmaece: o contorno da seleção precisa aparecer.
-        const off = criticalMode && !isCritical && !selected;
         const shift = shifts?.get(a.id);
+        // Pacote em destaque: os blocos dele ficam cheios; os de outros serviços esmaecem, menos os que o
+        // arrasto está empurrando (é preciso vê-los andar).
+        const inFocus = !!focusServiceId && b.service.id === focusServiceId;
+        const outside = !!focusServiceId && !inFocus && !shift;
+        // O selecionado não esmaece: o contorno da seleção precisa aparecer.
+        const off = ((criticalMode && !isCritical) || outside) && !selected;
         const w = shift?.w ?? b.w;
         // Selo do desvio do término contra a linha de base, dentro do bloco e junto da borda direita;
         // some durante o arrasto (o número é o da data gravada) e quando o bloco é estreito demais.
@@ -566,7 +601,7 @@ const RowBlocks = memo(function RowBlocks({
               ? `, ${deviationText(deviation)}`
               : '') +
           (isCritical ? ', caminho crítico' : '') +
-          (selected ? ', selecionado' : '') +
+          (selected ? ', selecionado' : inFocus ? ', mesmo pacote do selecionado' : '') +
           hint;
         return (
           <g
@@ -685,6 +720,22 @@ interface Drag {
   shifts?: Map<string, Map<string, LobShift>>;
   /** Quantos blocos além do arrastado mudam de data. */
   followers: number;
+  /** Arrasto do pacote inteiro (25/11/2026): o serviço, o deslocamento pedido e o que o planejador de
+   * pacote respondeu a ele. Ausente no arrasto de um bloco só (modo Bloco ou Alt + arrastar). */
+  pack?: PackDrag;
+}
+interface PackDrag {
+  serviceId: string;
+  /** Dias úteis pedidos (com sinal), do início do bloco arrastado até o dia sob o ponteiro. */
+  delta: number;
+  /** Dias úteis que o pacote anda de fato: menos que o pedido quando encosta numa predecessora. */
+  applied: number;
+  /** Blocos do pacote que andam, sucessoras empurradas e blocos iniciados que ficam. */
+  blocks: number;
+  pushed: number;
+  kept: number;
+  /** Para trás, um bloco do pacote encostou numa predecessora de fora. */
+  limited: boolean;
 }
 /** Quem está sob o ponteiro: um bloco ou o tracejado da linha de base de um bloco. */
 interface Hover {
@@ -694,6 +745,8 @@ interface Hover {
 
 export function LobChart(props: LobChartProps) {
   const { data, today, baseline, zoom, zoomScale = 1, onZoomStep, selectedId, readOnly, onSelect, onMove, scrollToTodayToken } = props;
+  const { onMovePackage } = props;
+  const packageMode = !!props.packageMode && !!onMovePackage;
   const fitToken = props.fitToken ?? 0;
   const percents = useStable(props.percents, sameRecord);
   const hiddenServiceIds = useStable(props.hiddenServiceIds, sameSet);
@@ -721,6 +774,8 @@ export function LobChart(props: LobChartProps) {
   const activeRef = useRef<{ x: number; y: number; w: number; h: number } | undefined>(undefined);
   /** Planejador de movimentos do arrasto em curso: montado no primeiro movimento, descartado ao soltar. */
   const plannerRef = useRef<LobMovePlanner | undefined>(undefined);
+  /** O mesmo, para o arrasto do pacote inteiro. */
+  const packagePlannerRef = useRef<PackageMovePlanner | undefined>(undefined);
   const scrollLeftRef = useRef(0);
   /** Bloco que deve receber o foco assim que a seleção chegar (clique ou setas). */
   const focusNextRef = useRef<string | undefined>(undefined);
@@ -817,6 +872,8 @@ export function LobChart(props: LobChartProps) {
   const ghostTip = hovered?.ghost && activeGhost ? activeGhost : undefined;
   const shifts = drag?.moved ? drag.shifts : undefined;
   const badges = !!baseline && layout.pxPerDay >= DEVIATION_BADGE_MIN_PX;
+  /** Pacote em destaque: o que está sendo arrastado inteiro ou, fora do arrasto, o do bloco selecionado. */
+  const focusServiceId = packageMode ? (drag?.moved && drag.pack ? drag.pack.serviceId : selectedBlock?.service.id) : undefined;
 
   // Largura disponível: o zoom 'obra' encaixa o plano nela.
   useEffect(() => {
@@ -953,6 +1010,7 @@ export function LobChart(props: LobChartProps) {
     svg.setPointerCapture(e.pointerId);
     const rect = svg.getBoundingClientRect();
     plannerRef.current = undefined;
+    packagePlannerRef.current = undefined;
     setDrag({
       id: block.activity.id,
       pointerId: e.pointerId,
@@ -962,6 +1020,11 @@ export function LobChart(props: LobChartProps) {
       date: block.start,
       start: block.start,
       followers: 0,
+      // No modo Pacote o arrasto leva o serviço inteiro; com Alt, só o bloco (o comportamento de antes).
+      pack:
+        packageMode && !e.altKey
+          ? { serviceId: block.service.id, delta: 0, applied: 0, blocks: 0, pushed: 0, kept: 0, limited: false }
+          : undefined,
     });
   }
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
@@ -973,6 +1036,34 @@ export function LobChart(props: LobChartProps) {
     // O bloco encaixa no dia útil sob o ponteiro: fim de semana nunca é destino.
     const date = moved ? layout.dateAtX(block.x + dx) : block.start;
     if (moved === drag.moved && date === drag.date) return;
+    if (drag.pack) {
+      // Pacote: o deslocamento em dias úteis do bloco arrastado vale para todos os blocos não iniciados
+      // do serviço, e o planejador de pacote (a mesma regra do servidor, montado uma vez por arrasto) diz
+      // onde eles e as sucessoras empurradas vão parar. Só recalcula quando o dia muda.
+      const delta = date === block.start ? 0 : workdayShift(block.start, date, calendar);
+      const planner = (packagePlannerRef.current ??= createPackageMovePlanner(activities, dependencies, calendar));
+      const result = delta ? planner.move(drag.pack.serviceId, delta) : undefined;
+      const changed = result?.changed ?? [];
+      const own = changed.find(a => a.id === drag.id);
+      setDrag({
+        ...drag,
+        moved,
+        date,
+        start: own?.start ?? block.start,
+        shifts: dragShifts(layout, changed, calendar),
+        followers: changed.length - (own ? 1 : 0),
+        pack: {
+          serviceId: drag.pack.serviceId,
+          delta,
+          applied: result?.applied ?? 0,
+          blocks: result?.moved.length ?? 0,
+          pushed: result?.pushed ?? 0,
+          kept: result?.kept.length ?? 0,
+          limited: !!result?.limiter,
+        },
+      });
+      return;
+    }
     // Só quando o dia muda: a mesma função do servidor diz onde o bloco e as sucessoras vão parar. A
     // rede (predecessoras, ordem, cascata da obra) é montada uma vez, no primeiro movimento do arrasto.
     const planner = (plannerRef.current ??= createMovePlanner(activities, dependencies, calendar));
@@ -1002,14 +1093,20 @@ export function LobChart(props: LobChartProps) {
         justDraggedRef.current = true;
         // Quem recebe aplica o movimento na hora (mesma regra da prévia): o bloco e as sucessoras já
         // aparecem no lugar novo no mesmo desenho em que o arrasto termina, sem voltar nem deslizar.
-        if (drag.start !== block.start) onMove(drag.id, drag.date);
+        // No pacote vai o pedido, mesmo que a prévia não ande (encostou numa predecessora): quem recebe
+        // avisa qual bloco encostou em qual.
+        if (drag.pack) {
+          if (drag.pack.delta) onMovePackage?.(drag.pack.serviceId, drag.pack.delta);
+        } else if (drag.start !== block.start) onMove(drag.id, drag.date);
       }
     }
     plannerRef.current = undefined;
+    packagePlannerRef.current = undefined;
     setDrag(null);
   }
   function onPointerCancel() {
     plannerRef.current = undefined;
+    packagePlannerRef.current = undefined;
     setDrag(null);
   }
   function onClick(e: MouseEvent<SVGSVGElement>) {
@@ -1053,7 +1150,10 @@ export function LobChart(props: LobChartProps) {
       e.preventDefault();
       // Shift anda uma semana útil (os dias trabalhados por semana no calendário da obra).
       const week = calendar?.weekdays.length ?? 5;
-      onMove(id, addWorkdays(block.activity.start, (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? week : 1), calendar));
+      const days = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? week : 1);
+      // No modo Pacote as setas levam o serviço inteiro.
+      if (packageMode) onMovePackage?.(block.service.id, days);
+      else onMove(id, addWorkdays(block.activity.start, days, calendar));
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       // Mesmo serviço no local de cima ou de baixo.
       const next = neighbors.get(`${block.service.id}|${block.row.index + (e.key === 'ArrowUp' ? 1 : -1)}`);
@@ -1089,10 +1189,26 @@ export function LobChart(props: LobChartProps) {
     const dx = shifts?.get(block.local.id)?.get(drag.id)?.dx ?? 0;
     // O pedido caiu antes do fim das predecessoras: o bloco para no mínimo, e a dica diz por quê.
     const limited = drag.start > drag.date;
-    const text =
-      `Início ${weekdayDate(drag.start)}` +
-      (limited ? ' · limite das predecessoras' : '') +
-      (drag.followers ? ` · ${plural(drag.followers, 'bloco acompanha', 'blocos acompanham')}` : '');
+    const pack = drag.pack;
+    // Pacote: quanto ele anda, quantos blocos vão juntos, quantas sucessoras são empurradas e quantos
+    // blocos iniciados ficam; para trás, se encostou numa predecessora de fora.
+    const text = pack
+      ? !pack.delta
+        ? 'Pacote no lugar'
+        : !pack.applied
+          ? pack.limited
+            ? 'Pacote não antecipa: encostou numa predecessora'
+            : 'Os blocos deste pacote já começaram: nenhum se move'
+          : `Pacote ${signedWorkdays(pack.applied, false)}` +
+            (drag.start !== block.start ? ` · início ${weekdayDate(drag.start)}` : '') +
+            ` · ${plural(pack.blocks, 'bloco', 'blocos')}` +
+            (pack.pushed ? ` · ${plural(pack.pushed, 'sucessora empurrada', 'sucessoras empurradas')}` : '') +
+            (pack.limited ? ' · parou numa predecessora' : '') +
+            (pack.kept ? ` · ${plural(pack.kept, 'iniciado fica', 'iniciados ficam')}` : '')
+      : // Alt + arrastar no modo Pacote: a dica confirma que vai só o bloco.
+        `${packageMode ? 'Só o bloco · ' : ''}Início ${weekdayDate(drag.start)}` +
+        (limited ? ' · limite das predecessoras' : '') +
+        (drag.followers ? ` · ${plural(drag.followers, 'bloco acompanha', 'blocos acompanham')}` : '');
     const w = text.length * 6.3 + 18;
     const x = clamp(block.x + dx, layout.left, Math.max(layout.left, layout.width - w - 4));
     const y = Math.max(20, block.y - 8);
@@ -1255,6 +1371,8 @@ export function LobChart(props: LobChartProps) {
                     shifts={shifts?.get(row.local.id)}
                     badges={badges}
                     readOnly={readOnly}
+                    packageMode={packageMode}
+                    focusServiceId={focusServiceId}
                     calendar={calendar}
                   />
                 ))}

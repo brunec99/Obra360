@@ -10,6 +10,7 @@ import {
   Coins,
   Download,
   Flag,
+  History,
   LoaderCircle,
   Lock,
   LockOpen,
@@ -38,8 +39,12 @@ import {
   type LobActivity,
   type LobCalendar,
   type LobCommand,
+  type LobDependency,
+  type LobLinkRevert,
+  type LobPackageEdit,
   type LocalDate,
 } from '@/domain/lob';
+import { isStartedActivity, planPackageMove, type PackageMoveResult } from '@/domain/lob-package';
 import { isDefaultLobCalendar, lobCalendarLabel } from '@/domain/lob-calendar';
 import {
   formatIdp,
@@ -63,7 +68,7 @@ import { useConfirm } from '@/modules/layout/confirm';
 import { useToast } from '@/modules/layout/toast';
 import { HelpNote } from '@/modules/layout/help-note';
 import { formatDate, workPath } from '@/shared/format';
-import { useLob, type LobDateChange, type LobSync } from './lob-api';
+import { useLob, type LobDateChange, type LobFullResult, type LobSync } from './lob-api';
 import { LobChart, type LobZoom } from './lob-chart';
 import { CRITICAL_COLOR, ZOOM_SCALE_MAX, ZOOM_SCALE_MIN, ZOOM_SCALE_STEP, signedWorkdays } from './lob-model';
 import { LobTable } from './lob-table';
@@ -73,6 +78,8 @@ import { LobLocalsPanel } from './lob-locals-panel';
 import { LobLaunchDialog } from './lob-launch-dialog';
 import { LobBaselinesPanel } from './lob-baselines-panel';
 import { LobCalendarDialog } from './lob-calendar-dialog';
+import { LobPackageDialog } from './lob-package-dialog';
+import { LobHistoryPanel } from './lob-history-panel';
 import { Pill } from './measurement-sheet';
 
 /** Visão "Linha de Balanço" da aba 1 (modelo aprovado em 04/11/2026, tela 1): barra de ferramentas,
@@ -81,13 +88,50 @@ import { Pill } from './measurement-sheet';
  * Os dados vêm de `useLob`; toda alteração é um comando ao servidor. Os de datas (mover, esticar,
  * desfazer) aparecem NA HORA, calculados aqui com a mesma regra do servidor, e gravam em segundo
  * plano, em fila (23/11/2026); os demais esperam a obra inteira de volta. "Desfazer" guarda, por
- * comando, as datas que ele mudou e as devolve numa gravação só; vale na sessão (regra 16). */
+ * comando, as datas que ele mudou e as devolve numa gravação só; vale na sessão (regra 16).
+ *
+ * Pacote inteiro (25/11/2026, pedido do Jorge Lucas; modelo aprovado no mesmo dia): a chave "Arrastar:
+ * Pacote | Bloco" escolhe se o arrasto e as setas movem o serviço em todos os locais (`move_service`) ou
+ * só o bloco; "Editar o pacote" (no painel do bloco) abre a janela da edição em massa (`edit_service`),
+ * cujo "Desfazer" devolve também as ligações (`revert_service_edit`); "Histórico" lista as gravações. */
 
 type Period = 'all' | '3m' | '6m' | 'custom';
-type Panel = 'locals' | 'baselines' | 'launch' | 'late' | 'calendar';
-/** Datas que um comando alterou, para "Desfazer" devolvê-las. */
-type UndoEntry = LobDateChange[];
+type Panel = 'locals' | 'baselines' | 'launch' | 'late' | 'calendar' | 'history';
+/** O que um comando alterou, para "Desfazer" devolver: as datas de antes dos blocos e, na edição do
+ * pacote (regra 11 do modelo de 25/11/2026), as ligações a devolver. Com ligações, o desfazer vai ao
+ * servidor por `revert_service_edit`; sem, só as datas, na hora, por `set_activity_dates`. */
+type UndoEntry = { dates: LobDateChange[]; links?: LobLinkRevert };
 const UNDO_DEPTH = 50;
+/** As ligações que "Desfazer" precisa devolver depois de um comando: as criadas saem, as retiradas
+ * voltam com todos os campos (inclusive a data de criação) e as de espera mudada voltam à de antes. */
+function linkRevert(before: LobDependency[], after: LobDependency[]): LobLinkRevert {
+  const now = new Map(after.map(d => [d.id, d]));
+  const old = new Set(before.map(d => d.id));
+  return {
+    remove: after.filter(d => !old.has(d.id)).map(d => d.id),
+    restore: before
+      .filter(d => !now.has(d.id))
+      .map(d => ({
+        id: d.id,
+        predecessorId: d.predecessorId,
+        successorId: d.successorId,
+        lagDays: d.lagDays,
+        kind: d.kind,
+        createdAt: d.createdAt,
+      })),
+    update: before
+      .filter(d => now.has(d.id) && now.get(d.id)!.lagDays !== d.lagDays)
+      .map(d => ({ dependencyId: d.id, lagDays: d.lagDays })),
+  };
+}
+/** Os números que o servidor espalha na resposta de "Editar o pacote". */
+type PackageEditResult = LobFullResult & {
+  pushed?: number;
+  kept?: number;
+  linksAdded?: number;
+  linksRemoved?: number;
+  linksUpdated?: number;
+};
 const ZOOMS: { id: LobZoom; label: string }[] = [
   { id: 'semana', label: 'Semana' },
   { id: 'mes', label: 'Mês' },
@@ -103,11 +147,39 @@ const readLock = () => {
     return true;
   }
 };
+/** O que o arrasto move (25/11/2026): o pacote inteiro (padrão) ou só o bloco. Guardado por pessoa
+ * neste navegador. */
+type DragMode = 'package' | 'block';
+const DRAG_MODES: { id: DragMode; label: string; title: string }[] = [
+  {
+    id: 'package',
+    label: 'Pacote',
+    title: 'Arrastar um bloco (ou as setas) move todos os blocos do mesmo serviço juntos. Alt + arrastar move só o bloco.',
+  },
+  { id: 'block', label: 'Bloco', title: 'Arrastar (ou as setas) move só o bloco; as sucessoras se deslocam quando preciso.' },
+];
+const dragKey = (actorId: string) => `obra360.lob.arrasto:${actorId}`;
+const readDragMode = (actorId: string): DragMode => {
+  try {
+    return window.localStorage.getItem(dragKey(actorId)) === 'bloco' ? 'block' : 'package';
+  } catch {
+    return 'package';
+  }
+};
 
 const pct = (value: number) => `${value.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 /** "11/11". */
 const dayMonth = (date: LocalDate) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** O resumo do pacote movido (regra 5), com a mesma conta do servidor. */
+const packageMoveSummary = (result: PackageMoveResult) =>
+  `${plural(result.moved.length, 'bloco do pacote andou', 'blocos do pacote andaram')} ${plural(Math.abs(result.applied), 'dia útil', 'dias úteis')} ` +
+  `${result.applied > 0 ? 'para a frente' : 'para trás'}; ` +
+  `${result.pushed ? plural(result.pushed, 'sucessora empurrada', 'sucessoras empurradas') : 'nenhuma sucessora empurrada'}.` +
+  (result.kept.length ? ` ${plural(result.kept.length, 'bloco já iniciado ficou', 'blocos já iniciados ficaram')}.` : '') +
+  (result.slack.count
+    ? ` ${plural(result.slack.count, 'sucessora ficou', 'sucessoras ficaram')} com folga de até ${plural(result.slack.maxDays, 'dia útil', 'dias úteis')} (não são puxadas).`
+    : '');
 const errorMessage = (error: unknown) => (error instanceof Error && error.message ? error.message : 'Falha na comunicação com o servidor.');
 /** Atalho de teclado só vale fora de campos de texto. */
 const isTyping = (target: EventTarget | null) => {
@@ -525,6 +597,10 @@ function LobViewInner({ workId }: { workId: string }) {
   const [todayToken, setTodayToken] = useState(0);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  /** O que o arrasto move: o pacote inteiro (padrão) ou só o bloco (25/11/2026). */
+  const [dragMode, setDragMode] = useState<DragMode>('package');
+  /** Serviço aberto na janela "Editar o pacote". */
+  const [editServiceId, setEditServiceId] = useState<string>();
   const undoRef = useRef<() => void>(() => {});
   // "Criar pendência" de um serviço (10/11/2026): card da Lista de pendência da aba 2, só para quem abre
   // a aba 2 (a API das pendências é do módulo "vagoes").
@@ -540,6 +616,15 @@ function LobViewInner({ workId }: { workId: string }) {
   const readOnly = !actor || actor.role === 'viewer';
   const today: LocalDate = ready?.planning.today ?? new Date().toISOString().slice(0, 10);
   const data = state.status === 'ready' ? state.data : undefined;
+  const actorId = ready?.actorId;
+  // "Histórico" relê a lista a cada gravação que termina (a fila esvaziou). Estado derivado do render
+  // anterior, como em `useStable` no gráfico: sem efeito, sem desenho a mais.
+  const [historyToken, setHistoryToken] = useState(0);
+  const [seenSync, setSeenSync] = useState(sync);
+  if (sync !== seenSync) {
+    setSeenSync(sync);
+    if (sync === 'saved' || sync === 'error') setHistoryToken(t => t + 1);
+  }
 
   const percents = useMemo(() => (data ? measuredPercents(data.measurements, data.items) : {}), [data]);
   const measurementDates = useMemo(
@@ -579,6 +664,21 @@ function LobViewInner({ workId }: { workId: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocked(readLock());
   }, []);
+  useEffect(() => {
+    if (!actorId) return;
+    // Lido depois da montagem, como a trava: a preferência é deste navegador e desta pessoa.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDragMode(readDragMode(actorId));
+  }, [actorId]);
+  const chooseDragMode = (mode: DragMode) => {
+    setDragMode(mode);
+    if (!actorId) return;
+    try {
+      window.localStorage.setItem(dragKey(actorId), mode === 'block' ? 'bloco' : 'pacote');
+    } catch {
+      // Navegador sem armazenamento: a escolha vale só nesta visita.
+    }
+  };
   const toggleLock = () =>
     setLocked(current => {
       try {
@@ -624,24 +724,28 @@ function LobViewInner({ workId }: { workId: string }) {
   const pushUndo = (entry: UndoEntry) => setUndoStack(stack => [...stack.slice(-(UNDO_DEPTH - 1)), entry]);
   /** Executa um comando e guarda, para "Desfazer", as datas dos blocos que ele mudou. Só comandos
    * que mantêm o mesmo conjunto de blocos entram na pilha: lançar, importar e excluir não se desfazem.
-   * Comando de datas (mover, esticar) aparece na hora e grava em segundo plano: o "Desfazer" já fica
-   * disponível, e, se o servidor recusar, a tela volta e a entrada sai da pilha. */
+   * Comando de datas (mover, esticar, mover o pacote) aparece na hora e grava em segundo plano: o
+   * "Desfazer" já fica disponível, e, se o servidor recusar, a tela volta e a entrada sai da pilha.
+   * "Editar o pacote" guarda também as ligações de antes (regra 11: Ctrl+Z desfaz datas e ligações
+   * enquanto a tela estiver aberta). */
   const run = async (command: LobCommand) => {
     if (isLobScheduleCommand(command)) {
       const { previous, done } = dispatch(command);
-      if (previous.length) pushUndo(previous);
+      const entry: UndoEntry | undefined = previous.length ? { dates: previous } : undefined;
+      if (entry) pushUndo(entry);
       try {
         await done;
       } catch (error) {
-        setUndoStack(stack => stack.filter(entry => entry !== previous));
+        if (entry) setUndoStack(stack => stack.filter(e => e !== entry));
         throw error;
       }
       return;
     }
     const before = new Map((data?.activities ?? []).map(a => [a.id, a]));
+    const linksBefore = command.type === 'edit_service' ? (data?.dependencies ?? []) : undefined;
     const response = await execute(command);
     if (response.available && response.activities.length === before.size && response.activities.every(a => before.has(a.id))) {
-      const entry: UndoEntry = response.activities
+      const dates = response.activities
         .filter(a => {
           const b = before.get(a.id)!;
           return b.start !== a.start || b.durationDays !== a.durationDays;
@@ -650,7 +754,9 @@ function LobViewInner({ workId }: { workId: string }) {
           const b = before.get(a.id)!;
           return { id: a.id, start: b.start, durationDays: b.durationDays };
         });
-      if (entry.length) pushUndo(entry);
+      const links = linksBefore ? linkRevert(linksBefore, response.dependencies) : undefined;
+      const withLinks = !!links && links.remove.length + links.restore.length + links.update.length > 0;
+      if (dates.length || withLinks) pushUndo(withLinks ? { dates, links } : { dates });
     }
     return response;
   };
@@ -660,17 +766,33 @@ function LobViewInner({ workId }: { workId: string }) {
     const entry = undoStack[undoStack.length - 1];
     if (!entry) return;
     setUndoStack(stack => stack.slice(0, -1));
+    const items = entry.dates.map(item => ({ activityId: item.id, start: item.start, durationDays: item.durationDays }));
+    if (entry.links) {
+      // Edição do pacote: as datas e as ligações de antes numa gravação só. As ligações não se
+      // calculam na tela, então espera a obra de volta do servidor.
+      setBusy(true);
+      try {
+        await execute({ type: 'revert_service_edit', workId, items, links: entry.links });
+        toast({
+          title: 'Edição do pacote desfeita',
+          description: entry.dates.length
+            ? `${plural(entry.dates.length, 'bloco voltou', 'blocos voltaram')} às datas anteriores, e as ligações voltaram ao que eram.`
+            : 'As ligações voltaram ao que eram.',
+        });
+      } catch (error) {
+        fail(error);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     try {
       // Uma gravação só para todos os blocos da entrada (o bloco arrastado e as sucessoras): as datas
       // voltam na tela na hora e o servidor confirma em segundo plano.
-      const { done } = dispatch({
-        type: 'set_activity_dates',
-        workId,
-        items: entry.map(item => ({ activityId: item.id, start: item.start, durationDays: item.durationDays })),
-      });
+      const { done } = dispatch({ type: 'set_activity_dates', workId, items });
       toast({
         title: 'Alteração desfeita',
-        description: `${plural(entry.length, 'bloco voltou', 'blocos voltaram')} às datas anteriores.`,
+        description: `${plural(entry.dates.length, 'bloco voltou', 'blocos voltaram')} às datas anteriores.`,
       });
       await done;
     } catch (error) {
@@ -730,6 +852,19 @@ function LobViewInner({ workId }: { workId: string }) {
   const visibleLocals = localFilter ? locals.filter(l => localFilter.has(l.id)).length : locals.length;
   const base = workPath(workId, 'longo-prazo');
   const costsHref = `${base}?visao=custos`;
+  /** Arrasto do pacote inteiro valendo (25/11/2026): modo Pacote, com permissão e datas liberadas. */
+  const packageMode = dragMode === 'package' && !readOnly && !locked;
+  /** Rodapé do gráfico com o pacote em destaque (o do bloco selecionado). */
+  const packageNote = (() => {
+    if (!packageMode || !selected) return '';
+    const blocks = data.activities.filter(a => a.serviceId === selected.serviceId);
+    const kept = blocks.filter(isStartedActivity).length;
+    return (
+      `Pacote “${serviceName(selected.serviceId)}” em destaque: ${plural(blocks.length, 'bloco', 'blocos')}` +
+      (kept ? `, ${plural(kept, 'já iniciado fica', 'já iniciados ficam')} no lugar` : '') +
+      '. Arraste qualquer bloco dele (ou use as setas ← →) para mover o pacote inteiro; Alt + arrastar move só o bloco.'
+    );
+  })();
 
   const toggleService = (id: string) =>
     setHiddenServiceIds(current => {
@@ -749,6 +884,80 @@ function LobViewInner({ workId }: { workId: string }) {
     if (readOnly || busy || locked) return;
     // `run` aplica na hora; a recusa imediata das regras e a falha da gravação caem no mesmo aviso.
     run({ type: 'update_activity', activityId: id, start }).catch(fail);
+  };
+  /** Move o pacote inteiro (25/11/2026): o deslocamento pedido, em dias úteis com sinal. A conta é a
+   * do servidor (`planPackageMove`, com os dados de agora): para trás, o pacote para quando o primeiro
+   * bloco encosta numa predecessora de fora (regra 4) e o aviso diz qual encostou em qual; sem andar
+   * nada, nem grava. Um arrasto = uma gravação = um passo do "Desfazer" (regra 5). */
+  const movePackage = (serviceId: string, requested: number) => {
+    if (readOnly || busy || locked || !requested) return;
+    const result = planPackageMove(data.activities, data.dependencies, serviceId, requested, calendar);
+    const find = (id: string) => data.activities.find(a => a.id === id);
+    const block = result.limiter && find(result.limiter.activityId);
+    const predecessor = result.limiter && find(result.limiter.predecessorId);
+    if (!result.applied) {
+      if (block && predecessor)
+        toast({
+          title: 'Não dá para antecipar',
+          description: `${label(block)} já começa logo depois de ${label(predecessor)}.`,
+          tone: 'info',
+        });
+      else if (result.kept.length)
+        toast({
+          title: 'Nenhum bloco andou',
+          description: 'Todos os blocos deste pacote já começaram: nenhum se move com o pacote.',
+          tone: 'info',
+        });
+      return;
+    }
+    run({ type: 'move_service', workId, serviceId, deltaDays: result.applied }).catch(fail);
+    if (result.applied !== requested && block && predecessor)
+      toast({
+        title: `Parou em ${plural(Math.abs(result.applied), 'dia útil', 'dias úteis')}`,
+        description: `${label(block)} encostou em ${label(predecessor)}. ${packageMoveSummary(result)}`,
+        tone: 'info',
+      });
+    else toast({ title: `Pacote “${serviceName(serviceId)}” movido`, description: packageMoveSummary(result) });
+  };
+  /** "Editar o pacote" aberto pelo painel do bloco (só com edição liberada). O diálogo de detalhes
+   * fecha antes, para as duas janelas não se sobreporem. */
+  const openPackageEditor = (serviceId: string) => {
+    setDetailsOpen(false);
+    setEditServiceId(serviceId);
+  };
+  const onEditPackage = readOnly || locked ? undefined : openPackageEditor;
+  /** Grava a edição do pacote (regras 7 a 11) e resume a resposta. Se falhar, avisa e deixa a promessa
+   * rejeitar: a janela continua aberta e mostra o erro. */
+  const applyPackageEdit = async (edit: LobPackageEdit) => {
+    const name = serviceName(edit.serviceId);
+    const baselineIds = new Set(data.baselines.map(b => b.id));
+    setBusy(true);
+    try {
+      const response = (await run({ type: 'edit_service', workId, ...edit })) as PackageEditResult | undefined;
+      setEditServiceId(undefined);
+      const created = response?.available ? response.baselines.find(b => !baselineIds.has(b.id)) : undefined;
+      const changed = response?.changedBlocks ?? 0;
+      const pushed = response?.pushed ?? 0;
+      const kept = response?.kept ?? 0;
+      const updated = response?.linksUpdated ?? 0;
+      toast({
+        title: `Pacote “${name}” editado`,
+        description:
+          `${plural(changed, 'bloco mudou', 'blocos mudaram')}, ${plural(pushed, 'sucessora empurrada', 'sucessoras empurradas')}, ` +
+          `+${response?.linksAdded ?? 0}/−${response?.linksRemoved ?? 0} ligações` +
+          (updated ? ` (${plural(updated, 'espera mudou', 'esperas mudaram')})` : '') +
+          '.' +
+          (kept ? ` ${plural(kept, 'bloco já iniciado ficou', 'blocos já iniciados ficaram')} de fora.` : '') +
+          (created ? ` A linha de base automática “${created.name}” guarda as datas de antes.` : '') +
+          ' Ctrl+Z desfaz.',
+        duration: 9000,
+      });
+    } catch (error) {
+      fail(error);
+      throw error;
+    } finally {
+      setBusy(false);
+    }
   };
   /** Grava o calendário da obra. Não entra no "Desfazer" (que só devolve datas): a pilha é zerada, e o
    * caminho de volta é a linha de base automática que o servidor guarda antes da mudança. */
@@ -911,6 +1120,16 @@ function LobViewInner({ workId }: { workId: string }) {
             </span>
           )}
         </button>
+        {/* Histórico das alterações gravadas (25/11/2026). */}
+        <button
+          data-tour="lob-history"
+          type="button"
+          className="button-ghost"
+          title="As alterações gravadas nesta Linha de Balanço"
+          onClick={() => setPanel('history')}
+        >
+          <History size={15} aria-hidden /> Histórico
+        </button>
         <span className="flex-1" />
         {!readOnly && <SaveStatus sync={sync} />}
         {!readOnly && (
@@ -985,8 +1204,17 @@ function LobViewInner({ workId }: { workId: string }) {
             As datas abrem <strong>travadas</strong>, para ninguém reprogramar sem querer. Clique no cadeado para liberar e então{' '}
             <strong>arraste</strong> um bloco: ele nunca entra antes do fim das predecessoras, e as sucessoras se deslocam junto enquanto
             você arrasta. Ao soltar, a mudança aparece na hora e é gravada em segundo plano (“Salvando…”, depois “Salvo”); se a gravação
-            falhar, a tela volta ao que estava e avisa. <strong>Desfazer</strong> (Ctrl+Z) devolve as datas na sessão. Duração,
-            dependências, equipe e datas reais se editam no painel do bloco selecionado.
+            falhar, a tela volta ao que estava e avisa. <strong>Desfazer</strong> (Ctrl+Z) devolve as datas (e, na edição do pacote, as
+            ligações) enquanto a tela estiver aberta. Duração, dependências, equipe e datas reais se editam no painel do bloco selecionado.
+          </p>
+          <p>
+            <strong>Arrastar: Pacote ou Bloco.</strong> Em <strong>Pacote</strong> (o padrão), clicar num bloco destaca o serviço em todos
+            os locais, e arrastar qualquer bloco dele (ou usar as setas ← →, com Shift para uma semana) move todos os blocos do serviço
+            juntos, o mesmo número de dias úteis; as sucessoras são empurradas quando preciso. Para trás, o pacote para quando o primeiro
+            bloco encosta numa predecessora de outro serviço. Blocos já iniciados (com início real) ficam onde estão. Alt + arrastar move só
+            o bloco; em <strong>Bloco</strong>, o arrasto sempre move um bloco só. <strong>Editar o pacote</strong>, no painel do bloco,
+            aplica a mesma duração, o ritmo entre os locais e as predecessoras a todos os locais marcados de uma vez, e antes guarda uma
+            linha de base automática. <strong>Histórico</strong> lista as alterações gravadas.
           </p>
           <p>
             <strong>Zoom:</strong> Semana, Mês, Trimestre ou a obra inteira na largura da tela; os botões − e + (ou Ctrl + roda do mouse
@@ -1093,6 +1321,7 @@ function LobViewInner({ workId }: { workId: string }) {
             onSelect={setSelectedId}
             onCreatePending={canPend ? createPending : undefined}
             restrictions={canPend ? restrictions.state : undefined}
+            onEditPackage={onEditPackage}
             workId={workId}
           />
         ) : data.activities.length ? (
@@ -1107,7 +1336,9 @@ function LobViewInner({ workId }: { workId: string }) {
               <p className="mt-2 text-xs">
                 {locked
                   ? 'As datas estão travadas. Para reprogramar arrastando, libere a edição no cadeado acima do gráfico.'
-                  : 'Arraste um bloco para mudar a data; as sucessoras se deslocam junto. H leva até hoje; Ctrl+Z desfaz.'}
+                  : dragMode === 'package'
+                    ? 'Arraste um bloco para mover o pacote inteiro (o serviço em todos os locais); Alt + arrastar move só o bloco. As sucessoras se deslocam junto. H leva até hoje; Ctrl+Z desfaz.'
+                    : 'Arraste um bloco para mudar a data; as sucessoras se deslocam junto. H leva até hoje; Ctrl+Z desfaz.'}
               </p>
             )}
           </div>
@@ -1295,6 +1526,28 @@ function LobViewInner({ workId }: { workId: string }) {
                   {locked ? 'Datas travadas' : 'Datas liberadas'}
                 </button>
               )}
+              {/* O que o arrasto move (25/11/2026): o pacote inteiro (padrão) ou só o bloco. */}
+              {!readOnly && (
+                <div data-tour="lob-drag-mode" role="group" aria-label="Arrastar" className="flex items-center gap-1.5">
+                  <span aria-hidden className="text-xs font-semibold text-slate-500">
+                    Arrastar:
+                  </span>
+                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+                    {DRAG_MODES.map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        aria-pressed={dragMode === m.id}
+                        title={m.title}
+                        onClick={() => chooseDragMode(m.id)}
+                        className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${dragMode === m.id ? 'bg-white text-primary-ink shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
           <button
@@ -1343,6 +1596,8 @@ function LobViewInner({ workId }: { workId: string }) {
             readOnly={readOnly || busy || locked}
             onSelect={setSelectedId}
             onMove={move}
+            packageMode={packageMode}
+            onMovePackage={movePackage}
             onOpen={id => {
               setSelectedId(id);
               setDetailsOpen(true);
@@ -1350,6 +1605,7 @@ function LobViewInner({ workId }: { workId: string }) {
             scrollToTodayToken={todayToken}
           />
         )}
+        {packageNote && !showTable && <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">{packageNote}</p>}
         {showCritical && critical && !showTable && data.activities.length > 0 && (
           <p className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
             {critical.criticalIds.size
@@ -1395,6 +1651,17 @@ function LobViewInner({ workId }: { workId: string }) {
       {panel === 'calendar' && (
         <LobCalendarDialog data={data} today={today} canEdit={!readOnly} onApply={applyCalendar} onClose={() => setPanel(undefined)} />
       )}
+      <LobHistoryPanel workId={workId} open={panel === 'history'} onClose={() => setPanel(undefined)} refreshToken={historyToken} />
+      {editServiceId && !readOnly && data.services.some(s => s.id === editServiceId) && (
+        <LobPackageDialog
+          open
+          data={data}
+          serviceId={editServiceId}
+          busy={busy}
+          onClose={() => setEditServiceId(undefined)}
+          onApply={applyPackageEdit}
+        />
+      )}
       {detailsOpen && selected && (
         <ActivityDetailsDialog onClose={() => setDetailsOpen(false)}>
           <LobActivityPanel
@@ -1410,6 +1677,7 @@ function LobViewInner({ workId }: { workId: string }) {
             onSelect={setSelectedId}
             onCreatePending={canPend ? createPending : undefined}
             restrictions={canPend ? restrictions.state : undefined}
+            onEditPackage={onEditPackage}
             workId={workId}
           />
         </ActivityDetailsDialog>

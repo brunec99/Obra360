@@ -1204,7 +1204,47 @@ export type LobCommand =
   | { type: 'set_calendar'; workId: LobId; calendar: LobCalendar }
   /** Devolve início e duração de vários blocos de uma vez e recalcula a rede (23/11/2026): é o
    * "Desfazer" de um arrasto, que mexe no bloco e em todas as sucessoras, numa gravação só. */
-  | { type: 'set_activity_dates'; workId: LobId; items: { activityId: LobId; start: LocalDate; durationDays: number }[] };
+  | { type: 'set_activity_dates'; workId: LobId; items: { activityId: LobId; start: LocalDate; durationDays: number }[] }
+  /** Move o pacote inteiro (25/11/2026, pedido do Jorge Lucas): todos os blocos não iniciados do serviço
+   * andam `deltaDays` dias úteis (negativo = para trás); ver `planPackageMove` em `lob-package.ts`. */
+  | { type: 'move_service'; workId: LobId; serviceId: LobId; deltaDays: number }
+  /** "Editar o pacote" (25/11/2026): duração, ritmo e predecessoras iguais em todos os locais marcados,
+   * numa gravação só e com a linha de base automática antes; ver `planPackageEdit`. */
+  | ({ type: 'edit_service'; workId: LobId } & LobPackageEdit)
+  /** O "Desfazer" de "Editar o pacote": devolve as datas e as ligações de antes numa gravação só. */
+  | {
+      type: 'revert_service_edit';
+      workId: LobId;
+      items: { activityId: LobId; start: LocalDate; durationDays: number }[];
+      links: LobLinkRevert;
+    };
+/** Uma regra de predecessora do pacote: o bloco do pacote `serviceId` no local `localOffset` posições
+ * abaixo (negativo) ou acima (positivo) na ordem dos locais da obra, com `lagDays` dias úteis de espera. */
+export interface LobPackageRule {
+  serviceId: LobId;
+  localOffset: number;
+  lagDays: number;
+}
+/** O que a janela "Editar o pacote" manda. `durationDays` ausente mantém a duração de cada bloco;
+ * `rhythm: 'chain'` encadeia os locais (ordem de hoje, pela data de início) com `lagDays` de espera;
+ * `mode: 'replace'` troca as ligações que já vinham dos pacotes das regras. */
+export interface LobPackageEdit {
+  serviceId: LobId;
+  localIds: LobId[];
+  durationDays?: number;
+  rhythm: 'chain' | 'keep';
+  lagDays: number;
+  rules: LobPackageRule[];
+  mode: 'replace' | 'add';
+}
+/** As ligações a devolver no "Desfazer" de "Editar o pacote": as criadas saem, as retiradas voltam
+ * (com o mesmo id) e as que mudaram de espera voltam à espera de antes. */
+export interface LobLinkRevert {
+  remove: LobId[];
+  /** `createdAt` volta o original: o script das ligações do Prevision separa as da importação pela data. */
+  restore: { id: LobId; predecessorId: LobId; successorId: LobId; lagDays: number; kind: LobDependencyKind; createdAt?: string }[];
+  update: { dependencyId: LobId; lagDays: number }[];
+}
 /** Um item de custo como a tela manda: `serviceId` nulo = não apropriado; `amount` em reais. */
 export interface LobCostInput {
   id: LobId;

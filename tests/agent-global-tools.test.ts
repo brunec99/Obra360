@@ -664,6 +664,81 @@ test('consultar_lob: carga sem `costs` (antes da migração 0044) vale como sem 
   assert.ok(lines[2].endsWith('; faltam custos em 2 de 2 pacotes, então o peso é a duração.'), lines[2]);
 });
 
+test('consultar_lob: traz as últimas 10 alterações do histórico (quando, quem, o que mudou, blocos) no fim', async () => {
+  const item = (n: number) => ({
+    id: `h${n}`,
+    // 17:03 UTC = 14:03 em Brasília.
+    occurredAt: `2026-11-25T17:${String(n).padStart(2, '0')}:00Z`,
+    authorId: 'u-jorge',
+    authorName: n === 2 ? '' : 'Jorge Lucas',
+    action: 'move_service',
+    text: n === 3 ? '' : `Moveu o pacote Alvenaria ${n} dias úteis para a frente`,
+    blocks: 12,
+  });
+  const requested: unknown[][] = [];
+  const history = Array.from({ length: 12 }, (_, i) => item(i + 1));
+  const { loader, calls } = fakeLoader({
+    lobHistory: async (...args) => {
+      requested.push(args);
+      return history;
+    },
+  });
+  const out = await runGlobalTool('consultar_lob', { obra: 'OB1' }, gctx({ loader }));
+  assert.equal(out.error, undefined);
+  assert.deepEqual(requested, [['w1', 10]]);
+  assert.ok(calls.some(c => c.method === 'lob'));
+  const lines = out.result.split('\n');
+  // O relatório da Linha de Balanço vem igual e o histórico depois de uma linha em branco.
+  assert.equal(
+    lines[0],
+    'Obra Residencial Horizonte (OB1). Linha de Balanço: 2 serviços, 2 locais, 3 blocos; cronograma de 05/10/2026 a 06/11/2026.',
+  );
+  const start = lines.indexOf('quando | quem | o que mudou | blocos');
+  assert.ok(start > 0, out.result);
+  assert.equal(lines[start - 2], '');
+  assert.match(lines[start - 1], /^Últimas alterações \(10, da mais recente para a mais antiga; o histórico conta desde 25\/11\/2026/);
+  assert.deepEqual(lines.slice(start + 1, start + 4), [
+    '25/11/2026 14:01 | Jorge Lucas | Moveu o pacote Alvenaria 1 dias úteis para a frente | 12',
+    '25/11/2026 14:02 | autor não identificado | Moveu o pacote Alvenaria 2 dias úteis para a frente | 12',
+    // Sem frase, vale o comando gravado.
+    '25/11/2026 14:03 | Jorge Lucas | move_service | 12',
+  ]);
+  assert.equal(lines.length - start - 1, 10);
+
+  const ofHistory = async (lobHistory: AgentDataLoader['lobHistory']) =>
+    (await runGlobalTool('consultar_lob', {}, gctx({ loader: fakeLoader({ lobHistory }).loader }))).result.split('\n').at(-1);
+  assert.equal(
+    await ofHistory(async () => []),
+    'Histórico de alterações: nenhuma alteração registrada desde 25/11/2026 (antes disso o sistema não guardava quem alterou).',
+  );
+  assert.equal(await ofHistory(async () => null), 'Histórico de alterações: ainda não disponível no sistema.');
+  // Falha do histórico não derruba a consulta: a Linha de Balanço sai, com o aviso no fim.
+  const errors: unknown[] = [];
+  const failed = await runGlobalTool(
+    'consultar_lob',
+    {},
+    gctx({
+      onError: (_cause, info) => errors.push(info),
+      loader: fakeLoader({ lobHistory: () => Promise.reject(new Error('sem conexão')) }).loader,
+    }),
+  );
+  assert.equal(failed.error, undefined);
+  assert.equal(failed.result.split('\n').at(-1), 'Histórico de alterações: não foi possível ler agora.');
+  assert.ok(failed.result.includes('Blocos mais atrasados (1 de 1):'));
+  assert.deepEqual(errors, [{ tool: 'consultar_lob', workId: 'w1' }]);
+  // Linha de Balanço indisponível: nada de histórico.
+  const unavailable = await runGlobalTool(
+    'consultar_lob',
+    {},
+    gctx({ loader: fakeLoader({ lob: async () => null, lobHistory: async () => history }).loader }),
+  );
+  assert.equal(unavailable.result, 'Obra Residencial Horizonte (OB1). A Linha de Balanço ainda não está disponível no sistema.');
+  // A descrição diz que a ferramenta traz quem alterou e que mover ou editar o pacote é na tela.
+  const description = GLOBAL_TOOL_SPECS.find(s => s.name === 'consultar_lob')!.description;
+  assert.ok(description.includes('quem alterou, o que mudou'));
+  assert.ok(description.includes('"Editar o pacote"'));
+});
+
 test('consultar_configuracoes_obra: situação, semana 1 e atual, local, equipes e locais de baixo para cima', async () => {
   const out = await runGlobalTool('consultar_configuracoes_obra', { obra: 'OB1' }, gctx());
   assert.equal(out.consulted, 'Configurações · Residencial Horizonte');

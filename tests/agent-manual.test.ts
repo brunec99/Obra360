@@ -80,7 +80,8 @@ test('toda tela do sistema tem ao menos uma seção do manual, e o índice lista
   // 15500 para 16000 em 17/11/2026: a seção do local, da liberação e do aviso ao TST no checklist de equipamentos.
   // 16000 para 16500 em 23/11/2026: a seção da tratativa do TST e do "não se aplica" no checklist de equipamentos.
   // 16500 para 17000 em 24/11/2026: a tela do Diário de Obra (2.4), com cinco seções.
-  assert.ok(index.length <= 17000, `índice grande demais: ${index.length} caracteres`);
+  // 17000 para 17500 em 25/11/2026: as seções do pacote (mover e editar) e do histórico da Linha de Balanço.
+  assert.ok(index.length <= 17500, `índice grande demais: ${index.length} caracteres`);
 });
 
 test('busca pelo id exato e pelo id dentro da frase devolve só aquela seção', () => {

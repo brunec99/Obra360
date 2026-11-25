@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
-import { Camera, ClipboardList, Plus, Trash2, X } from 'lucide-react';
+import { Camera, ClipboardList, Layers, Plus, Trash2, X } from 'lucide-react';
 import {
   LOB_LIMITS,
   activityFinish,
@@ -138,6 +138,7 @@ export function LobActivityPanel({
   onClose,
   onSelect,
   onCreatePending,
+  onEditPackage,
   restrictions,
   workId,
 }: {
@@ -154,6 +155,9 @@ export function LobActivityPanel({
   /** "Criar pendência" do serviço deste bloco (Lista de pendência da aba 2). Ausente para quem não
    * abre a aba 2: aí o botão não aparece. */
   onCreatePending?: (serviceId: string) => void;
+  /** Abre a janela "Editar o pacote" (25/11/2026, pedido do Jorge Lucas): duração, ritmo e
+   * predecessoras iguais em todos os locais do serviço. Ausente: o botão não aparece. */
+  onEditPackage?: (serviceId: string) => void;
   /** Cards do Quadro de Restrições ligados a serviços (24/11/2026). Ausente para quem não tem o quadro
    * liberado: aí a lista não aparece. */
   restrictions?: ServiceRestrictionsState;
@@ -269,10 +273,23 @@ export function LobActivityPanel({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="eyebrow">Atividade selecionada</p>
-          <h3 className="mt-1 flex items-center gap-2 text-sm font-bold text-slate-900">
-            <Swatch color={service?.color ?? '#8ea4b7'} />
-            <span className="break-words">{title}</span>
-          </h3>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+              <Swatch color={service?.color ?? '#8ea4b7'} />
+              <span className="break-words">{title}</span>
+            </h3>
+            {onEditPackage && service && !readOnly && (
+              <button
+                type="button"
+                data-tour="lob-edit-package"
+                className="button-ghost px-2 py-1 text-xs"
+                onClick={() => onEditPackage(service.id)}
+                title={`Duração, ritmo e predecessoras iguais em todos os locais de ${service.name}`}
+              >
+                <Layers size={13} aria-hidden /> Editar o pacote
+              </button>
+            )}
+          </div>
         </div>
         <button
           type="button"

@@ -2292,3 +2292,72 @@ Pedidos do usuário, na mesma sessão: "ao clicar na tarefa do longo prazo, deve
 - **Decisão (interpretação):** "restrições por linhas" foi lido como o que prende o bloco no cronograma, isto é, as dependências; as restrições do Quadro entram como lista no painel e na janela. Se a intenção era marcar no gráfico as datas das restrições do Quadro, é ajuste a fazer.
 - **Validação:** gráfico renderizado com dependências e bloco selecionado, conferido por imagem; sequência do CI verde. **Não verificado:** duplo clique, janela e lista de restrições na tela logada (dependem do navegador e do banco).
 
+
+## Linha de Balanço: mover e editar o pacote inteiro, e histórico de alterações (25/11/2026)
+
+Pedido do Jorge Lucas (Atmos), em resposta no fio "Feedback Obra 360": "as tarefas do mesmo pacote não estão se deslocando todas juntas, preciso fazer para cada pavimento. Além disso, no Prevision existe a possibilidade de fazer uma configuração em massa, onde eu consigo fazer com que todas as atividades daquele pacote tenham a mesma duração ou então que tenha a mesma lógica de predecessoras, estou tendo que fazer uma a uma." No mesmo e-mail ele confirmou que os arrastos de 16/11 e 23/11 no Atmos (277 e 102 blocos) foram replanejamento dele: o Obra 360 é o cronograma vigente e o Prevision ficou desatualizado; nada foi restaurado.
+
+**Causa:** a cascata da Linha de Balanço só empurra (`createMovePlanner`): arrastar um pavimento para a frente só leva o seguinte se ele for ultrapassado, para trás não puxa nada, e o pavimento do meio não move os de baixo (são predecessores dele).
+
+**Modelo de UX aprovado** ("curti, pode seguir") com dados reais do Atmos e 13 regras numeradas: <https://claude.ai/artifact/6JETav5wYHvnutiret3fGn>. Decisões do usuário antes do modelo: (1) antecipar um pacote não puxa as sucessoras dos outros pacotes, e todas as tarefas do pacote se movem juntas; (2) trocar as ligações deduzidas do Atmos pelas reais do Prevision, mantendo as datas; (3) registrar quem alterou.
+
+### O que foi entregue
+
+- **Arrastar: Pacote | Bloco** (`lob-view.tsx`, `lob-chart.tsx`): chave no cabeçalho do gráfico, ao lado do cadeado, começa em Pacote e fica guardada por pessoa no navegador (`obra360.lob.arrasto:<perfil>`). No modo Pacote, o bloco clicado realça o serviço inteiro; arrastar qualquer bloco move todos os blocos **não iniciados** do serviço o mesmo número de dias úteis, com prévia dia a dia (blocos do pacote e sucessoras empurradas) e a dica "Pacote +N dias úteis · K blocos · M sucessoras empurradas". Alt + arrastar move só o bloco. ← → e Shift + seta movem o pacote selecionado. Um arrasto é uma gravação e um passo do Ctrl+Z.
+- **Avisos:** "N blocos do pacote andaram X dias úteis para a frente/para trás; M sucessoras empurradas", mais "K blocos já iniciados ficaram" e "S sucessoras ficaram com folga de até D dias úteis (não são puxadas)"; para trás sem folga, "Não dá para antecipar: X já começa logo depois de Y." e nenhum comando sai.
+- **Editar o pacote** (`lob-package-dialog.tsx`, botão no painel do bloco em `lob-activity-panel.tsx`, escondido para consulta e com as datas travadas): pacote; locais (todos marcados, Todos/Nenhum, iniciados indicados e fora da edição); duração (vazio mantém); ritmo "Encadear" (padrão; ordem de hoje pela data de início, com a espera entre locais) ou "Manter os inícios"; predecessoras de outros pacotes (pacote, mesmo local ou 1 a 3 abaixo/acima, espera), "Substituir" (padrão) ou "Somar"; quadro "Hoje neste pacote: …" com a lógica atual, que também é o valor inicial; prévia recalculada a cada mudança (blocos que mudam, ligações +/−, sucessoras empurradas, folgas novas, término do pacote e da obra); erros com a mesma mensagem do servidor. "Aplicar" grava tudo ou nada, depois da linha de base automática "Antes da edição do pacote dd/mm/aaaa" (só quando alguma data muda).
+- **Desfazer da edição:** a pilha do Ctrl+Z passou a guardar as ligações (`{ dates, links? }`); a edição do pacote desfaz por `revert_service_edit`, que devolve datas e ligações (as retiradas voltam com o mesmo id e a data de criação original). Depois de recarregar a tela, só a linha de base automática devolve as datas; as ligações, não.
+- **Histórico** (`lob-history-panel.tsx`, botão "Histórico" na barra, para todos que veem a aba): as últimas 100 alterações com data e hora, autor (`profiles.name`), frase pronta e número de blocos. Toda alteração da Linha de Balanço grava uma linha em `history_events` (`entity_type = 'lob'`, `entity_id` = obra, `action` = tipo do comando, `changes` com as datas antes e depois de cada bloco, até 2000, e o total exato). Medições ficam de fora (têm autor próprio) e custos entram só como contagem, sem valores. Conta a partir de 25/11/2026. **Sem migração:** o `service_role` já tinha INSERT e SELECT na tabela (conferido no banco em 25/11/2026). Se a gravação do histórico falhar, o comando continua valendo e o erro vai para o log.
+- **Claudia:** tópicos novos no manual (`longo-prazo-lob-pacote`, `longo-prazo-lob-historico`), o tópico da Linha de Balanço atualizado, a ferramenta `consultar_lob` da Claudia geral entregando as 10 alterações mais recentes do histórico, e a orientação de que mover ou editar pacote é pela tela (ela não faz pelo chat).
+- **Tour:** passos para a chave, o botão "Editar o pacote" e o "Histórico".
+
+### Regras (numeração do modelo)
+
+1. Pacote é o padrão do arrasto; Alt + arrastar move só o bloco.
+2. Mesmo deslocamento em dias úteis do calendário da obra; o ritmo entre locais não muda e nenhum bloco cai em dia sem trabalho.
+3. Bloco iniciado (com início real, que a medição preenche no primeiro avanço; conferido no banco: todo bloco medido tem início real) não anda com o pacote nem entra na edição em massa. A rede ainda o empurra se uma predecessora dele andar, como sempre.
+4. Para a frente, as sucessoras de outros pacotes são empurradas só quando preciso; para trás, o pacote inteiro para quando o primeiro bloco encosta numa predecessora de fora (inclusive um bloco iniciado do próprio pacote). Sucessoras nunca são puxadas.
+5. Teclado, desfazer e uma gravação por arrasto.
+6. "Editar o pacote" no painel do bloco, para quem edita.
+7. Locais: todos marcados, um a um.
+8. Duração: vazio mantém, preenchido aplica em todos os marcados.
+9. Ritmo: "Encadear" refaz as ligações entre os locais marcados (as "equipe segue" ganham a espera escolhida; as demais ligações entre eles saem), o primeiro local fica e os seguintes encostam no anterior, nunca antes de uma predecessora de fora.
+10. Predecessoras: "Substituir" tira as ligações que já vinham do pacote da regra e cria as da regra; a ligação que já existe é reaproveitada (só a espera muda); local sem correspondente é pulado e listado; regra que fecha ciclo ou aponta para o próprio pacote é recusada.
+11. Prévia, linha de base automática e desfazer.
+12. Histórico de toda alteração.
+13. Ligações reais do Prevision no Atmos (abaixo).
+
+### Arquivos
+
+- `src/domain/lob-package.ts` (novo, puro): `isStartedActivity`, `createPackageMovePlanner`/`planPackageMove` (mesma foto e mesma cascata de `createMovePlanner`, para a tela e o servidor darem o mesmo resultado), `planPackageEdit`, `packageLogic`, `PACKAGE_LIMITS`. No Atmos real (606 blocos, 1.183 ligações): montar o planejador leva cerca de 15 ms, cada passo do arrasto de 3 a 4 ms, a prévia da edição cerca de 40 ms.
+- `src/domain/lob.ts`: comandos `move_service`, `edit_service`, `revert_service_edit` e os tipos `LobPackageEdit`, `LobPackageRule`, `LobLinkRevert`.
+- `src/application/use-cases/lob-commands.ts`: leitura e regras dos três comandos; `move_service` entrou em `LOB_SCHEDULE_COMMANDS` (aplicado na hora na tela, gravado em segundo plano, resposta parcial).
+- `src/application/use-cases/lob-history.ts`, `src/infrastructure/repositories/supabase/lob-history-repository.ts`, `src/app/api/lob/history/route.ts` (`GET ?workId=&limit=`), e a gravação em `src/app/api/lob/commands/route.ts`.
+- `src/domain/lob-dependency-replacement.ts` e `scripts/replace-lob-dependencies-prevision.ts` (ligações reais do Prevision; abaixo).
+- Testes: `tests/lob-package.test.ts` (18), `tests/lob-history.test.ts` (14), ajustes em `tests/lob-commands.test.ts`, `tests/agent-global-tools.test.ts` e `tests/agent-manual.test.ts`.
+
+### Validação
+
+- Testes da Linha de Balanço, da Claudia e do tour verdes (detalhe da sequência do CI no commit).
+- **Navegador** (`next dev` com Supabase falso e as rotas `/api/lob*` respondidas pelas regras reais, sobre os dados reais do Atmos lidos do banco só para leitura): chave em Pacote; Shift + → moveu os 18 blocos da DRY - Estruturação 5 dias úteis e empurrou 108 sucessoras; Shift + ← voltou e avisou a folga de 5 sucessoras; o segundo Shift + ← avisou "Não dá para antecipar: DRY - Estruturação · Mezanino já começa logo depois de ACA - Lixamento de teto · Mezanino"; arrasto com o mouse (+60 dias úteis, 220 empurradas) e Ctrl+Z; "Editar o pacote" com 8 dias encadeado (18 blocos, linha de base automática criada) e Ctrl+Z devolvendo durações e ligações (1.183); modo Bloco mandando `update_activity`; histórico listando as sete ações com autor; janela no celular (400 px) sem rolagem horizontal; nenhum erro no console.
+- **Não verificado:** tela logada no servidor da ATR e a gravação real no banco (histórico inclusive).
+
+### Ligações reais do Prevision no Atmos (regra 13)
+
+Hoje o Atmos tem 1.183 ligações: 1.160 deduzidas na importação de 11/11/2026 (gravadas no mesmo instante da linha de base "Prevision — Atmos.xml") e 23 criadas à mão pelo Jorge (16 em 23/11 e 7 em 25/11). A troca mantém as datas, troca só as deduzidas, preserva as criadas à mão e não recria as que ele apagou.
+
+- `src/domain/lob-dependency-replacement.ts` (puro): `translatePrevisionLinks` (atividade do Prevision → bloco pelo nome do serviço e do local, normalizados como o importador), `previsionLinkLag` (vínculo do Prevision → término → início com espera), `reconstructDeducedDependencies` (roda o próprio `buildPrevisionImport` sobre a linha de base da importação), `planDependencyReplacement` (remover, inserir, manter, ignorar, conflitos, ciclos) e `replacementBaseline` ("Antes das ligações do Prevision dd/mm/aaaa"). 10 testes em `tests/lob-dependency-replacement.test.ts`.
+- `scripts/replace-lob-dependencies-prevision.ts --obra ATM --prevision 29875 --out <pasta> [--json <resposta salva>] [--env-file …] [--actor <perfil>] [--confirmar <código do plano>] [--apply]`: sem `--apply` só lê (banco e GraphQL do Prevision) e grava o relatório em JSON e CSVs (`;` e BOM, para o Excel). O `--apply` recusa se o código do plano mudou (qualquer ligação ou data alterada desde a simulação), se a reconstrução não bater, se houver ciclo ou se algum bloco se moveria; guarda antes um backup JSON, cria a linha de base automática, grava por `applyLobMutation` (restaurando as ligações retiradas se falhar no meio) e relê o banco para conferir. A gravação direta não passa pela rota de comandos, então **não entra no Histórico**.
+- **Reconstrução conferida:** o conjunto deduzido refeito tem 1.196 ligações (556 "equipe segue"), e as 1.160 que restam estão todas nele: **36 foram apagadas à mão** (24 "equipe segue") e 57 deduzidas tiveram a espera mudada à mão. Os nomes casaram 606 de 606 blocos. Atmos = obra 29875 no Prevision.
+- **Simulação de 25/11/2026** (somente leitura; código do plano `9816fdce2c60`): remover 165 deduzidas que o Prevision não tem; trocar a espera de 43 (a deduzida sai e entra a real); inserir 107 reais; manter 975 (952 deduzidas iguais às do Prevision e as 23 criadas à mão, todas também no Prevision com a mesma espera); ignorar 0; ciclos 0; **nenhum bloco muda de data**; ficam 1.125 ligações. **7 conflitos** (blocos que hoje estão antes do que a ligação real pediria; a ligação grava a folga atual para nada se mover), todos vindos de datas mudadas na obra depois de 11/11, o maior de 35 dias úteis (PIN - 2ªdemão de pintura no Hall do 2º pavimento contra a pintura final do 15º).
+- **Decisões do script:** ligação criada à mão fica sempre como está; deduzida igual à do Prevision fica com o mesmo id; a espera gravada é a do Prevision, sem passar da folga atual (o que faltar vira conflito); início → início e término → término viram término → início com a espera calculada pelas durações de hoje.
+- **Achado:** o `delay` do Prevision é em **dias úteis** (com essa leitura nenhum dos 1.125 vínculos é descumprido nas datas do próprio Prevision); o importador (`readPrevisionApiSchedule`/`buildPrevisionImport` em `lob-prevision-import.ts`) o lê como dias corridos. No Atmos isso daria espera diferente em 47 vínculos; Brizz, Essenza e Tauá, gravados em 23/11 com essa leitura, devem ter esperas menores nos vínculos com defasagem maior que 1 ou do tipo início → início. Nenhuma data mudou nessas obras, mas a rede ficou mais frouxa que a do Prevision. Correção a fazer.
+- A gravação (`--apply`) **não foi executada**: espera o Jorge conferir a lista dos 7 conflitos.
+
+### Pendências
+
+- Uso real logado; conferir no servidor que o histórico grava (a primeira alteração depois da publicação deve aparecer na gaveta).
+- Ligações do Prevision no Atmos: mandar a lista dos 7 conflitos ao Jorge e aplicar depois do ok (simular de novo antes, porque qualquer arrasto muda o código do plano).
+- Corrigir a leitura do `delay` do Prevision (dias úteis) no importador e rever as esperas de Brizz, Essenza e Tauá.
+- Fica para depois (do modelo): mover vários pacotes selecionados juntos; a Claudia editar o pacote pelo chat; levar o replanejamento do Obra 360 de volta ao Prevision.
+- O tópico "Linha de Balanço" do manual da Claudia passa dos 7.000 caracteres que a ferramenta entrega (já passava antes): a parte final ("Criar pendência do serviço", "Locais, linhas de base e outras ações") não chega a ela. Dividir o tópico é ajuste a fazer.

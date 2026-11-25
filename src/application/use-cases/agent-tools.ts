@@ -91,7 +91,7 @@ export const AGENT_TOOL_SPECS: AgentToolSpec[] = [
   {
     name: 'listar_servicos_macro',
     description:
-      'Lista os serviços do plano de longo prazo (Linha de Balanço): pavimentos, período, percentual medido e previsto para hoje.',
+      'Lista os serviços do plano de longo prazo do Planejador (serviço por pavimentos, desenhado em fluxograma ou Linha de Balanço): pavimentos, período, percentual medido e previsto para hoje. Não lê a visão "Linha de Balanço" por serviço × local (blocos, pacotes e o histórico de alterações).',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
