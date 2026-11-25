@@ -2217,6 +2217,61 @@ Ficaram de fora, por não terem datas no relatório: "Impermeabilização de par
 - As dependências são deduzidas; o relatório não traz as reais.
 - O avanço das atividades em andamento é o financeiro do relatório, não o físico.
 
+## Longo prazo: Linha de Balanço do Blentt atualizada pela exportação do Agilean (25/11/2026)
+
+O Daniel (Blentt) mandou, em resposta ao mailing de 24/11, a exportação em Excel da Linha de Balanço replanejada no **Agilean** (o sistema de planejamento do Blentt e da Mozine, de onde também saiu o relatório "Avanço Físico-Financeiro" de 24/11): "Pode atualizar nossa LOB atualizada do Agilean? Seguiremos fazendo medições e replan pelo Obra 360 após a atualização." O usuário pediu para pôr a planilha no lugar da Linha de Balanço atual do Blentt.
+
+### Por que é atualização, e não importação do zero
+
+A planilha é só o desenho: traz serviço, local e datas, mas **não traz avanço, datas reais, linha de base nem dependências**. Apagar o Blentt e reimportar perderia a M1 (avanço real de 330 blocos, 325 concluídos), as datas reais e a linha de base "Planejado Base" do relatório. Por isso os blocos existentes foram mantidos (mesmo id) e só mudaram de início e duração; o resto ficou como estava.
+
+### Formato da exportação do Agilean
+
+- Uma folha ("Agilean"). Linha 1: o mês ("setembro de 2024", mesclado sobre os dias dele); linha 2: a letra do dia da semana; linha 3: o número do dia. **Cada dia ocupa 4 colunas** (o Agilean trabalha em quartos de dia) e **só os dias de trabalho têm coluna**: fim de semana, feriado e recesso não aparecem.
+- Coluna A: o grupo ("Edificação Fluxo geral", "Edificação Áreas comuns", "Fachadas Fachada"…); coluna H: o local. Cada local ocupa as linhas até o rótulo seguinte (4 ou mais; serviços simultâneos ficam em faixas de uma linha).
+- Cada bloco é uma célula mesclada com o texto **"Serviço - N d"** e a cor do serviço. Quando o Agilean tem sigla para o serviço, a célula traz a sigla ("Med. hid.", "DW1", "Esq Alum"), sempre a mesma para a mesma cor. O par cor + rótulo identifica o serviço (a cor de "Estrutura" também pinta "Piso de concreto"). Durações podem ter fração ("2.5 d").
+
+### O que foi entregue
+
+- **`src/infrastructure/files/xlsx.ts`** (`readXlsxSheet`): leitura de uma folha de .xlsx sem biblioteca nova (o zip é aberto com `node:zlib`): valores, textos compartilhados e ricos, cor de preenchimento sólido e células mescladas. A grade é o tipo `XlsxGrid` de `src/domain/xlsx-grid.ts`.
+- **`src/domain/lob-agilean-import.ts`**: `readAgileanLob` (lê a grade: dias, calendário, locais e blocos) e `planAgileanUpdate` (liga cada serviço do Agilean a um da obra e monta a atualização, sem gravar).
+- **`scripts/update-lob-agilean.ts <exportação.xlsx> --obra <código> --actor <perfil> [--backup <arquivo>] [--apply]`**: sem `--apply` é simulação com o relatório da ligação; com `--apply`, guarda o estado anterior em JSON e grava tudo numa mutação só (`applyLobMutation`); se falhar no meio, restaura.
+
+### Regras
+
+1. **Datas do bloco**: início = dia da coluna onde o bloco começa; término = dia da coluna onde termina (o mesmo que o Agilean mostra como início e término). A duração é contada em dias úteis do calendário: bate com o "N d" quando o bloco começa no início do dia; quando começa ou termina no meio de um dia, conta o dia inteiro (155 blocos ficam com meio dia a um dia a mais que o rótulo).
+2. **Calendário**: segunda a sexta, menos os dias úteis sem coluna no período da planilha. Vai para a obra só se ela não tiver calendário próprio; se tiver, fica o dela (com aviso).
+3. **Locais** pela mesma chave da importação ("12º pavto." = "12 PAV", "5ºpavto" = "5 PAV"). O mesmo pavimento em "Áreas comuns" e "Fluxo geral" é um local só, como na carga de 24/11.
+4. **Ligação dos serviços**, em rodadas: vence o par com nome igual (desconsiderando o "(2)"), depois sigla compatível (cada pedaço é o começo de uma palavra do nome, na ordem, podendo pular palavras: "Esq Alum" → "Esquadrias de alumínio", "ELE-DW" → "Infra elétrica no DW", "Balancins" → "Montagem de balancins"), depois por eliminação (o único serviço da obra que ainda tem bloco livre em todos os locais dele). Em cada nível, decide a menor soma de diferenças de início. O serviço da obra precisa ter bloco livre em todos os locais do serviço do Agilean.
+5. Bloco do Agilean sem par, bloco da obra sem par ou local da planilha que não existe na obra **impedem a gravação**.
+6. **Dependências**: as deduzidas saem e entram as deduzidas para as datas novas, pela mesma regra da importação ("equipe segue" + sequência no local, espera limitada à folga real). Conferido que nenhum bloco se move.
+7. **Linha de base automática** "Antes da atualização pelo Agilean (dd/mm/aaaa)" com as datas de antes. A linha de base manual do relatório continua sendo a referência do IDP.
+8. **Cores** do Agilean nos serviços (quando um serviço da obra recebe mais de uma cor, vale a do grupo com mais blocos).
+9. Medições, datas reais, fotos, custos e restrições não mudam.
+
+### Gravado em produção (takt-hub, 25/11/2026)
+
+Arquivo `Blentt_2026-11-25-14-25-25.xlsx` (anexo do e-mail do Daniel), ator = perfil admin do usuário.
+
+- **681 de 681 blocos ligados**, nenhum sobrando. 74 serviços do Agilean (cor + rótulo) em 69 serviços da obra: 50 por nome igual, 21 por sigla e 3 por eliminação, conferidos à mão: "DW1" → "Drywall estrutura + 1ªchapa", "Pint. 1" → "Massa corrida + 1ªdemão", "Prumadas de AF" → "Prumadas de água fria". Os dois "Forro de gesso" (fluxo geral e áreas comuns) caíram em "Forro de gesso" e "Forro de gesso (2)" pelas datas.
+- **179 blocos mudaram de início ou término** (70 terminam antes, 108 até 30 dias depois, 1 mais de 30 dias depois); 290 foram regravados, porque o calendário com feriados muda a contagem de dias de blocos que mantêm início e término. 69 dos que mudaram já estavam concluídos: o Agilean os mostra nas datas em que aconteceram (por exemplo, Pastilha da Fachada Sul - 10º à cob, planejada para 11/01/2027 e medida 100%, agora em 05 a 09/10/2026).
+- Calendário gravado: segunda a sexta com 28 dias sem trabalho (recesso de 23/12/2024 a 03/01/2025 e os feriados que o Agilean marca até 27/05/2027).
+- Dependências: 1.436 saíram, 1.431 entraram. Linha de base automática com 681 blocos. Cores do Agilean nos 69 serviços.
+- Estado anterior guardado no JSON de backup do scratchpad da sessão (atividades, serviços, dependências e calendário).
+
+### Validações
+
+- Conferência no banco depois da gravação: 681 blocos com os mesmos ids; todo bloco do Agilean tem um bloco com o mesmo local, início e término; datas reais iguais às de antes; M1 com os mesmos 330 itens; 249 itens de custo intactos; duas linhas de base; `cascade` não move nenhum bloco.
+- `tests/lob-agilean-import.test.ts` (7 testes): cabeçalho e feriado pela coluna que falta, faixas e quartos de dia, planilha de outro formato recusada, siglas, ligação por nome, sigla, eliminação e datas, blocos sem par e local inexistente, calendário próprio mantido e leitura de um .xlsx montado no teste (zip sem compressão e com deflate, textos ricos, cor e mescla).
+- Sequência do `ci.yml` em 25/11/2026: `verify:portal-kit`, `typecheck`, `lint` (0 erros), `format:check`, `npm test` (1.807 testes), `validate:migrations`, `build` e `test:e2e` (10). O manual da Claudia (seção do calendário da Linha de Balanço) explica a atualização; a seção da Linha de Balanço ficou com 8.999 caracteres, no limite de 9.000 do teste do manual.
+- **Não verificado:** a tela logada do Blentt depois da atualização.
+
+### Pendências
+
+- Conferir o Blentt logado no servidor da ATR (cores do Agilean, algumas claras como o amarelo de "Pintura Final", e o calendário).
+- A Mozine continua com a carga de 24/11; a mesma atualização vale para ela quando mandarem a exportação.
+- Daqui em diante o Blentt mede e replaneja no Obra 360: uma nova exportação do Agilean passaria por cima das datas replanejadas aqui.
+
 ## Linha de Balanço: preenchimento invertido (24/11/2026)
 
 Pedido do usuário: "no longo prazo, vamos inverter. Atividades passadas ficam transparentes e atividades futuras preenchidas."

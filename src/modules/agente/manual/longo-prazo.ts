@@ -379,7 +379,7 @@ No fim da visão. Uma linha de base é uma fotografia imutável do cronograma do
     body: `## O que a tela mostra
 A visão "Linha de Balanço" é o cronograma de longo prazo da obra no estilo do Prevision. No eixo vertical estão os locais da obra, de baixo para cima (Térreo embaixo); no horizontal, o tempo em semanas, com os meses no alto. Cada bloco é um serviço num local, na cor do serviço: a parte transparente é o que já foi medido e a parte cheia é o que falta (invertido em 24/11/2026). Um bloco fica com contorno vermelho quando o previsto até hoje passa do medido em 10 pontos ou mais ("atrasado"). A linha tracejada âmbar é hoje; as linhas azuis com "M1", "M2"… são as datas das medições salvas. Serviços que acontecem ao mesmo tempo no mesmo local (por exemplo, as instalações elétrica e hidráulica do mesmo pavimento) aparecem um acima do outro, em faixas mais finas dentro da linha do local, que fica mais alta só nesse caso; clique na faixa para escolher o serviço.
 
-Atmos, Brizz, Essenza e Tauá abrem com a Linha de Balanço transcrita do Prevision (datas, avanço na M1 e linha de base; nas três últimas, dependências e calendário); Blentt e Mozine, do relatório "Avanço Físico-Financeiro" delas. Cargas únicas, sem sincronização.
+Atmos, Brizz, Essenza e Tauá abrem com a Linha de Balanço transcrita do Prevision (datas, avanço na M1 e linha de base; nas três últimas, dependências e calendário); Blentt e Mozine, do Agilean, o sistema delas (Blentt atualizado em 25/11/2026). Cargas únicas, sem sincronização.
 
 Passe o mouse sobre um bloco para ver serviço, local, início e término, duração em dias úteis, equipe, previsto até hoje e medido (e, com uma linha de base escolhida, as datas dela e o desvio). Clique para selecionar: o painel "Atividade selecionada", acima do gráfico, abre com os detalhes.
 
@@ -434,6 +434,9 @@ Início e duração (em dias úteis) editáveis, término calculado, as datas da
       'dias sem trabalho',
       'feriados nacionais',
       'antes da mudança de calendário',
+      'agilean',
+      'blentt',
+      'antes da atualização pelo agilean',
     ],
     screen: 'longo-prazo',
     body: `# Calendário da Linha de Balanço
@@ -457,7 +460,10 @@ Botão "Calendário", na barra de ações da Linha de Balanço (ao lado de "Atra
 ## Limites
 - O calendário é da obra inteira: não há calendário por serviço nem por equipe.
 - Vale só para a Linha de Balanço e o que sai dela (Medições, Custos, Curva S, "Trazer da Linha de Balanço"). O Planejador conta dias corridos, e os cronogramas de médio prazo e de legalização têm o calendário próprio deles.
-- Se a tela disser que o calendário ainda não foi ativado no banco, avise o administrador.`,
+- Se a tela disser que o calendário ainda não foi ativado no banco, avise o administrador.
+
+## Blentt: calendário e datas do Agilean (25/11/2026)
+O Blentt foi atualizado pela exportação em Excel do Agilean, o sistema de planejamento da obra, a pedido do Daniel. Entraram as datas replanejadas nos mesmos blocos (179 mudaram de início ou término), o calendário do Agilean (segunda a sexta, sem o recesso de 23/12/2024 a 03/01/2025 e sem os feriados que o Agilean marca) e as cores dos serviços dele. Ficaram a medição M1, as datas reais e a linha de base do relatório; as datas de antes estão na linha de base automática "Antes da atualização pelo Agilean (25/11/2026)". Daqui em diante o Blentt mede e replaneja no Obra 360. A carga é feita pelo administrador do sistema, sem sincronização: uma nova exportação do Agilean passaria por cima do que for replanejado aqui.`,
   },
   {
     id: 'longo-prazo-fluxos-de-servicos',
