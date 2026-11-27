@@ -271,6 +271,24 @@ export function normalizeSiengeUsers(results: readonly unknown[]): SiengeUser[] 
   return [...byId.values()];
 }
 
+/** O e-mail só com a primeira letra antes do @ ("y***@atr.com.br"). Puro. */
+export function maskEmail(email: string): string {
+  const [local = '', domain = ''] = email.trim().split('@');
+  return local && domain ? `${local[0]}***@${domain}` : '';
+}
+/** Como chamar o dono do login na confirmação: o nome; sem nome, o e-mail mascarado; sem nada, o login. */
+const ownerLabel = (user: SiengeUser) => user.name || maskEmail(user.email) || user.id;
+
+/** Limite de conferências de login por pessoa: quem confere o próprio login usa duas ou três; mais que isso
+ * em poucos minutos é varredura da lista de usuários do Sienge. Devolve se pode e o histórico novo (só as
+ * conferências dentro da janela). Puro. */
+export const SIENGE_USER_CHECK_LIMIT = { max: 10, windowMs: 10 * 60 * 1000 };
+export function takeSiengeUserCheck(history: readonly number[], now: number, limit = SIENGE_USER_CHECK_LIMIT) {
+  const recent = history.filter(at => now - at < limit.windowMs);
+  if (recent.length >= limit.max) return { allowed: false, history: recent };
+  return { allowed: true, history: [...recent, now] };
+}
+
 export type SiengeUserState = 'invalid' | 'not_found' | 'inactive' | 'found';
 export interface SiengeUserCheck {
   code: string;
@@ -283,7 +301,8 @@ export interface SiengeUserCheck {
 /** O que a tela diz depois de procurar o login, decidido num só lugar (como no formulário de compras, 05/09):
  * "não existe" e "desativado" nunca viram a mesma frase, porque um se resolve criando o acesso e o outro
  * reativando; e o encontrado mostra o NOME do dono, porque ligar o login de outra pessoa assinaria os diários
- * no nome dela sem erro em lugar nenhum. Sem nome no cadastro, mostra o e-mail. Puro. */
+ * no nome dela sem erro em lugar nenhum. Sem nome no cadastro, mostra o e-mail mascarado ("y***@atr.com.br"):
+ * basta para a própria pessoa se reconhecer e não entrega o e-mail de outra. Puro. */
 export function describeSiengeUser(typed: unknown, user: SiengeUser | null): SiengeUserCheck {
   const code = normalizeSiengeUserCode(typed);
   if (!isSiengeUserCodeFormat(code))
@@ -301,7 +320,7 @@ export function describeSiengeUser(typed: unknown, user: SiengeUser | null): Sie
       state: 'inactive',
       message: `O usuário ${user.id} existe no Sienge, mas está desativado. Fale com quem cuida do seu acesso e depois use "Verificar de novo".`,
     };
-  const name = user.name || user.email || user.id;
+  const name = ownerLabel(user);
   return { code, state: 'found', name, message: `Encontramos ${user.id} no Sienge. Confirme que é você: ${name}.` };
 }
 
@@ -330,5 +349,5 @@ export function matchSiengeUsers(
     .filter((item): item is { user: SiengeUser; score: number } => item !== null)
     .sort((a, b) => b.score - a.score || a.user.id.localeCompare(b.user.id))
     .slice(0, 3)
-    .map(({ user }) => ({ code: user.id, name: user.name || user.email || user.id }));
+    .map(({ user }) => ({ code: user.id, name: ownerLabel(user) }));
 }

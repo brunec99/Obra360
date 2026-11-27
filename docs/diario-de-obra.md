@@ -87,7 +87,9 @@ Obra 360 quando o sinal volta. Subir para o Obra 360 não é enviar ao Sienge.
     no servidor (ele pode ter ficado na fila do aparelho) e recusa login inexistente ou desativado. Não achar
     relê o Sienge (quem acabou de ganhar acesso), com trava de 60 s no processo; "Verificar de novo" força a
     releitura. O envio recusa o diário se o login ligado foi desativado depois. A lista de usuários não vai
-    mais para a tela, e saiu a leitura dos diários do último ano (`listDailyResponsibles`, até 25 páginas). Fazer o Sienge registrar a própria pessoa como quem cadastrou exigiria um usuário de integração
+    mais para a tela, e saiu a leitura dos diários do último ano (`listDailyResponsibles`, até 25 páginas).
+    Contra varredura da lista: sem nome no cadastro, a confirmação mostra o e-mail mascarado ("y***@atr.com.br"),
+    e cada pessoa faz no máximo 10 conferências a cada 10 minutos (memória do processo). Fazer o Sienge registrar a própria pessoa como quem cadastrou exigiria um usuário de integração
     por pessoa, criado pelo administrador do Sienge, com a senha de cada um guardada no Obra 360; não foi
     feito.
 

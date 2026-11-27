@@ -15,6 +15,8 @@ import {
   matchSiengeUsers,
   normalizeSiengeUserCode,
   normalizeSiengeUsers,
+  maskEmail,
+  takeSiengeUserCheck,
   type SiengeUser,
   SIENGE_SHIFT,
   SIENGE_WEATHER,
@@ -453,7 +455,25 @@ test('usuário do Sienge: não encontrado e desativado dizem coisas diferentes; 
     { code: 'FABIANA.MILDEMBERG', state: 'found', name: 'Fabiana Meira' },
   );
   assert.match(found.message, /Confirme que é você: Fabiana Meira/);
-  // Sem nome no cadastro, a confirmação usa o e-mail, não uma frase vazia.
-  assert.equal(describeSiengeUser('YURI', siengeUser('YURI', { email: 'yuri@atr.com.br' })).name, 'yuri@atr.com.br');
+  // Sem nome no cadastro, a confirmação usa o e-mail mascarado (não entrega o de outra pessoa), não uma frase vazia.
+  assert.equal(describeSiengeUser('YURI', siengeUser('YURI', { email: 'yuri@atr.com.br' })).name, 'y***@atr.com.br');
+  assert.equal(describeSiengeUser('SEM.NADA', siengeUser('SEM.NADA')).name, 'SEM.NADA');
   assert.equal(describeSiengeUser('amanda camargo', null).state, 'invalid');
+});
+
+test('usuário do Sienge: e-mail mascarado e limite de conferências por pessoa contra varredura', () => {
+  assert.equal(maskEmail(' yuri.florencio@atrincorporadora.com.br '), 'y***@atrincorporadora.com.br');
+  assert.equal(maskEmail('semarroba'), '');
+  assert.equal(maskEmail(''), '');
+  const limit = { max: 3, windowMs: 1000 };
+  let history: number[] = [];
+  for (const at of [0, 100, 200]) {
+    const slot = takeSiengeUserCheck(history, at, limit);
+    assert.equal(slot.allowed, true);
+    history = slot.history;
+  }
+  assert.equal(takeSiengeUserCheck(history, 300, limit).allowed, false);
+  // Passada a janela, as antigas saem e volta a poder.
+  const later = takeSiengeUserCheck(history, 1100, limit);
+  assert.deepEqual(later, { allowed: true, history: [200, 1100] });
 });
