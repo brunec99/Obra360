@@ -108,6 +108,7 @@ O mesmo conjunto roda no GitHub Actions a cada push e PR (`.github/workflows/ci.
 - Administradores concedem/retiram o acesso de qualquer usuário a qualquer obra em `/configuracoes` e, desde 01/10/2026, também podem tudo o que o gestor pode (cadastrar obra, reabrir vagão terminal, liberar excepcionalmente). O passo a passo de entrar, liberar acesso e resolver cada mensagem de erro está em [Como entrar com a conta Google](docs/login-google.md).
 - Repositório de modelos IFC por obra: cada envio transcreve o arquivo em tabelas e converte a geometria para Fragments, com histórico de versões.
 - Quantitativo do modelo: quantidades somadas por tipo, distribuição por classe IFC e por pavimento, consulta elemento a elemento e exportação em CSV.
+- Modelo federado, fonte Orçamento 4D (27/11/2026): todos os modelos que a obra tem no Orçamento 4D numa cena, lidos direto do schema `orcamento`, com liga/desliga, cor e opacidade por disciplina, caixa de corte, medição com encaixe e dados da peça clicada.
 - Modelo federado: composições salvas com versões fixas, visibilidade por modelo, cores por modelo/classe/pavimento, cor e opacidade escolhidas por modelo (cor padrão, cor do IFC ou cor escolhida, guardadas no navegador) e consulta de elementos.
 - Consulta de obras/atividades e importação revisada do Prevision.
 - Estado do banco em Configurações (quais migrações estão aplicadas), avisos por toast, confirmações próprias, formulários em gaveta lateral, ajuda contextual em cada tela, menu completo no celular e modo reunião (texto maior).
@@ -198,6 +199,8 @@ Desde 27/10/2026 toda tela da obra tem, no cabeçalho, o botão da assistente de
 **Modelo federado** (`/obras/{obraId}/federacao`): área própria para escolher uma versão de cada modelo, carregar o conjunto e salvar composições nomeadas. Cada salvamento cria uma cópia com versões fixas; novos uploads não alteram conjuntos já salvos. A página usa lista lateral com busca por modelo/disciplina, caixas de inclusão separadas das versões e seleção em lote dos modelos disponíveis. O visualizador permite ocultar/isolar modelos, colorir por modelo, pavimento ou classe IFC, recortar por pavimento e consultar elementos pelo clique ou pela busca de nome/classe/GlobalId. O painel de inspeção mostra a origem e os dados do elemento selecionado. Alterar a seleção não muda a cena até acionar o carregamento. O salvamento requer a migração `0021_ifc_federations.sql`, confirmada no ambiente remoto em 19/09/2026. Sistemas internos do IFC, padronização entre arquivos e ajustes de coordenadas são próximas etapas. A tela BIM 4D existente ainda não consome essas composições.
 
 **Modelos IFC** (`/obras/{obraId}/ifc`): repositório de modelos da obra. Cada envio do mesmo modelo cria uma versão nova e nenhuma versão anterior é substituída ou apagada.
+
+**Modelos do Orçamento 4D no federado (27/11/2026)**: nas obras que têm modelos no Orçamento 4D (mesmo banco, schema `orcamento`; a ligação é pelo nome da obra), a tela abre na fonte "Modelos do Orçamento 4D", com todos os modelos prontos na cena e o visualizador de lá: painel de modelos (liga/desliga, cor, opacidade), caixa de corte alinhada ao prédio, medição entre dois pontos com encaixe e painel do elemento selecionado (quantitativos e propriedades). A tela descrita acima continua como a fonte "Arquivos IFC do Obra 360". Só leitura, pelas rotas `/api/ifc/orcamento`, com a autorização do Obra 360; sem migração. Dependências novas: `@thatopen/components` 3.4.8 e `camera-controls` 3.1.2. Detalhes, validação e limites em [IFC e modelo federado](docs/ifc-federacao.md).
 
 **Seccionamento**: os visualizadores de Modelos IFC e Modelo federado oferecem corte horizontal (Y) ou vertical (X/Z), posição de 0 a 100% por controle deslizante ou campo numérico e inversão do lado visível. Na federação, um único plano atravessa todos os modelos carregados. O corte combina com os filtros de pavimento/visibilidade e pode ser removido; é temporário, reinicia ao carregar outra geometria e não altera arquivos, quantitativos nem composições salvas. A busca de elementos continua abrangendo os dois lados do plano. Não exige migração; o BIM 4D permanece com seus controles existentes.
 
@@ -301,7 +304,7 @@ Persistência em PostgreSQL/Supabase e autenticação real já estão implementa
 - `/obras/obra-1/vagoes/v5`: não iniciado, aguardando liberação.
 - `/obras/obra-1/vagoes/v6`: 100% de progresso aguardando critério.
 - `/obras/obra-1/ifc`: modelos IFC, versões, quantitativo e visualizador.
-- `/obras/obra-1/federacao`: modelo federado e composições salvas.
+- `/obras/obra-1/federacao`: modelo federado (modelos do Orçamento 4D, quando a obra tem; arquivos do Obra 360 e composições salvas).
 - `/obras/obra-1/dividas`: gestão das dívidas.
 - `/obras/obra-1/importar`: Prevision.
 

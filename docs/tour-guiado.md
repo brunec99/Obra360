@@ -23,7 +23,7 @@ O sistema já tinha um tour: o "?" do cabeçalho escurece a tela e destaca, um p
 | Aba 4 · Curto prazo | `/obras/<id>/curto-prazo` | 44 |
 | Aba 5 · Terminalidade | `/obras/<id>/terminalidade` | 27 |
 | Arquivos IFC | `/obras/<id>/ifc` | 30 |
-| Modelo federado | `/obras/<id>/federacao` | 26 |
+| Modelo federado | `/obras/<id>/federacao` | 34 |
 | Integrações | `/obras/<id>/importar` | 15 |
 | Dívidas | `/obras/<id>/dividas` | 9 |
 | Configurações da obra | `/obras/<id>/configuracoes` | 35 |

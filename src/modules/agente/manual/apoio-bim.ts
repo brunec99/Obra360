@@ -1,7 +1,8 @@
 import type { ManualSection } from './types';
 
 /** Manual das duas telas de BIM do grupo Apoio (29/10/2026): "Arquivos IFC" (repositório, envio,
- * quantitativo e visualizador) e "Modelo federado" (composição e exploração da cena). Escrito a partir
+ * quantitativo e visualizador) e "Modelo federado" (modelos do Orçamento 4D, desde 27/11/2026, composição e
+ * exploração da cena). Escrito a partir
  * do código das telas e dos tours "Como usar"; descreve só o que está implementado. */
 export const sections: ManualSection[] = [
   {
@@ -206,6 +207,74 @@ O quadro "Elemento selecionado" mostra a classe IFC, o "Name", o "GlobalId" e o 
 - "Nenhuma versão armazenada nesta obra": envie um IFC em algum modelo primeiro.`,
   },
   {
+    id: 'federacao-orcamento-4d',
+    title: 'Modelo federado: modelos do Orçamento 4D, corte, medição e seleção',
+    summary:
+      'A fonte "Modelos do Orçamento 4D" do federado: ligar e desligar disciplinas, cor, opacidade, caixa de corte, medir e ver os dados da peça.',
+    keywords: [
+      'orçamento 4d',
+      'modelos do orçamento 4d',
+      'fonte dos modelos',
+      'caixa de corte',
+      'cortar o modelo',
+      'medir',
+      'medição',
+      'distância',
+      'selecionar peça',
+      'elemento selecionado',
+      'propriedades',
+      'quantitativos',
+      'opacidade',
+      'ligar e desligar disciplina',
+      'desmarcadas somem',
+      'recentralizar',
+      'ajustar à seleção',
+    ],
+    screen: 'federacao',
+    body: `## Duas fontes de modelos
+O "Modelo federado" (grupo "Apoio", endereço terminado em /federacao) tem duas fontes, trocadas pelos botões logo abaixo do título:
+- **"Modelos do Orçamento 4D"**: todos os modelos IFC que a obra tem no sistema Orçamento 4D, carregados de uma vez, sempre na revisão atual de lá. É a que abre quando a obra tem modelos no Orçamento 4D. O número ao lado do botão é a quantidade de modelos.
+- **"Arquivos IFC do Obra 360"**: os modelos enviados em "Arquivos IFC", com a escolha de versões, "Carregar conjunto" e as composições salvas (ver as seções "federacao-montar-conjunto" e "federacao-explorar-cena").
+
+Os botões só aparecem quando a obra tem modelos no Orçamento 4D. A ligação é pelo nome da obra (sem diferenciar acentos nem maiúsculas): hoje têm modelos lá Atmos, Bioma, Blentt, Brizz, Essenza, Mozine e Tauá. Obra sem modelo no Orçamento 4D mostra só a tela de arquivos, como antes. Obras privadas do Orçamento 4D nunca aparecem aqui.
+
+## O que entra na cena
+Nada é copiado: o Obra 360 lê os modelos direto do Orçamento 4D. Quando um IFC é reenviado lá, a revisão nova aparece aqui ao reabrir a tela. Só entram modelos prontos; modelo ainda sem geometria aparece na lista em cinza, sem caixa para ligar. A faixa acima da cena mostra "N modelos · N elementos · N MB de geometria": a geometria é baixada na primeira vez e fica guardada neste navegador, então as próximas aberturas são rápidas. Durante a carga aparece "Carregando modelos x/N…".
+
+Não dá para enviar, renomear ou apagar modelo do Orçamento 4D pelo Obra 360: isso é feito lá. Aqui não existem composições salvas nem escolha de versão para essa fonte.
+
+## Navegar e selecionar
+Arraste para girar, role para aproximar, arraste com o botão direito para deslocar. Um clique numa peça a seleciona (fica azul), abre o painel dela à direita e faz a câmera girar em torno dela. Peça de um conjunto (barra de guarda-corpo, degrau de escada) seleciona o conjunto inteiro; com Alt pressionado, só a peça. O botão do canto inferior direito ("Recentralizar a vista") enquadra todos os modelos visíveis ou, com a caixa de corte ligada, a caixa.
+
+## Painel "Modelos"
+Clique no título "Modelos N" para abrir a lista (com mais de 4 modelos ela começa recolhida). Em cada disciplina:
+- a caixa liga e desliga o modelo;
+- o quadrado de cor pinta o modelo inteiro com a cor escolhida;
+- a barra ajusta a opacidade, de 10% a 100%.
+
+Disciplina desligada vira um vulto bem transparente, só para referência, e não pega o clique: dá para selecionar o que está embutido nela (um eletroduto dentro da parede). Com "Desmarcadas somem em vez de ficar transparentes" marcado, ela some por completo. Disciplina ligada com opacidade abaixo de 100% também deixa o clique passar quando há algo opaco atrás. "Enquadrar tudo" ajusta a câmera; "Resetar" volta cores, opacidade e visibilidade ao original. Essas escolhas ficam guardadas neste navegador, por modelo: outra pessoa ou outro computador não as vê, e nada muda no Orçamento 4D.
+
+## "Caixa de corte"
+A chave ao lado do título liga a caixa (na primeira vez aparece "Alinhando a caixa às paredes do prédio…", porque ela é girada para acompanhar o prédio, e não os eixos do arquivo). A caixa recorta todos os modelos ao mesmo tempo:
+- as três barras ("Altura", "Comprimento", "Largura") têm dois cursores cada, início e fim, com as medidas em metros a partir da base do conjunto;
+- as bolinhas coloridas nas faces da caixa podem ser arrastadas direto no 3D;
+- "Ajustar à seleção" fecha a caixa em volta da peça selecionada (sem peça selecionada, pede "Clique numa peça do 3D para ajustar a caixa a ela.");
+- "Modelo inteiro" reabre a caixa no tamanho do conjunto.
+Desligar a chave remove o corte. O corte não fica salvo.
+
+## "Medir"
+A chave liga a medição. Com ela ligada, o clique marca pontos em vez de selecionar: clique em dois pontos do modelo. O ponto encaixa em vértices (verde) e arestas (laranja); sem um deles por perto, fica na superfície (roxo). Cada medida aparece na lista com a distância e, ao lado, "H" (horizontal, no plano do piso) e "V" (vertical, diferença de altura), em metros com duas casas. O X apaga uma medida; "Limpar medidas" apaga todas; Esc cancela o primeiro ponto. Desligar a medição apaga as medidas: elas não ficam salvas.
+
+## Painel do elemento
+Mostra o nome da peça, o modelo e o arquivo, a classe IFC, o tipo, o pavimento, o material, a classificação e o GlobalId. A aba "Quantitativos" lista as medidas que vieram no IFC (selo "IFC") e as calculadas pela geometria (selo "geometria"); "Propriedades (N)" lista as propriedades da peça somadas às do tipo. "Elemento sem registro no banco" aparece em geometria auxiliar do arquivo. O X fecha e limpa a seleção. Os vínculos com o orçamento e os custos não aparecem aqui: ficam no Orçamento 4D.
+
+## Avisos
+- "Não foi possível consultar o Orçamento 4D": use "Tentar novamente"; a fonte "Arquivos IFC do Obra 360" continua funcionando.
+- "O modelo recebeu uma revisão nova no Orçamento 4D. Recarregue a página.": o IFC foi reenviado lá enquanto a tela estava aberta.
+- "WebGL não está disponível neste navegador": troque de navegador ou ative a aceleração gráfica.
+- Esta fonte não tem cores por pavimento ou classe, filtro de pavimento nem busca de elementos por nome: isso existe na fonte "Arquivos IFC do Obra 360".`,
+  },
+  {
     id: 'federacao-montar-conjunto',
     title: 'Modelo federado: montar, carregar e salvar composições',
     summary:
@@ -230,6 +299,8 @@ O quadro "Elemento selecionado" mostra a classe IFC, o "Name", o "GlobalId" e o 
     screen: 'federacao',
     body: `## Para que serve
 A tela "Modelo federado" reúne versões de vários modelos IFC da obra (arquitetura, estrutura, instalações…) numa mesma cena 3D, para a análise virtual dos projetos: disciplinas sobrepostas, isoladas ou cortadas, com consulta de peças. Fica no grupo "Apoio" da lateral (o endereço termina em /federacao). Ela depende de "Arquivos IFC": só entra na cena uma versão que já tem dados transcritos e geometria 3D. O botão "Arquivos IFC" do cabeçalho leva para lá.
+
+Nas obras que têm modelos no Orçamento 4D, a tela abre na fonte "Modelos do Orçamento 4D" (seção "federacao-orcamento-4d"). O que esta seção descreve é a fonte "Arquivos IFC do Obra 360": clique nesse botão, logo abaixo do título, para chegar a ela.
 
 ## Quem vê e quem pode
 Módulo liberado por pessoa: aparece para administradores, desenvolvedores e pessoas com "Modelo federado" liberado em "Configurações" (liberação separada da de "Arquivos IFC"); sem liberação, o endereço leva ao Dashboard da obra (aba 0). O perfil de consulta monta, carrega e explora o conjunto e abre composições salvas, mas não salva: no lugar do formulário aparece "Seu perfil permite consultar e explorar as composições salvas.". Planejador, gestor e administrador salvam.
@@ -275,7 +346,7 @@ Módulo liberado por pessoa: aparece para administradores, desenvolvedores e pes
     ],
     screen: 'federacao',
     body: `## A cena
-O painel "Explorar o conjunto" mostra a cena e, no selo do canto, o estado: "Aguardando seleção", "Carregando", "Conjunto carregado", "Falha na visualização" ou "WebGL indisponível". Arraste para orbitar, role para aproximar e clique numa peça para selecioná-la (fica em âmbar).
+Esta seção vale para a fonte "Arquivos IFC do Obra 360"; a fonte "Modelos do Orçamento 4D" tem painéis próprios (seção "federacao-orcamento-4d"). O painel "Explorar o conjunto" mostra a cena e, no selo do canto, o estado: "Aguardando seleção", "Carregando", "Conjunto carregado", "Falha na visualização" ou "WebGL indisponível". Arraste para orbitar, role para aproximar e clique numa peça para selecioná-la (fica em âmbar).
 
 ## Controles acima da cena
 - "Cores": "Por modelo" (cor fixa por modelo, a mesma em todas as versões dele), "Por pavimento" ou "Por classe IFC" (cor do grupo, igual em todos os modelos). Nesses dois casos, a "Legenda do conjunto completo", no rodapé, lista a cor e a quantidade de cada grupo, contando também modelos ocultos.

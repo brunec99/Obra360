@@ -1,0 +1,545 @@
+/* Visualizador do Modelo federado (modelos do Orçamento 4D). Os painéis flutuam sobre o 3D, como lá.
+ * Tudo fica sob `.f3d`: são estilos de formulário densos (faixa dupla, rótulos de medida criados pelo
+ * viewer) que não devem vazar para o resto do sistema. */
+.f3d {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--color-slate-50) 0%, var(--color-slate-200) 100%);
+  font-size: 12px;
+  color: var(--color-slate-700);
+}
+.f3d-canvas {
+  position: absolute;
+  inset: 0;
+}
+.f3d-canvas canvas {
+  display: block;
+  outline: none;
+}
+.f3d .f3d-meta {
+  color: var(--color-slate-500);
+  font-size: 12px;
+}
+.f3d button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.f3d button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* coluna de painéis à esquerda */
+.f3d-esquerda {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 24px);
+  pointer-events: none;
+}
+.f3d-esquerda > * {
+  pointer-events: auto;
+}
+.f3d-painel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 14px rgba(13, 31, 43, 0.1);
+}
+.f3d-painel.f3d-modelos {
+  flex-shrink: 1;
+  overflow-y: auto;
+}
+.f3d-painel.f3d-corte,
+.f3d-painel.f3d-medicao {
+  flex-shrink: 0;
+}
+.f3d-painel.f3d-corte.ativo {
+  border-color: #2563eb;
+}
+.f3d-painel.f3d-medicao.ativo {
+  border-color: #c026d3;
+}
+.f3d-titulo {
+  min-height: 28px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  text-align: left;
+}
+.f3d-titulo strong {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-slate-500);
+}
+.f3d-linha-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.f3d-chave {
+  display: inline-flex;
+  align-items: center;
+}
+.f3d-chave input {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+}
+.f3d-medicao .f3d-chave input {
+  accent-color: #c026d3;
+}
+
+/* linha de cada modelo: liga/desliga, cor, opacidade */
+.f3d-camada {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--color-slate-100);
+}
+.f3d-camada:last-of-type {
+  border-bottom: 0;
+}
+.f3d-camada label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  cursor: pointer;
+}
+.f3d-camada input[type='checkbox'],
+.f3d-opcao input[type='checkbox'] {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-primary);
+}
+.f3d-camada-nome {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.f3d-camada.sem-geometria .f3d-camada-nome {
+  color: var(--color-slate-400);
+}
+.f3d-camada input[type='color'] {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--color-slate-300);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+}
+.f3d-camada input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.f3d-camada input[type='color']::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+.f3d-camada input[type='color'].sem-cor {
+  opacity: 0.45;
+}
+.f3d-camada input[type='range'] {
+  flex-shrink: 0;
+  width: 70px;
+  accent-color: var(--color-primary);
+}
+.f3d-pct {
+  flex-shrink: 0;
+  width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.f3d-opcao {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 0 1px;
+  font-size: 11px;
+  color: var(--color-slate-500);
+  cursor: pointer;
+}
+.f3d-acoes {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.f3d-acoes button {
+  flex: 1;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-slate-700);
+}
+.f3d-acoes button:hover:not(:disabled) {
+  border-color: var(--color-primary-ring);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-ink);
+}
+.f3d-dica {
+  padding: 4px 0 2px;
+}
+
+/* caixa de corte: uma faixa com dois cursores por eixo */
+.f3d-eixo {
+  padding: 4px 0 2px;
+  border-bottom: 1px solid var(--color-slate-100);
+}
+.f3d-eixo-rotulo {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.f3d-eixo-rotulo i,
+.f3d-legenda i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+.f3d-eixo-rotulo .f3d-meta {
+  font-variant-numeric: tabular-nums;
+}
+.f3d-faixa {
+  position: relative;
+  height: 22px;
+}
+.f3d-faixa::before {
+  position: absolute;
+  top: 9px;
+  right: 0;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-slate-200);
+  content: '';
+}
+.f3d-faixa-trilho {
+  position: absolute;
+  top: 9px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--cor);
+}
+.f3d-faixa input[type='range'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.f3d-faixa input[type='range']::-webkit-slider-runnable-track {
+  height: 22px;
+  background: none;
+}
+.f3d-faixa input[type='range']::-moz-range-track {
+  background: none;
+}
+.f3d-faixa input[type='range']::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  border: 2px solid var(--cor);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(13, 31, 43, 0.25);
+  cursor: grab;
+  pointer-events: auto;
+  -webkit-appearance: none;
+}
+.f3d-faixa input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--cor);
+  border-radius: 50%;
+  background: #fff;
+  cursor: grab;
+  pointer-events: auto;
+}
+.f3d-faixa input[type='range']:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--cor);
+  outline-offset: 2px;
+}
+
+/* medição */
+.f3d-legenda {
+  display: flex;
+  gap: 10px;
+  padding-bottom: 4px;
+  font-size: 11px;
+  color: var(--color-slate-500);
+}
+.f3d-legenda i {
+  margin-right: 4px;
+}
+.f3d-medida {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 0;
+  border-top: 1px solid var(--color-slate-100);
+  font-variant-numeric: tabular-nums;
+}
+.f3d-medida b {
+  font-size: 13px;
+  color: var(--color-slate-800);
+}
+.f3d-medida .f3d-meta:last-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.f3d-medida button {
+  margin-left: auto;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--color-slate-400);
+}
+.f3d-medida button:hover {
+  color: var(--color-danger);
+}
+/* rótulos das medidas sobre o 3D (criados e posicionados pelo viewer a cada quadro) */
+.f3d .medidas-rotulos {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.f3d .medida-rotulo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #a21caf;
+  box-shadow: 0 1px 4px rgba(13, 31, 43, 0.25);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  white-space: nowrap;
+  will-change: transform;
+}
+.f3d .medida-rotulo.provisoria {
+  background: rgba(162, 28, 175, 0.78);
+}
+
+/* botão de recentralizar e avisos */
+.f3d-flutuante {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(13, 31, 43, 0.12);
+  color: var(--color-slate-700);
+}
+.f3d-flutuante:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: #fff;
+  color: var(--color-primary);
+}
+.f3d-avisos {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: min(440px, calc(100% - 76px));
+}
+.f3d-status {
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+}
+.f3d-status.erro {
+  border-color: var(--color-danger-ring);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.f3d-vazio {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  font-size: 14px;
+  text-align: center;
+  color: var(--color-slate-600);
+}
+
+/* painel do elemento selecionado */
+.f3d-elemento {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 360px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 76px);
+  overflow: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(13, 31, 43, 0.14);
+  font-size: 13px;
+}
+.f3d-elemento-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-slate-900);
+}
+.f3d-elemento-cabecalho strong {
+  overflow-wrap: anywhere;
+}
+.f3d-elemento-cabecalho button {
+  flex-shrink: 0;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-slate-500);
+}
+.f3d-elemento-cabecalho button:hover {
+  background: var(--color-slate-100);
+}
+.f3d-elemento p {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.f3d-guid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.f3d-abas {
+  display: flex;
+  gap: 4px;
+  margin: 12px 0 6px;
+}
+.f3d-abas button {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--color-slate-700);
+}
+.f3d-abas button.ativa {
+  border-color: var(--color-primary-ring);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-ink);
+}
+.f3d-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.f3d-tabela td {
+  padding: 4px 6px 4px 0;
+  border-top: 1px solid var(--color-slate-100);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.f3d-tabela td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.f3d-selo {
+  display: inline-flex;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--color-success-soft);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-success);
+  white-space: nowrap;
+}
+.f3d-selo.geometria {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+@media (max-width: 900px) {
+  .f3d-esquerda {
+    top: 8px;
+    left: 8px;
+    gap: 6px;
+    width: calc(100% - 16px);
+    max-width: none;
+  }
+  .f3d-painel.f3d-corte {
+    max-height: 60%;
+    overflow-y: auto;
+  }
+  .f3d-dica.so-largo {
+    display: none;
+  }
+  .f3d-elemento {
+    top: auto;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+    max-width: none;
+    max-height: 55%;
+  }
+  .f3d-flutuante {
+    right: 8px;
+    bottom: 8px;
+    width: 44px;
+    height: 44px;
+  }
+}

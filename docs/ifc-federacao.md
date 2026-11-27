@@ -225,3 +225,81 @@ Na conferência de 15/10/2026, a Blentt já tinha 49 modelos e 75 versões envia
 ## Tour guiado (20/10/2026)
 
 Arquivos IFC (30 passos) e Modelo federado (26) ganharam tour "Como usar" cobrindo cada botão e campo, incluindo o seccionamento (`tourId` em `section-controls.tsx`: `ifc-section` e `federation-section`). Só marcações `data-tour`, sem mudança de comportamento. Detalhes em [tour-guiado.md](tour-guiado.md).
+
+## Modelos do Orçamento 4D no federado (27/11/2026)
+
+O usuário pediu para trazer ao Modelo federado os modelos que já estão no sistema Orçamento 4D e as ferramentas do 3D de lá: visualização, corte, medidas, seleção de objetos e o menu de modelos (liga/desliga e opacidade).
+
+### Comportamento entregue
+
+A tela `/obras/{obraId}/federacao` passou a ter **duas fontes de modelos**, trocadas por dois botões abaixo do título:
+
+- **Modelos do Orçamento 4D** (abre por padrão quando a obra tem modelos lá): todos os modelos prontos da obra entram na cena de uma vez, na revisão atual do Orçamento 4D, com os painéis flutuantes do visualizador de lá.
+- **Arquivos IFC do Obra 360**: a tela das etapas anteriores, sem mudança (escolha de versões, Carregar conjunto, composições salvas, cores por modelo/pavimento/classe, busca de elementos, seccionamento por plano).
+
+Obra sem modelo no Orçamento 4D não mostra os botões: a tela é a de arquivos, como antes.
+
+Na fonte Orçamento 4D:
+
+1. **Modelos**: uma linha por disciplina, com caixa de ligar/desligar, cor e opacidade (10% a 100%). Desligada, a disciplina vira vulto transparente ou some (opção "Desmarcadas somem em vez de ficar transparentes") e deixa de ser clicável; com opacidade abaixo de 100% o clique também a atravessa quando há algo opaco atrás. "Enquadrar tudo" e "Resetar".
+2. **Caixa de corte**: seis planos numa caixa girada para acompanhar o prédio (o giro sai das faces das paredes), ajustada por três faixas de dois cursores (Altura, Comprimento, Largura) ou pelas alças nas faces, no 3D. "Ajustar à seleção" e "Modelo inteiro".
+3. **Medir**: distância entre dois pontos com encaixe em vértice, aresta ou superfície, com as componentes horizontal e vertical; lista de medidas, apagar uma, limpar todas, Esc cancela.
+4. **Seleção**: o clique pinta a peça de azul, a câmera passa a girar em torno dela e o painel à direita mostra nome, modelo, classe, tipo, pavimento, material, classificação, GlobalId, quantitativos (do IFC e da geometria) e propriedades (da peça somadas às do tipo). Peça de conjunto seleciona o conjunto; com Alt, só a peça.
+5. **Recentralizar**: enquadra os modelos visíveis ou a caixa de corte.
+
+Cor, opacidade e o modo das desmarcadas ficam no navegador (`localStorage`, chaves `obra360:federado:estilo:{modelo}` e `obra360:federado:ocultos`). Corte, medidas, seleção e visibilidade são da sessão.
+
+### De onde vêm os dados
+
+O Orçamento 4D usa o mesmo banco (Supabase `takt-hub`), no schema `orcamento`. **Nada é copiado e nada é gravado lá**: o Obra 360 lê, no servidor e com a chave de serviço, `orcamento.empreendimentos`, `obras_privadas`, `modelos_ifc`, `elementos_ifc`, `tipos_ifc` e a função `orcamento.geometria_parte` (a geometria Fragments fica em `orcamento.geometrias`, em partes de 2 MB). **Sem migração.**
+
+- **Ligação da obra:** pelo nome, sem acento nem caixa (`matchOrcamentoObra`). Em 27/11/2026 casam Atmos, Bioma, Blentt, Brizz, Essenza, Mozine e Tauá; Nova Sede, SEPAT e Sonatta não têm modelos lá. Empreendimento listado em `orcamento.obras_privadas` nunca casa, e dois empreendimentos com o mesmo nome também não.
+- **Autorização:** a do Obra 360, não a do Orçamento 4D: módulo "Modelo federado" liberado e a obra entre as da pessoa (`orcamentoAccess`). Toda rota confere que o modelo pedido é da obra ligada; id de modelo de outra obra responde 404.
+- **Rotas** (todas `GET`, sob `/api/ifc`, que o proxy já libera para o módulo):
+  - `/api/ifc/orcamento?workId=` → `{ obra, models }` (só modelos com `status = 'pronto'`);
+  - `/api/ifc/orcamento/geometria?workId=&modeloId=&revisao=&parte=` → bytes de uma parte; 409 se a revisão pedida não é a atual;
+  - `/api/ifc/orcamento/elemento?workId=&modeloId=&expressId=` → `{ element }` (`null` para geometria sem linha no banco);
+  - `/api/ifc/orcamento/conjuntos?workId=&modeloId=` → `{ pairs }` (peça, conjunto).
+- **Geometria no navegador:** as partes são baixadas quatro por vez, juntadas e guardadas na Cache API (`obra360-federado-v1`) por modelo, revisão e número de partes; revisão nova apaga a anterior. Três modelos são abertos por vez.
+
+### Decisões
+
+- **Ler em vez de copiar.** Os dois sistemas dividem o banco, e a geometria de uma obra tem de 27 a 68 MB: copiar para o Storage do Obra 360 dobraria o espaço e deixaria duas revisões para manter.
+- **O visualizador foi copiado do Orçamento 4D**, não reescrito: `Visualizador.ts`, `medicao.ts` e `orientacao.ts` vieram de `~/Orçamento-4D/app/src/viewer` (commit `ae6a175`), com os nomes em português para as duas cópias poderem ser comparadas. Saiu o que é só de lá: linha do tempo 5D, cores da Claudia, destaque do item da EAP, isolamento e a conversão de `.ifc` no navegador. As regras puras da medição foram para `medicao-regras.ts`, sem three.js.
+- **Dependências novas:** `@thatopen/components` 3.4.8 e `camera-controls` 3.1.2, fixadas nas versões do Orçamento 4D. O `@thatopen/fragments` continua em 3.4.7: o `^3.4.8` do npm puxaria o 3.6 e os `.frag` das duas bases foram gerados com o 3.4.
+- **A tela antiga ficou como segunda fonte**, intacta. Unificar os dois visualizadores fica para depois, se fizer sentido.
+- three.js e o That Open só são carregados no navegador, quando a cena abre (`import()` dentro do efeito).
+
+### Arquivos
+
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `src/domain/orcamento-models.ts` | Regras puras: ligação da obra pelo nome, modelos prontos, conferência de parâmetros, junção das partes, formato do elemento |
+| `src/infrastructure/orcamento/ifc-models.ts` | Leitura do schema `orcamento` e autorização (`orcamentoAccess`) |
+| `src/app/api/ifc/orcamento/**/route.ts` | As quatro rotas |
+| `src/modules/federacao/federation-hub.tsx` | Troca de fonte, cabeçalho e ajuda da fonte Orçamento 4D |
+| `src/modules/federacao/orcamento/scene.tsx` | Cena, painéis (Modelos, Caixa de corte, Medir) e painel do elemento |
+| `src/modules/federacao/orcamento/visualizador.ts` | Cena 3D, pintura, clique, caixa de corte e medição (cópia adaptada) |
+| `src/modules/federacao/orcamento/medicao.ts`, `medicao-regras.ts`, `orientacao.ts` | Desenho e regras da medição; giro do prédio |
+| `src/modules/federacao/orcamento/geometry.ts` | Download em partes e cache no navegador |
+| `src/modules/federacao/orcamento/visualizador.css` | Estilos dos painéis, sob `.f3d` |
+| `tests/orcamento-models.test.ts`, `tests/federado-medicao.test.ts`, `tests/federado-orientacao.test.ts` | 21 testes |
+
+Tour "Como usar" do federado com 8 passos novos (`federado-*`), pulados quando a outra fonte está aberta. Manual da Claudia com a seção `federacao-orcamento-4d` e remissões nas duas seções antigas.
+
+### Validação
+
+- Sequência do `ci.yml` local: `verify:portal-kit`, `typecheck`, `lint` (34 avisos, os mesmos de antes), `format:check`, `npm test` (1.880 testes, 21 novos), `validate:migrations`, `build` e `test:e2e` (10 de fumaça), todos aprovados.
+- **Rotas reais com dados reais (só leitura):** `next dev` local com um Supabase de teste que respondia o perfil e repassava ao banco de produção apenas as leituras do schema `orcamento` e o nome da obra. Lista do Blentt (16 modelos, 145.900 elementos), parte de geometria (200, `application/octet-stream`), elemento com propriedades, conjuntos; parte fora do intervalo e revisão antiga (409), modelo do Atmos pedido pela obra Blentt (404), obra que não é da pessoa (403), parâmetro inválido (400).
+- **Tela no navegador (Chromium sem tela, WebGL por software) com os 16 modelos do Blentt:** carga em cerca de 20 s; desligar a Arquitetura (vulto e sumir); cor e opacidade da Estrutura gravadas no navegador; Resetar; clique selecionou a laje "L1" da Estrutura com quantitativos e 13 propriedades; caixa de corte ligada, faixa de altura reduzida, "Ajustar à seleção" fechou a caixa na laje; duas medidas com horizontal e vertical, apagar uma, desligar; troca para "Arquivos IFC do Obra 360" e volta; largura de 390 px sem rolagem horizontal; nenhum erro no console.
+- **Não validado:** uso logado em produção, arrasto das alças da caixa com o mouse, toque em celular real e as obras maiores (Tauá, 19 modelos e 68 MB; Atmos, 275 mil elementos) no navegador de quem usa.
+
+### Limites e pendências
+
+- A ligação é pelo nome da obra. Se uma obra for renomeada num dos sistemas, a fonte Orçamento 4D deixa de aparecer; um vínculo explícito em Configurações da obra resolveria e fica como próxima etapa se houver caso.
+- A fonte Orçamento 4D não tem cores por pavimento/classe, filtro de pavimento, busca de elementos por texto nem composições salvas; a fonte de arquivos não tem caixa de corte nem medição.
+- Vínculos com o orçamento, custos e o 5D continuam só no Orçamento 4D.
+- Modelo enviado no Orçamento 4D depois de a tela aberta só aparece ao recarregar.
+- O visualizador é uma cópia: correções feitas no Orçamento 4D precisam ser trazidas à mão.
+- A marca "That Open Company" aparece no canto da cena; vem da biblioteca, como no Orçamento 4D.
+

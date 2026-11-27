@@ -3,7 +3,48 @@ import type { TourStep } from '../tours';
 export const steps: TourStep[] = [
   {
     title: 'Modelo federado',
-    body: 'Reúna versões dos modelos IFC da obra numa mesma cena para a análise virtual dos projetos. A cena só muda quando você carrega o conjunto.',
+    body: 'Os modelos IFC da obra numa mesma cena, para a análise virtual dos projetos. Quando a obra tem modelos no Orçamento 4D, a tela abre com todos eles; os arquivos enviados no Obra 360 ficam na outra fonte, onde a cena só muda quando você carrega o conjunto.',
+  },
+  // Fonte "Modelos do Orçamento 4D": os passos abaixo só aparecem com ela aberta (o tour pula alvo fora da tela).
+  {
+    target: 'federado-fonte',
+    title: 'De onde vêm os modelos',
+    body: '"Modelos do Orçamento 4D" mostra, de uma vez, todos os modelos que a obra tem no Orçamento 4D, na revisão atual de lá. "Arquivos IFC do Obra 360" mostra os enviados em Arquivos IFC, com escolha de versões e composições salvas.',
+  },
+  {
+    target: 'federado-ajuda',
+    title: 'Como funciona',
+    body: 'Abre a explicação da tela: de onde vêm os modelos, o que cada painel faz e o que fica guardado só neste navegador.',
+  },
+  {
+    target: 'federado-cena',
+    title: 'A cena',
+    body: 'Arraste para girar, role para aproximar e arraste com o botão direito para deslocar. Clique numa peça para selecioná-la (fica azul) e ver os dados dela; a câmera passa a girar em torno da peça.',
+  },
+  {
+    target: 'federado-modelos',
+    title: 'Modelos: ligar, cor e opacidade',
+    body: 'Clique no título para abrir a lista. A caixa de cada disciplina liga e desliga o modelo, o quadrado troca a cor e a barra ajusta a opacidade. Desligada, a disciplina fica como um vulto transparente (ou some, se você marcar a opção no fim da lista) e não pega o clique: dá para selecionar o que está embutido nela. "Resetar" volta tudo ao original.',
+  },
+  {
+    target: 'federado-corte',
+    title: 'Caixa de corte',
+    body: 'Liga uma caixa alinhada às paredes do prédio que recorta todos os modelos. Ajuste Altura, Comprimento e Largura pelas barras ou arraste as bolinhas nas faces da caixa, direto no 3D. "Ajustar à seleção" fecha a caixa em volta da peça selecionada; "Modelo inteiro" reabre.',
+  },
+  {
+    target: 'federado-medir',
+    title: 'Medir',
+    body: 'Com a medição ligada, clique em dois pontos do modelo: o ponto encaixa em vértices (verde) e arestas (laranja), senão fica na superfície. A lista mostra a distância e as componentes horizontal e vertical. Esc cancela o primeiro ponto; desligar apaga as medidas.',
+  },
+  {
+    target: 'federado-elemento',
+    title: 'Elemento selecionado',
+    body: 'Os dados da peça clicada: modelo e arquivo, classe IFC, tipo, pavimento, material e GlobalId. "Quantitativos" traz as medidas do IFC e as calculadas pela geometria; "Propriedades", as propriedades da peça e do tipo. O X limpa a seleção.',
+  },
+  {
+    target: 'federado-recentralizar',
+    title: 'Recentralizar',
+    body: 'Enquadra todos os modelos visíveis; com a caixa de corte ligada, enquadra a caixa.',
   },
   {
     target: 'federation-help',

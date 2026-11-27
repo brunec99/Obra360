@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Layers, Play, Save, Search, CheckCircle2, AlertCircle, FolderOpen, ArrowUpRight } from 'lucide-react';
 import { usePlanning } from '@/modules/planejamento/planning-provider';
 import { Callout, Empty, LoadState, Missing } from '@/modules/planejamento/ui';
@@ -22,7 +22,8 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export function FederationOverview({ workId }: { workId: string }) {
+/** `sourceSwitch`: a troca de fonte (Orçamento 4D × arquivos daqui), quando a obra tem as duas; ver federation-hub.tsx. */
+export function FederationOverview({ workId, sourceSwitch }: { workId: string; sourceSwitch?: ReactNode }) {
   const context = usePlanning();
   const { toast } = useToast();
   // Os rótulos de abrir e salvar ficam fora dos campos para caber a ajuda ao lado do texto.
@@ -212,6 +213,7 @@ export function FederationOverview({ workId }: { workId: string }) {
           </Link>
         </div>
       </header>
+      {sourceSwitch}
       <details className="panel mb-5 group" data-tour="federation-saved">
         <summary className="flex min-h-14 cursor-pointer flex-wrap items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-800">
           <FolderOpen size={18} className="text-primary" aria-hidden />
