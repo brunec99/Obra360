@@ -10,7 +10,14 @@ import {
   type SiengeOption,
 } from '../src/domain/daily-report';
 import {
+  describeSiengeUser,
+  isSiengeUserCodeFormat,
   matchSiengeUsers,
+  normalizeSiengeUserCode,
+  normalizeSiengeUsers,
+  maskEmail,
+  takeSiengeUserCheck,
+  type SiengeUser,
   SIENGE_SHIFT,
   SIENGE_WEATHER,
   buildSiengeDailyReport,
@@ -375,20 +382,98 @@ test('parâmetros do anexo: local e relatório só com o local ligado ao Sienge'
   assert.deepEqual(siengePhotoQuery(photo('p-1', { localId: 'loc-apagado' }), LOCALS), { description: 'Concretagem' });
 });
 
-test('usuário do Sienge: sugere o código pelo primeiro nome ou pelo e-mail, o mais parecido primeiro', () => {
-  const codes = ['JENNEFER.SIATKOVSKI', 'JONATAN.SILVA', 'JORGE.PEREIRA', 'JORGE.SANTOS', 'ANA.SOUZA', 'ADMIN'];
-  assert.deepEqual(matchSiengeUsers({ name: 'Jennefer Siatkovski', email: 'jennefer.engenharia@atrincorporadora.com.br' }, codes), [
-    'JENNEFER.SIATKOVSKI',
+const siengeUser = (id: string, extra: Partial<SiengeUser> = {}): SiengeUser => ({ id, name: '', email: '', active: true, ...extra });
+
+test('usuário do Sienge: sugere pelo primeiro nome ou pelo e-mail, o mais parecido primeiro, com o nome do dono', () => {
+  const users = ['JENNEFER.SIATKOVSKI', 'JONATAN.SILVA', 'JORGE.PEREIRA', 'JORGE.SANTOS', 'ANA.SOUZA', 'ADMIN'].map(id =>
+    siengeUser(id, { name: id.toLowerCase() }),
+  );
+  const codes = (person: { name: string; email?: string | null }) => matchSiengeUsers(person, users).map(match => match.code);
+  assert.deepEqual(matchSiengeUsers({ name: 'Jennefer Siatkovski', email: 'jennefer.engenharia@atrincorporadora.com.br' }, users), [
+    { code: 'JENNEFER.SIATKOVSKI', name: 'jennefer.siatkovski' },
   ]);
   // Nome cadastrado diferente ("Jonatam"), mas o e-mail acha.
-  assert.deepEqual(matchSiengeUsers({ name: 'Jonatam', email: 'jonatan.engenharia@atrincorporadora.com.br' }, codes), ['JONATAN.SILVA']);
+  assert.deepEqual(codes({ name: 'Jonatam', email: 'jonatan.engenharia@atrincorporadora.com.br' }), ['JONATAN.SILVA']);
   // Dois Jorges: o que tem mais partes do nome vem antes.
-  assert.deepEqual(matchSiengeUsers({ name: 'Jorge Lucas Pereira', email: 'jorge.engenharia@atrincorporadora.com.br' }, codes), [
+  assert.deepEqual(codes({ name: 'Jorge Lucas Pereira', email: 'jorge.engenharia@atrincorporadora.com.br' }), [
     'JORGE.PEREIRA',
     'JORGE.SANTOS',
   ]);
   // Acento e caixa não atrapalham; nome curto demais e "engenharia" do e-mail não contam.
-  assert.deepEqual(matchSiengeUsers({ name: 'Ána Micrute', email: 'ana.engenharia@x.com' }, codes), ['ANA.SOUZA']);
-  assert.deepEqual(matchSiengeUsers({ name: 'Zé', email: 'engenharia@x.com' }, codes), []);
-  assert.deepEqual(matchSiengeUsers({ name: 'Pedro', email: null }, codes), []);
+  assert.deepEqual(codes({ name: 'Ána Micrute', email: 'ana.engenharia@x.com' }), ['ANA.SOUZA']);
+  assert.deepEqual(codes({ name: 'Zé', email: 'engenharia@x.com' }), []);
+  assert.deepEqual(codes({ name: 'Pedro', email: null }), []);
+});
+
+test('usuário do Sienge: o mesmo e-mail vem antes de tudo, e desativado nunca é sugerido', () => {
+  const users = [
+    siengeUser('JORGE.PEREIRA', { name: 'Jorge Pereira' }),
+    siengeUser('JLP', { name: 'Jorge Lucas Pereira', email: 'Jorge.Engenharia@ATRincorporadora.com.br' }),
+    siengeUser('JORGE.SANTOS', { name: 'Jorge Santos', active: false }),
+  ];
+  assert.deepEqual(matchSiengeUsers({ name: 'Jorge Lucas Pereira', email: 'jorge.engenharia@atrincorporadora.com.br' }, users), [
+    { code: 'JLP', name: 'Jorge Lucas Pereira' },
+    { code: 'JORGE.PEREIRA', name: 'Jorge Pereira' },
+  ]);
+});
+
+test('usuário do Sienge: o que a pessoa digita vira o id, e lixo não vira chamada', () => {
+  assert.equal(normalizeSiengeUserCode('  amanda.camargo '), 'AMANDA.CAMARGO');
+  assert.equal(normalizeSiengeUserCode(null), '');
+  for (const good of ['AMANDA.CAMARGO', 'VITORIANEVES', 'yuri.florencio', 'ERICA-SILVA', 'A1'])
+    assert.equal(isSiengeUserCodeFormat(good), true, good);
+  for (const bad of ['', ' ', 'A', '.AMANDA', 'amanda camargo', 'amanda@atr.com.br', 'x'.repeat(51)])
+    assert.equal(isSiengeUserCodeFormat(bad), false, JSON.stringify(bad));
+});
+
+test('usuário do Sienge: a lista do Sienge sai limpa (maiúsculas, sem repetido, sem item sem id)', () => {
+  assert.deepEqual(
+    normalizeSiengeUsers([
+      { id: 'amanda.camargo', name: ' Amanda Camargo ', email: 'amanda@atr.com.br', active: true },
+      { id: 'AMANDA.CAMARGO', name: 'Repetida', active: true },
+      { id: 'RAFAEL', name: 'Rafael', active: false },
+      { name: 'Sem id' },
+      null,
+    ]),
+    [
+      { id: 'AMANDA.CAMARGO', name: 'Amanda Camargo', email: 'amanda@atr.com.br', active: true },
+      { id: 'RAFAEL', name: 'Rafael', email: '', active: false },
+    ],
+  );
+});
+
+test('usuário do Sienge: não encontrado e desativado dizem coisas diferentes; o encontrado mostra o nome do dono', () => {
+  const missing = describeSiengeUser('ana.souza', null);
+  const inactive = describeSiengeUser('RAFAEL', siengeUser('RAFAEL', { name: 'Rafael', active: false }));
+  assert.equal(missing.state, 'not_found');
+  assert.equal(inactive.state, 'inactive');
+  assert.notEqual(missing.message, inactive.message);
+  assert.match(inactive.message, /desativado/);
+  const found = describeSiengeUser(' fabiana.mildemberg ', siengeUser('FABIANA.MILDEMBERG', { name: 'Fabiana Meira' }));
+  assert.deepEqual(
+    { code: found.code, state: found.state, name: found.name },
+    { code: 'FABIANA.MILDEMBERG', state: 'found', name: 'Fabiana Meira' },
+  );
+  assert.match(found.message, /Confirme que é você: Fabiana Meira/);
+  // Sem nome no cadastro, a confirmação usa o e-mail mascarado (não entrega o de outra pessoa), não uma frase vazia.
+  assert.equal(describeSiengeUser('YURI', siengeUser('YURI', { email: 'yuri@atr.com.br' })).name, 'y***@atr.com.br');
+  assert.equal(describeSiengeUser('SEM.NADA', siengeUser('SEM.NADA')).name, 'SEM.NADA');
+  assert.equal(describeSiengeUser('amanda camargo', null).state, 'invalid');
+});
+
+test('usuário do Sienge: e-mail mascarado e limite de conferências por pessoa contra varredura', () => {
+  assert.equal(maskEmail(' yuri.florencio@atrincorporadora.com.br '), 'y***@atrincorporadora.com.br');
+  assert.equal(maskEmail('semarroba'), '');
+  assert.equal(maskEmail(''), '');
+  const limit = { max: 3, windowMs: 1000 };
+  let history: number[] = [];
+  for (const at of [0, 100, 200]) {
+    const slot = takeSiengeUserCheck(history, at, limit);
+    assert.equal(slot.allowed, true);
+    history = slot.history;
+  }
+  assert.equal(takeSiengeUserCheck(history, 300, limit).allowed, false);
+  // Passada a janela, as antigas saem e volta a poder.
+  const later = takeSiengeUserCheck(history, 1100, limit);
+  assert.deepEqual(later, { allowed: true, history: [200, 1100] });
 });

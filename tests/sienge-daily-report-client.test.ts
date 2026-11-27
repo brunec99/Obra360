@@ -7,7 +7,9 @@ import {
   createDailyReport,
   deleteDailyReport,
   findDailyReportByDate,
+  findSiengeUser,
   listDailyReportTypes,
+  listSiengeUsers,
   listSites,
   normalizeDailyTypes,
   latin1QueryValue,
@@ -342,4 +344,44 @@ test('sem as variáveis do Sienge nada é chamado', async () => {
   delete process.env.SIENGE_API_PASSWORD;
   await assert.rejects(createDailyReport(BODY), (error: unknown) => error instanceof SiengeError && error.status === 503);
   assert.equal(calls.length, 0);
+});
+
+test('usuários do Sienge: lê /users em páginas, guarda uma hora e não relê a cada conferência', async () => {
+  const page = Array.from({ length: 200 }, (_, i) => ({ id: `user.${i}`, name: `Pessoa ${i}`, active: true }));
+  replies.push(json({ results: page }), json({ results: [{ id: 'amanda.camargo', name: 'Amanda Camargo', active: true }] }));
+  const users = await listSiengeUsers();
+  assert.equal(users.length, 201);
+  assert.deepEqual(
+    calls.map(call => [path(call), query(call).offset]),
+    [
+      ['/users', '0'],
+      ['/users', '200'],
+    ],
+  );
+  assert.deepEqual(await findSiengeUser(' Amanda.Camargo '), { id: 'AMANDA.CAMARGO', name: 'Amanda Camargo', email: '', active: true });
+  // Acabou de ler: não achar não relê, e "Verificar de novo" dentro de 60 s também não.
+  assert.equal(await findSiengeUser('NINGUEM'), null);
+  assert.equal(await findSiengeUser('NINGUEM', { live: true }), null);
+  assert.equal(calls.length, 2);
+});
+
+test('usuários do Sienge: quem acabou de ganhar acesso é achado relendo, respeitando a trava de 60 s', async () => {
+  replies.push(json({ results: [{ id: 'ANA', name: 'Ana', active: true }] }));
+  await listSiengeUsers();
+  const realNow = Date.now;
+  Date.now = () => realNow() + 61_000;
+  try {
+    replies.push(
+      json({
+        results: [
+          { id: 'ANA', active: true },
+          { id: 'NOVO.USUARIO', name: 'Novo', active: true },
+        ],
+      }),
+    );
+    assert.equal((await findSiengeUser('novo.usuario'))?.name, 'Novo');
+    assert.equal(calls.length, 2);
+  } finally {
+    Date.now = realNow;
+  }
 });

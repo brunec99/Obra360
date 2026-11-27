@@ -30,7 +30,7 @@ import {
   isIsoDate,
   type HeadcountEntry,
 } from '../../domain/headcount';
-import { isDailyTime } from '../../domain/sienge-daily-report';
+import { isDailyTime, isSiengeUserCodeFormat } from '../../domain/sienge-daily-report';
 
 /** Regras do Diário de Obra (2.4), 24/11/2026. Mesmo desenho do histograma (`headcount-commands.ts`): o
  * comando chega como JSON, `parseDailyReportCommand` confere a forma, `planDailyReportCommand` aplica as
@@ -522,6 +522,7 @@ export function planDailyReportCommand(
       const code = command.code.trim().toUpperCase();
       if (code.length > DAILY_LIMITS.siengeUserCode) fail(`Usuário do Sienge: até ${DAILY_LIMITS.siengeUserCode} caracteres.`);
       if (!/^[A-Z0-9._-]*$/.test(code)) fail('Usuário do Sienge: use só letras, números, ponto, hífen e sublinhado.');
+      if (code && !isSiengeUserCodeFormat(code)) fail('Usuário do Sienge: comece por letra ou número e use de 2 a 50 caracteres.');
       mutation.siengeUser = { userId: ctx.actorId, code };
       return mutation;
     }

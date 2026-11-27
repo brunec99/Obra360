@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { crewsOfDay, markDailyReportError, markDailyReportSent } from '@/application/use-cases/daily-report-commands';
 import type { DailyPhoto, DailyReport, DailySendResult } from '@/domain/daily-report';
-import { buildSiengeDailyReport } from '@/domain/sienge-daily-report';
+import { buildSiengeDailyReport, describeSiengeUser } from '@/domain/sienge-daily-report';
 import { DAILY_UUID, dailyBody, dailyError, dailyGate, dailyHeaders, dailyText } from '@/infrastructure/daily-report-support';
 import { SIENGE_NOT_CONFIGURED, siengeConfigFromEnv, SiengeError } from '@/infrastructure/integrations/sienge/client';
-import { createDailyReport, findDailyReportByDate, listDailyReportTypes } from '@/infrastructure/integrations/sienge/daily-report';
+import {
+  createDailyReport,
+  findDailyReportByDate,
+  findSiengeUser,
+  listDailyReportTypes,
+} from '@/infrastructure/integrations/sienge/daily-report';
 import { logRouteError } from '@/infrastructure/log';
 import {
   DailyReportConflictError,
@@ -76,6 +81,17 @@ export async function POST(request: Request) {
     });
     if (built.blocking.length || !built.body || siengeBuildingId === null)
       return dailyError(built.blocking[0] ?? 'O diário não está pronto para o envio.', 400, { blocking: built.blocking });
+
+    // O login ligado precisa continuar ativo no Sienge: desativado depois da ligação, o diário sairia assinado
+    // por quem não tem mais acesso. Se a lista do Sienge não responder, segue (o login foi conferido ao ligar).
+    const responsible = await findSiengeUser(siengeUserCode).catch(() => undefined);
+    if (responsible !== undefined) {
+      const check = describeSiengeUser(siengeUserCode, responsible);
+      if (check.state !== 'found') {
+        const message = `Seu usuário do Sienge (${check.code}) não pode assinar o diário. ${check.message} Corrija em "Ligações com o Sienge".`;
+        return dailyError(message, 400, { blocking: [message] });
+      }
+    }
 
     const existing = await findDailyReportByDate(siengeBuildingId, report.date);
     if (existing !== null)

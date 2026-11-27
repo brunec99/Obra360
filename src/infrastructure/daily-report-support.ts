@@ -4,10 +4,15 @@ import { DAILY_READ_ONLY_MESSAGE, type DailySupport, type SiengeOption } from '@
 import type { User } from '@/domain/entities';
 import type { HeadcountEntry } from '@/domain/headcount';
 import { requireModuleAccess } from '@/infrastructure/auth/supabase-server';
-import { siengeConfigFromEnv, SiengeError } from '@/infrastructure/integrations/sienge/client';
-import { listDailyReportTypes, listDailyResponsibles, listSites } from '@/infrastructure/integrations/sienge/daily-report';
-import { matchSiengeUsers } from '@/domain/sienge-daily-report';
-import { todayInSaoPaulo } from '@/infrastructure/clock';
+import { SIENGE_NOT_CONFIGURED, siengeConfigFromEnv, SiengeError } from '@/infrastructure/integrations/sienge/client';
+import { findSiengeUser, listDailyReportTypes, listSiengeUsers, listSites } from '@/infrastructure/integrations/sienge/daily-report';
+import {
+  describeSiengeUser,
+  isSiengeUserCodeFormat,
+  matchSiengeUsers,
+  type SiengeUser,
+  type SiengeUserCheck,
+} from '@/domain/sienge-daily-report';
 import { logRouteError } from '@/infrastructure/log';
 import {
   loadCompanyLinks,
@@ -44,10 +49,10 @@ export async function dailyBody(request: Request): Promise<Record<string, unknow
 }
 export const dailyText = (value: unknown) => (typeof value === 'string' ? value : '');
 
-type SiengeLists = Pick<
-  DailySupport,
-  'siengeConfigured' | 'eventTypes' | 'crewTypes' | 'equipmentTypes' | 'sites' | 'supportError' | 'siengeUsers'
->;
+type SiengeLists = Pick<DailySupport, 'siengeConfigured' | 'eventTypes' | 'crewTypes' | 'equipmentTypes' | 'sites' | 'supportError'> & {
+  /** Usuários do Sienge, só para sugerir o "Sou eu" no servidor: a lista não vai para a tela. */
+  users: SiengeUser[];
+};
 
 /** As listas do Sienge para a tela. Tudo aqui é opcional: sem as variáveis, sem empreendimento ligado ou
  * com o Sienge fora, as listas vêm vazias (`sites: null`) e `supportError` diz o porquê em uma frase.
@@ -55,11 +60,11 @@ type SiengeLists = Pick<
  * vem nulo e a tela liga o local pelo código. */
 export async function loadSiengeLists(buildingId: number | null, context: Record<string, unknown> = {}): Promise<SiengeLists> {
   const empty = { eventTypes: [] as SiengeOption[], crewTypes: [] as SiengeOption[], equipmentTypes: [] as SiengeOption[], sites: null };
-  const noUsers: string[] = [];
+  const noUsers: SiengeUser[] = [];
   if (!siengeConfigFromEnv())
     return {
       ...empty,
-      siengeUsers: noUsers,
+      users: noUsers,
       siengeConfigured: false,
       supportError: 'O Sienge não está configurado no servidor: as listas do Sienge não foram carregadas.',
     };
@@ -71,11 +76,10 @@ export async function loadSiengeLists(buildingId: number | null, context: Record
   const [types, sites, users] = await Promise.allSettled([
     listDailyReportTypes(),
     buildingId === null ? Promise.resolve(null) : listSites(buildingId),
-    listDailyResponsibles(todayInSaoPaulo()),
+    listSiengeUsers(),
   ]);
   // A lista de usuários é só sugestão: se falhar, a pessoa digita o código e nada é avisado.
-  if (users.status === 'rejected' && !(users.reason instanceof SiengeError))
-    logRouteError('diario listDailyResponsibles', users.reason, context);
+  if (users.status === 'rejected' && !(users.reason instanceof SiengeError)) logRouteError('diario listSiengeUsers', users.reason, context);
   const errors: string[] = [];
   if (types.status === 'rejected') errors.push(reason(types.reason, 'os tipos de ocorrência, equipe e equipamento'));
   if (sites.status === 'rejected') errors.push(reason(sites.reason, 'os locais'));
@@ -83,10 +87,28 @@ export async function loadSiengeLists(buildingId: number | null, context: Record
   return {
     ...(types.status === 'fulfilled' ? types.value : empty),
     sites: sites.status === 'fulfilled' ? sites.value : null,
-    siengeUsers: users.status === 'fulfilled' ? users.value : noUsers,
+    users: users.status === 'fulfilled' ? users.value : noUsers,
     siengeConfigured: true,
     supportError: errors.join(' '),
   };
+}
+
+/** Procura o login do Sienge que a pessoa digitou e diz, em texto para a tela, se ele existe, está ativo e de
+ * quem é. Formato inválido não chega ao Sienge. Sem as variáveis (503) ou com o Sienge fora (502), devolve a
+ * resposta de erro pronta. `live` = "Verificar de novo". */
+export async function checkSiengeUser(
+  typed: string,
+  context: Record<string, unknown>,
+  { live = false }: { live?: boolean } = {},
+): Promise<SiengeUserCheck | NextResponse> {
+  if (!isSiengeUserCodeFormat(typed)) return describeSiengeUser(typed, null);
+  if (!siengeConfigFromEnv()) return dailyError(SIENGE_NOT_CONFIGURED, 503);
+  try {
+    return describeSiengeUser(typed, await findSiengeUser(typed, { live }));
+  } catch (error) {
+    if (!(error instanceof SiengeError)) logRouteError('diario checkSiengeUser', error, context);
+    return dailyError('Não foi possível conferir o usuário no Sienge agora. Tente de novo em instantes.', 502);
+  }
 }
 
 const distinct = (values: string[]) =>
@@ -102,7 +124,7 @@ export async function loadDailySupport(
 ): Promise<DailySupport> {
   const profileId = person.id;
   const siengeBuildingId = await loadSiengeBuildingId(workId);
-  const [lists, locals, companyLinks, commitments, siengeUserCode] = await Promise.all([
+  const [{ users, ...lists }, locals, companyLinks, commitments, siengeUserCode] = await Promise.all([
     loadSiengeLists(siengeBuildingId, { actorId: profileId, workId }),
     loadDailyLocals(workId),
     loadCompanyLinks(),
@@ -118,6 +140,6 @@ export async function loadDailySupport(
     roles: distinct(headcount.map(entry => entry.role)),
     commitments,
     siengeUserCode,
-    siengeUserMatches: siengeUserCode ? [] : matchSiengeUsers(person, lists.siengeUsers),
+    siengeUserMatches: siengeUserCode ? [] : matchSiengeUsers(person, users),
   };
 }

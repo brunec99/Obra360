@@ -63,7 +63,6 @@ const support = (over: Partial<DailySupport> = {}): DailySupport => ({
   roles: ['Pedreiro'],
   commitments: [],
   siengeUserCode: 'MARIA.EXEMPLO',
-  siengeUsers: ['MARIA.EXEMPLO'],
   siengeUserMatches: [],
   ...over,
 });

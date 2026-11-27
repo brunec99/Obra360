@@ -235,24 +235,119 @@ const tokens = (text: string) =>
     .split(/[^a-z0-9]+/)
     .filter(token => token.length >= 3 && !NOT_NAME.has(token));
 
-/** Os códigos de usuário do Sienge que parecem ser da pessoa, o mais provável primeiro (no máximo 3). O
- * código do Sienge costuma ser NOME.SOBRENOME ("JENNEFER.SIATKOVSKI"): exige que a primeira parte do código
- * seja o primeiro nome da pessoa ou a primeira parte do e-mail ("jonatan.engenharia@" acha "JONATAN.SILVA",
- * mesmo com o nome cadastrado como "Jonatam"), e cada outra parte que também bate soma pontos. Puro. */
-export function matchSiengeUsers(person: { name: string; email?: string | null }, codes: readonly string[]): string[] {
+/** Um usuário do Sienge (`GET /users`). `id` é o login, em maiúsculas ("AMANDA.CAMARGO"). */
+export interface SiengeUser {
+  id: string;
+  name: string;
+  email: string;
+  active: boolean;
+}
+
+/** Ids do Sienge são maiúsculos: o que a pessoa digita vira o id. Puro. */
+export const normalizeSiengeUserCode = (text: unknown) =>
+  String(text ?? '')
+    .trim()
+    .toUpperCase();
+
+/** Formato plausível de id (o mesmo do formulário de compras). Não diz que existe: diz que vale procurar, e
+ * impede que lixo vire chamada ao Sienge. Puro. */
+export const isSiengeUserCodeFormat = (text: unknown) => /^[A-Z0-9][A-Z0-9._-]{1,49}$/.test(normalizeSiengeUserCode(text));
+
+/** A lista de `GET /users` limpa: id em maiúsculas, sem repetidos e sem itens sem id. Puro. */
+export function normalizeSiengeUsers(results: readonly unknown[]): SiengeUser[] {
+  const byId = new Map<string, SiengeUser>();
+  for (const raw of results) {
+    if (!raw || typeof raw !== 'object') continue;
+    const { id, name, email, active } = raw as { id?: unknown; name?: unknown; email?: unknown; active?: unknown };
+    const code = typeof id === 'string' ? normalizeSiengeUserCode(id) : '';
+    if (!code || byId.has(code)) continue;
+    byId.set(code, {
+      id: code,
+      name: typeof name === 'string' ? name.trim() : '',
+      email: typeof email === 'string' ? email.trim() : '',
+      active: active === true,
+    });
+  }
+  return [...byId.values()];
+}
+
+/** O e-mail só com a primeira letra antes do @ ("y***@atr.com.br"). Puro. */
+export function maskEmail(email: string): string {
+  const [local = '', domain = ''] = email.trim().split('@');
+  return local && domain ? `${local[0]}***@${domain}` : '';
+}
+/** Como chamar o dono do login na confirmação: o nome; sem nome, o e-mail mascarado; sem nada, o login. */
+const ownerLabel = (user: SiengeUser) => user.name || maskEmail(user.email) || user.id;
+
+/** Limite de conferências de login por pessoa: quem confere o próprio login usa duas ou três; mais que isso
+ * em poucos minutos é varredura da lista de usuários do Sienge. Devolve se pode e o histórico novo (só as
+ * conferências dentro da janela). Puro. */
+export const SIENGE_USER_CHECK_LIMIT = { max: 10, windowMs: 10 * 60 * 1000 };
+export function takeSiengeUserCheck(history: readonly number[], now: number, limit = SIENGE_USER_CHECK_LIMIT) {
+  const recent = history.filter(at => now - at < limit.windowMs);
+  if (recent.length >= limit.max) return { allowed: false, history: recent };
+  return { allowed: true, history: [...recent, now] };
+}
+
+export type SiengeUserState = 'invalid' | 'not_found' | 'inactive' | 'found';
+export interface SiengeUserCheck {
+  code: string;
+  state: SiengeUserState;
+  message: string;
+  /** Nome (ou e-mail) do dono do login, para a pessoa confirmar que é ela. Só quando `found`. */
+  name?: string;
+}
+
+/** O que a tela diz depois de procurar o login, decidido num só lugar (como no formulário de compras, 05/09):
+ * "não existe" e "desativado" nunca viram a mesma frase, porque um se resolve criando o acesso e o outro
+ * reativando; e o encontrado mostra o NOME do dono, porque ligar o login de outra pessoa assinaria os diários
+ * no nome dela sem erro em lugar nenhum. Sem nome no cadastro, mostra o e-mail mascarado ("y***@atr.com.br"):
+ * basta para a própria pessoa se reconhecer e não entrega o e-mail de outra. Puro. */
+export function describeSiengeUser(typed: unknown, user: SiengeUser | null): SiengeUserCheck {
+  const code = normalizeSiengeUserCode(typed);
+  if (!isSiengeUserCodeFormat(code))
+    return { code, state: 'invalid', message: 'Digite o seu usuário do Sienge, sem espaços. Por exemplo: MARIA.SILVA.' };
+  if (!user)
+    return {
+      code,
+      state: 'not_found',
+      message:
+        'Não encontramos esse usuário no Sienge. Confira se digitou certo. Se o seu acesso acabou de ser criado, use "Verificar de novo".',
+    };
+  if (!user.active)
+    return {
+      code,
+      state: 'inactive',
+      message: `O usuário ${user.id} existe no Sienge, mas está desativado. Fale com quem cuida do seu acesso e depois use "Verificar de novo".`,
+    };
+  const name = ownerLabel(user);
+  return { code, state: 'found', name, message: `Encontramos ${user.id} no Sienge. Confirme que é você: ${name}.` };
+}
+
+/** Os usuários ativos do Sienge que parecem ser da pessoa, o mais provável primeiro (no máximo 3), com o
+ * nome do dono para o "Sou eu". O mesmo e-mail é certeza e vem antes de tudo. Sem ele, o login do Sienge
+ * costuma ser NOME.SOBRENOME ("JENNEFER.SIATKOVSKI"): exige que a primeira parte seja o primeiro nome da
+ * pessoa ou a primeira parte do e-mail ("jonatan.engenharia@" acha "JONATAN.SILVA", mesmo com o nome
+ * cadastrado como "Jonatam"), e cada outra parte que também bate soma pontos. Puro. */
+export function matchSiengeUsers(
+  person: { name: string; email?: string | null },
+  users: readonly SiengeUser[],
+): { code: string; name: string }[] {
+  const email = (person.email ?? '').trim().toLowerCase();
   const nameTokens = tokens(person.name);
-  const emailTokens = tokens((person.email ?? '').split('@')[0] ?? '');
+  const emailTokens = tokens(email.split('@')[0] ?? '');
   const firsts = new Set([nameTokens[0], emailTokens[0]].filter(Boolean));
   const all = new Set([...nameTokens, ...emailTokens]);
-  if (!firsts.size) return [];
-  return codes
-    .map(code => {
-      const parts = tokens(code);
+  return users
+    .filter(user => user.active)
+    .map(user => {
+      if (email && user.email.toLowerCase() === email) return { user, score: 100 };
+      const parts = tokens(user.id);
       if (!parts.length || !firsts.has(parts[0])) return null;
-      return { code, score: 2 + parts.slice(1).filter(part => all.has(part)).length };
+      return { user, score: 2 + parts.slice(1).filter(part => all.has(part)).length };
     })
-    .filter((item): item is { code: string; score: number } => item !== null)
-    .sort((a, b) => b.score - a.score || a.code.localeCompare(b.code))
+    .filter((item): item is { user: SiengeUser; score: number } => item !== null)
+    .sort((a, b) => b.score - a.score || a.user.id.localeCompare(b.user.id))
     .slice(0, 3)
-    .map(item => item.code);
+    .map(({ user }) => ({ code: user.id, name: ownerLabel(user) }));
 }
