@@ -527,6 +527,12 @@ export async function applyLobMutation(mutation: LobMutation): Promise<void> {
       throw new Error(`Falha ao gravar em ${CALENDAR_TABLE}: ${error.message}`);
     }
   }
+  // A linha de base automática vai antes de qualquer mudança (27/11/2026): a gravação não é uma transação,
+  // e se falhar no meio de uma edição de pacote, a foto das datas de antes já está salva para restaurar.
+  if (mutation.insert.baselines.length) {
+    const { error } = await client.from(TABLE_NAMES.baselines).insert(mutation.insert.baselines.map(r => toRow('baselines', r)));
+    check(error, `gravar em ${TABLE_NAMES.baselines}`, 'baselines');
+  }
   for (const table of DELETE_ORDER) {
     for (const ids of chunks(mutation.delete[table], DELETE_BATCH)) {
       const { error } = await client.from(TABLE_NAMES[table]).delete().in('id', ids).eq('work_id', mutation.workId);
@@ -535,7 +541,7 @@ export async function applyLobMutation(mutation: LobMutation): Promise<void> {
   }
   for (const table of INSERT_ORDER) {
     const records = mutation.insert[table] as AnyRecord[];
-    if (!records.length) continue;
+    if (!records.length || table === 'baselines') continue;
     // Custos em blocos (até 3000 por gravação); as demais tabelas seguem numa requisição só.
     for (const batch of table === 'costs' ? chunks(records, COST_BATCH) : [records]) {
       const { error } = await client.from(TABLE_NAMES[table]).insert(batch.map(r => toRow(table, r)));

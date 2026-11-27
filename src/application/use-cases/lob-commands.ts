@@ -1345,11 +1345,31 @@ export function planLobCommand(data: LobData, command: LobCommand, context: LobC
       }
       const removed = new Set(command.links.remove);
       const lags = new Map(command.links.update.map(u => [u.dependencyId, u.lagDays]));
-      const restored: LobDependency[] = command.links.restore.map(d => ({ ...d, workId, createdAt: d.createdAt ?? now }));
-      const finalDeps = [
-        ...data.dependencies.filter(d => !removed.has(d.id)).map(d => (lags.has(d.id) ? { ...d, lagDays: lags.get(d.id)! } : d)),
-        ...restored,
-      ];
+      // As ligações que voltam passam pelas mesmas regras de add_dependency (27/11/2026): entre a edição e o
+      // Desfazer outra pessoa pode ter ligado os mesmos blocos, e devolver às cegas gravaria ciclo ou par
+      // repetido em silêncio. A data original vale (o script do Prevision separa as ligações por ela), mas
+      // nunca no futuro: ela vem do navegador.
+      let current = data.dependencies.filter(d => !removed.has(d.id));
+      const restored: LobDependency[] = [];
+      for (const d of command.links.restore) {
+        const pred = known.get(d.predecessorId)!;
+        const succ = known.get(d.successorId)!;
+        if (pred.id === succ.id) fail('Uma das ligações a desfazer liga o bloco a ele mesmo. Recarregue a página.');
+        if (current.some(x => x.predecessorId === pred.id && x.successorId === succ.id))
+          fail(
+            `A ligação ${label(data, pred)} → ${label(data, succ)} já existe de novo. Recarregue a página e use a linha de base automática.`,
+          );
+        if (wouldCycle(current, pred.id, succ.id))
+          fail(
+            `Devolver ${label(data, pred)} → ${label(data, succ)} fecharia um ciclo. Recarregue a página e use a linha de base automática.`,
+          );
+        const original = d.createdAt ? Date.parse(d.createdAt) : NaN;
+        const createdAt = Number.isFinite(original) && original <= Date.parse(now) ? new Date(original).toISOString() : now;
+        const dependency: LobDependency = { ...d, workId, createdAt };
+        restored.push(dependency);
+        current = [...current, dependency];
+      }
+      const finalDeps = current.map(d => (lags.has(d.id) ? { ...d, lagDays: lags.get(d.id)! } : d));
       mutation.delete.dependencies.push(...command.links.remove);
       mutation.insert.dependencies.push(...restored);
       mutation.update.dependencies.push(...finalDeps.filter(d => lags.has(d.id)));
