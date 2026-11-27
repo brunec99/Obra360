@@ -179,3 +179,21 @@ test('blocos alterados: bloco apagado por outra pessoa e recriado pelo upsert é
   assert.deepEqual(recreatedRows([act(1)], [{ id: 'a1', created_at: 'sem data' }]), []);
   assert.deepEqual(recreatedRows([act(1)], [{ id: 'a1', created_at: reborn }]), [{ id: 'a1', created_at: reborn }]);
 });
+
+test('linha de base automática vai antes de qualquer mudança: falha no meio deixa a foto das datas salva', async () => {
+  const { applyLobMutation } = await import('../src/infrastructure/repositories/supabase/lob-repository');
+  const mutation = mutationOf([act(0)]);
+  mutation.insert.baselines = [
+    { id: 'b1', workId: 'w', name: 'Antes da edição do pacote', automatic: true, createdBy: 'u', createdAt: NOW, snapshot: [] },
+  ];
+  mutation.delete.dependencies = ['d1'];
+  const { error, calls } = await withFetch(
+    call => (call.method === 'DELETE' ? new Response('falhou', { status: 500 }) : echo(call)),
+    () => applyLobMutation(mutation),
+  );
+  assert.ok(error);
+  assert.deepEqual(
+    calls.map(call => `${call.method} ${call.url.pathname}`),
+    ['POST /rest/v1/lob_baselines', 'DELETE /rest/v1/lob_dependencies'],
+  );
+});

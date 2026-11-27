@@ -47,6 +47,9 @@ export async function GET(request: NextRequest) {
       .from('history_events')
       .select('*')
       .in('entity_id', allowed)
+      // A Linha de Balanço grava com entity_id = obra (27/11/2026) e tem rota própria, que exige o módulo
+      // do longo prazo: aqui ela não aparece para quem tem só vagões ou médio prazo.
+      .neq('entity_type', 'lob')
       .order('occurred_at', { ascending: false })
       .limit(limit);
     if (action) query = query.eq('action', action);

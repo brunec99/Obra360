@@ -365,6 +365,28 @@ test('edit_service grava a linha de base automática, as ligações e as datas; 
   );
 });
 
+test('revert_service_edit: a ligação que volta passa pelas regras de add_dependency (ciclo, repetida, ela mesma)', () => {
+  const data = obra();
+  const context = { actorId: 'u', now: NOW, today: TODAY, newId };
+  // A edição tirou R0→E0; depois outra pessoa ligou E0→R0. Devolver R0→E0 fecharia um ciclo.
+  const withoutLink = data.dependencies.filter(d => d.id !== 'R0>E0');
+  const revert = (dependencies: LobDependency[], restore: LobDependency[]) =>
+    planLobCommand(
+      { ...data, dependencies },
+      { type: 'revert_service_edit', workId: W, items: [], links: { remove: [], restore, update: [] } },
+      context,
+    );
+  assert.throws(() => revert([...withoutLink, dep('E0', 'R0')], [dep('R0', 'E0')]), /fecharia um ciclo/);
+  // Outra pessoa já religou o mesmo par (outro id): não grava repetida.
+  assert.throws(() => revert([...withoutLink, { ...dep('R0', 'E0'), id: 'outra' }], [dep('R0', 'E0')]), /já existe de novo/);
+  assert.throws(() => revert(withoutLink, [{ ...dep('R0', 'R0'), id: 'auto' }]), /a ele mesmo/);
+  // Sem conflito, volta com a data original; data no futuro (vinda do navegador) vira a de agora.
+  const back = revert(withoutLink, [dep('R0', 'E0', 0, 'fs', '2026-11-01T08:00:00.000Z')]);
+  assert.equal(back.insert.dependencies[0].createdAt, '2026-11-01T08:00:00.000Z');
+  const future = revert(withoutLink, [dep('R0', 'E0', 0, 'fs', '2099-01-01T00:00:00.000Z')]);
+  assert.equal(future.insert.dependencies[0].createdAt, NOW);
+});
+
 test('parseLobCommand: edit_service confere forma e limites', () => {
   const parsed = parseLobCommand({
     type: 'edit_service',

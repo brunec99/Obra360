@@ -5,7 +5,7 @@
 -- de ajustes do bootstrap. Monta do zero as 32 tabelas, as funções commit_planning e
 -- planning_snapshot, os gatilhos de imutabilidade e o bucket privado 'ifc' do Storage.
 --
--- GERADO AUTOMATICAMENTE — não edite à mão. Fonte: 59 migrações, de 0001_init.sql a 0059_daily_report.sql.
+-- GERADO AUTOMATICAMENTE — não edite à mão. Fonte: 60 migrações, de 0001_init.sql a 0060_history_events_entity_index.sql.
 -- Para regenerar depois de criar uma migração nova:  npm run bootstrap:sql
 --
 -- COMO USAR: só num projeto Supabase VAZIO (recém-criado). Abra o SQL Editor do projeto, cole o
@@ -7719,6 +7719,13 @@ begin
 end $$;
 
 notify pgrst, 'reload schema';
+
+-- ===== 0060_history_events_entity_index.sql =====
+
+-- Histórico por entidade, 27/11/2026: as leituras filtram por entity_id e ordenam por data (a gaveta
+-- "Histórico" da Linha de Balanço, a Claudia lendo as últimas alterações e o /api/history dos vagões), e a
+-- tabela só cresce. Sem índice, cada leitura varria a tabela inteira. Só cria índice: pode ser rodada de novo.
+create index if not exists history_events_entity_occurred_idx on history_events (entity_id, occurred_at desc);
 
 -- ===== Ajustes do bootstrap (gerados por scripts/build-bootstrap-sql.mjs; não são migração) =====
 
