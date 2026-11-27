@@ -8,7 +8,7 @@ import {
 } from '@/application/use-cases/daily-report-commands';
 import type { DailyCommandResult, DailyReportCommand, DailyReportMutation } from '@/domain/daily-report';
 import { commandContext } from '@/infrastructure/clock';
-import { dailyError, dailyGate, dailyHeaders } from '@/infrastructure/daily-report-support';
+import { checkSiengeUser, dailyError, dailyGate, dailyHeaders } from '@/infrastructure/daily-report-support';
 import { logRouteError } from '@/infrastructure/log';
 import {
   applyDailyMutation,
@@ -48,6 +48,15 @@ export async function POST(request: NextRequest) {
   // A ligação de empresa vale para todas as obras: só o administrador mexe.
   if (command.type === 'link_company' && !canAdminDailyReport(profile))
     return dailyError('Só o administrador liga a empresa ao tipo de equipe do Sienge.', 403);
+
+  // O login do Sienge só é gravado se existir e estiver ativo no Sienge (como no formulário de compras). A
+  // tela já conferiu e a pessoa confirmou o nome; aqui confere de novo, porque o comando pode ter ficado na
+  // fila do aparelho. Vazio é apagar a ligação e não precisa do Sienge.
+  if (command.type === 'set_sienge_user' && command.code.trim()) {
+    const check = await checkSiengeUser(command.code, { actorId: profile.id, workId });
+    if (check instanceof NextResponse) return check;
+    if (check.state !== 'found') return dailyError(check.message, 400, { siengeUser: check });
+  }
 
   try {
     // Diário ou foto de outra obra conta como não encontrado: a tela só manda o que está nela.

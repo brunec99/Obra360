@@ -3,9 +3,11 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, LoaderCircle, Send, TriangleAlert, X } from 'lucide-react';
 import { DAILY_LIMITS, type DailySupport } from '@/domain/daily-report';
+import { normalizeSiengeUserCode, type SiengeUserCheck } from '@/domain/sienge-daily-report';
 import { headcountKey } from '@/domain/headcount';
+import { checkSiengeUserCode, errorMessage } from './api';
 import type { Conference, DiarySideCommand } from './diary-model';
-import { Hint, inputClass, Label } from './diary-sections';
+import { Hint, inputClass } from './diary-sections';
 
 /* A conferência antes do envio (o que vai ao Sienge, os bloqueios e os avisos), o diálogo que conduz o envio
  * e o painel "Ligações com o Sienge". No protótipo este lugar mostrava o JSON de cada rota; na tela real, o
@@ -231,18 +233,110 @@ export function SendDialog({
 
 /* ---------- Ligações com o Sienge ---------- */
 
+/** Ligar o login do Sienge como no formulário de compras: a pessoa digita, o servidor confere no Sienge e
+ * mostra o NOME do dono, e só "Sim, sou eu" grava. A confirmação existe porque ligar o login de outra pessoa
+ * assinaria os diários no nome dela sem erro em lugar nenhum. O "Sou eu" das sugestões já mostra o nome. */
+function SiengeUserLink({
+  matches = [],
+  placeholder,
+  onCommand,
+}: {
+  matches?: { code: string; name: string }[];
+  placeholder: string;
+  onCommand: (command: DiarySideCommand) => void;
+}) {
+  const [code, setCode] = useState('');
+  const [check, setCheck] = useState<SiengeUserCheck | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const clean = normalizeSiengeUserCode(code);
+  const verify = async (live = false) => {
+    setBusy(true);
+    setError('');
+    try {
+      setCheck(await checkSiengeUserCode(clean, live));
+    } catch (cause) {
+      setCheck(null);
+      setError(errorMessage(cause, 'Não foi possível conferir o usuário no Sienge agora.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirm = (value: string) => {
+    onCommand({ type: 'set_sienge_user', code: value });
+    setCode('');
+    setCheck(null);
+  };
+  return (
+    <div className="grid gap-2">
+      {matches.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {matches.map(match => (
+            <button key={match.code} type="button" className="button-secondary min-h-11" onClick={() => confirm(match.code)}>
+              <Check size={16} aria-hidden />
+              Sou eu: {match.name} ({match.code})
+            </button>
+          ))}
+        </div>
+      )}
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={event => {
+          event.preventDefault();
+          if (clean && !busy) void verify();
+        }}
+      >
+        <input
+          className={`${inputClass} min-w-0 flex-1 basis-48`}
+          aria-label="Seu usuário no Sienge"
+          placeholder={placeholder}
+          autoCapitalize="characters"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={DAILY_LIMITS.siengeUserCode}
+          value={code}
+          onChange={event => {
+            setCode(event.target.value);
+            setCheck(null);
+            setError('');
+          }}
+        />
+        <button type="submit" className="button min-h-11" disabled={!clean || busy}>
+          {busy && <LoaderCircle size={16} className="animate-spin" aria-hidden />}
+          Conferir
+        </button>
+      </form>
+      {error && <Hint tone="warning">{error}</Hint>}
+      {check && (
+        <div role="status" className="grid gap-2">
+          <p className="text-sm">{check.message}</p>
+          {check.state === 'found' && (
+            <button type="button" className="button min-h-11 justify-self-start" onClick={() => confirm(check.code)}>
+              <Check size={16} aria-hidden />
+              Sim, sou eu
+            </button>
+          )}
+          {(check.state === 'not_found' || check.state === 'inactive') && (
+            <button
+              type="button"
+              className="button-secondary min-h-11 justify-self-start"
+              disabled={busy}
+              onClick={() => void verify(true)}
+            >
+              Verificar de novo
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Aviso no alto do diário enquanto a pessoa não ligou o usuário dela do Sienge. Ligar é obrigatório para
  * enviar (24/11/2026): sem o código, o Sienge gravaria o usuário da integração (SIENGEAPI) como responsável
- * de todos os diários. Oferece "Sou eu" com os códigos que parecem ser dela e uma lista com os códigos que já
- * assinam diários no Sienge, para não precisar digitar. */
+ * de todos os diários. Oferece "Sou eu" com os usuários do Sienge que parecem ser dela. */
 export function SiengeUserPrompt({ support, onCommand }: { support: DailySupport; onCommand: (command: DiarySideCommand) => void }) {
-  const [code, setCode] = useState('');
   const matches = support.siengeUserMatches ?? [];
-  const users = support.siengeUsers ?? [];
-  const clean = code.trim().toUpperCase();
-  const save = (value: string) => {
-    if (value) onCommand({ type: 'set_sienge_user', code: value });
-  };
   return (
     <section className="callout callout-warning grid gap-3" aria-labelledby="diario-usuario-sienge">
       <div className="grid gap-1">
@@ -254,44 +348,7 @@ export function SiengeUserPrompt({ support, onCommand }: { support: DailySupport
           Você faz isso uma vez só.
         </p>
       </div>
-      {matches.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {matches.map(match => (
-            <button key={match} type="button" className="button-secondary min-h-11" onClick={() => save(match)}>
-              <Check size={16} aria-hidden />
-              Sou eu: {match}
-            </button>
-          ))}
-        </div>
-      )}
-      <form
-        className="flex flex-wrap gap-2"
-        onSubmit={event => {
-          event.preventDefault();
-          save(clean);
-        }}
-      >
-        <input
-          className={`${inputClass} min-w-0 flex-1 basis-48`}
-          list="diario-usuarios-sienge"
-          aria-label="Seu usuário no Sienge"
-          placeholder={matches.length ? 'Ou digite outro código' : 'Ex.: MARIA.SILVA'}
-          autoCapitalize="characters"
-          autoComplete="off"
-          spellCheck={false}
-          maxLength={DAILY_LIMITS.siengeUserCode}
-          value={code}
-          onChange={event => setCode(event.target.value)}
-        />
-        <datalist id="diario-usuarios-sienge">
-          {users.map(user => (
-            <option key={user} value={user} />
-          ))}
-        </datalist>
-        <button type="submit" className="button min-h-11" disabled={!clean}>
-          Salvar
-        </button>
-      </form>
+      <SiengeUserLink matches={matches} placeholder={matches.length ? 'Ou digite o seu login' : 'Ex.: MARIA.SILVA'} onCommand={onCommand} />
     </section>
   );
 }
@@ -354,24 +411,17 @@ export function LinksPanel({
       </summary>
       <div className="grid gap-5 border-t border-slate-100 p-4">
         <div className="grid gap-2">
-          <Label text="Seu usuário no Sienge">
-            <CommitInput
-              type="text"
-              autoCapitalize="characters"
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={DAILY_LIMITS.siengeUserCode}
-              placeholder="Ex.: MARIA.SILVA"
-              list="diario-usuarios-sienge-ligacoes"
-              value={support.siengeUserCode}
-              onCommit={code => onCommand({ type: 'set_sienge_user', code: code.toUpperCase() })}
-            />
-          </Label>
-          <datalist id="diario-usuarios-sienge-ligacoes">
-            {(support.siengeUsers ?? []).map(user => (
-              <option key={user} value={user} />
-            ))}
-          </datalist>
+          <h3 className="text-sm font-semibold text-slate-800">Seu usuário no Sienge</h3>
+          <p className="text-sm text-slate-700">
+            {support.siengeUserCode ? (
+              <>
+                Ligado: <b>{support.siengeUserCode}</b>
+              </>
+            ) : (
+              'Ainda não ligado.'
+            )}
+          </p>
+          <SiengeUserLink placeholder={support.siengeUserCode ? 'Trocar por outro login' : 'Ex.: MARIA.SILVA'} onCommand={onCommand} />
           <Hint>
             É o login com que você entra no Sienge. Vai como responsável do diário e fica guardado no seu cadastro. Sem ele o envio fica
             bloqueado.

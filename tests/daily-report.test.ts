@@ -494,6 +494,8 @@ test('usuário do Sienge: aparado, em maiúsculas; vazio limpa', () => {
   refuses(() => plan(data(), { type: 'set_sienge_user', code: 'bruno santos' }), /só letras/);
   refuses(() => plan(data(), { type: 'set_sienge_user', code: 'bruno@atr' }), /só letras/);
   refuses(() => plan(data(), { type: 'set_sienge_user', code: 'x'.repeat(61) }), /60/);
+  refuses(() => plan(data(), { type: 'set_sienge_user', code: '.bruno' }), /2 a 50/);
+  refuses(() => plan(data(), { type: 'set_sienge_user', code: 'B' }), /2 a 50/);
 });
 
 test('crewsOfDay e lastCrewsBefore leem o histograma', () => {

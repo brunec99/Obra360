@@ -1,5 +1,5 @@
 import type { SiengeOption } from '@/domain/daily-report';
-import type { SiengeDailyReportBody } from '@/domain/sienge-daily-report';
+import { normalizeSiengeUserCode, normalizeSiengeUsers, type SiengeDailyReportBody, type SiengeUser } from '@/domain/sienge-daily-report';
 import { SiengeError, siengeRequest } from './client';
 import { enviarConsumo, novoContador, type ContadorSienge } from './consumo';
 
@@ -39,9 +39,10 @@ const remember = <T>(key: string, value: T): T => {
   cache.set(key, { until: Date.now() + CACHE_MS, value });
   return value;
 };
-/** Esvazia o cache de tipos e locais (testes; e depois de ligar a obra a outro empreendimento). */
+/** Esvazia o cache de tipos, locais e usuários (testes; e depois de ligar a obra a outro empreendimento). */
 export function clearDailyReportCache() {
   cache.clear();
+  usersLoadedAt = 0;
 }
 
 /* ---------- leituras ---------- */
@@ -128,24 +129,37 @@ export async function listSites(buildingId: number): Promise<SiengeOption[] | nu
   }
 }
 
-/** Os códigos de usuário do Sienge que assinam diários (o responsável dos diários de todas as obras no
- * último ano), em maiúsculas e sem o usuário da integração (SIENGEAPI). Servem de lista para cada pessoa
- * escolher o próprio código em vez de digitar. Uma hora na memória do processo: muda pouco e custa algumas
- * páginas. `today` é a data de hoje (`yyyy-MM-dd`). */
-export async function listDailyResponsibles(today: string): Promise<string[]> {
-  const hit = cached<string[]>('responsibles');
-  if (hit) return hit.value;
-  const from = new Date(`${today}T12:00:00Z`);
-  from.setUTCFullYear(from.getUTCFullYear() - 1);
-  const results = await counted(contador => collect(contador, BASE, { startDate: from.toISOString().slice(0, 10), endDate: today }));
-  const codes = new Set<string>();
-  for (const raw of results) {
-    const code = (raw as { responsibleId?: unknown } | null)?.responsibleId;
-    if (typeof code === 'string' && code.trim() && code.trim().toUpperCase() !== 'SIENGEAPI') codes.add(code.trim().toUpperCase());
-  }
-  const list = [...codes].sort((a, b) => a.localeCompare(b));
-  cache.set('responsibles', { until: Date.now() + 6 * CACHE_MS, value: list });
-  return list;
+/** Os usuários do Sienge (`GET /users`; 307 em 27/11/2026, duas páginas). Uma hora na memória do processo:
+ * muda pouco. Substitui a leitura dos diários do último ano (até 25 páginas), que só achava quem já tinha
+ * assinado diário. Não existe `GET /users/{id}`: o gateway corta o id no ponto (medido no formulário de
+ * compras, 05/09/2026), então conferir um login é procurar nesta lista. */
+export async function listSiengeUsers(): Promise<SiengeUser[]> {
+  const hit = cached<SiengeUser[]>('users');
+  return hit ? hit.value : reloadSiengeUsers();
+}
+
+const USERS_MS = 6 * CACHE_MS;
+/** Recarga ao vivo no máximo a cada 60 s: "Verificar de novo" clicado por dez pessoas não vira vinte chamadas. */
+const USERS_RELOAD_MS = 60_000;
+let usersLoadedAt = 0;
+async function reloadSiengeUsers(): Promise<SiengeUser[]> {
+  usersLoadedAt = Date.now();
+  const users = normalizeSiengeUsers(await counted(contador => collect(contador, '/users')));
+  cache.set('users', { until: Date.now() + USERS_MS, value: users });
+  return users;
+}
+
+/** O usuário do Sienge com esse login, ou nulo. Não achar na lista guardada é justamente o caso de quem
+ * acabou de ganhar acesso: antes de dizer que não existe, relê o Sienge (respeitando a trava de 60 s).
+ * `live` (o "Verificar de novo") relê mesmo achando, para pegar quem foi reativado. */
+export async function findSiengeUser(code: string, { live = false }: { live?: boolean } = {}): Promise<SiengeUser | null> {
+  const id = normalizeSiengeUserCode(code);
+  const find = (users: readonly SiengeUser[]) => users.find(user => user.id === id) ?? null;
+  const before = usersLoadedAt;
+  let user = find(await listSiengeUsers());
+  const justLoaded = usersLoadedAt !== before;
+  if ((!user || live) && !justLoaded && Date.now() - usersLoadedAt >= USERS_RELOAD_MS) user = find(await reloadSiengeUsers());
+  return user;
 }
 
 /** O número do diário que o Sienge já tem para o empreendimento na data, ou `null`. */

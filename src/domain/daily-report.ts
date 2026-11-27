@@ -269,12 +269,10 @@ export interface DailySupport {
   /** Código de usuário do Sienge de quem está logado; vazio se ainda não informou. Sem ele o envio é
    * impedido: é o que liga a pessoa ao Sienge (vai como responsável do diário). */
   siengeUserCode: string;
-  /** Códigos que já assinam diários no Sienge (os responsáveis dos diários do último ano), para a pessoa
-   * escolher o dela numa lista em vez de digitar. Vazio quando o Sienge não respondeu. */
-  siengeUsers: string[];
-  /** Os códigos dessa lista que parecem ser de quem está logado (pelo nome e pelo e-mail), o mais provável
-   * primeiro; a tela oferece "Sou eu". */
-  siengeUserMatches: string[];
+  /** Usuários ativos do Sienge que parecem ser de quem está logado (mesmo e-mail, ou nome e e-mail
+   * parecidos com o login), o mais provável primeiro, com o nome do dono: a tela oferece "Sou eu". A lista
+   * inteira de usuários do Sienge não vem para a tela. */
+  siengeUserMatches: { code: string; name: string }[];
 }
 
 export interface DailyDaySummary {

@@ -77,10 +77,17 @@ Obra 360 quando o sinal volta. Subir para o Obra 360 não é enviar ao Sienge.
     pública do Sienge só aceita usuário de integração (criado no Painel de Integrações), então o Sienge
     registra esse usuário como quem cadastrou o diário ("SIENGEAPI") em todos os envios; o que identifica a
     pessoa é o **responsável** (`responsibleId`), que vai com o código ligado. Enquanto a pessoa não liga, o
-    diário mostra no alto "Ligue seu usuário do Sienge", com "Sou eu: …" para os códigos que parecem ser dela
-    (`matchSiengeUsers`, pelo primeiro nome ou pelo e-mail) e uma lista com os responsáveis dos diários do
-    último ano no Sienge (`listDailyResponsibles`, uma hora em memória). A conferência bloqueia o envio sem o
-    código. Fazer o Sienge registrar a própria pessoa como quem cadastrou exigiria um usuário de integração
+    diário mostra no alto "Ligue seu usuário do Sienge", com "Sou eu: nome (código)" para os usuários ativos
+    que parecem ser dela (`matchSiengeUsers`: o mesmo e-mail primeiro, depois o primeiro nome ou o e-mail). A
+    conferência bloqueia o envio sem o código.
+    **27/11/2026: o código é conferido no Sienge, como no formulário de compras** (pedido do Thiago). A pessoa
+    digita, `POST /api/diario/usuario-sienge` procura o login em `GET /users` (`findSiengeUser`, lista inteira
+    em duas páginas, uma hora em memória; não existe `GET /users/{id}`) e devolve se existe, se está ativo e o
+    NOME do dono (`describeSiengeUser`). Só "Sim, sou eu" grava; o comando `set_sienge_user` confere de novo
+    no servidor (ele pode ter ficado na fila do aparelho) e recusa login inexistente ou desativado. Não achar
+    relê o Sienge (quem acabou de ganhar acesso), com trava de 60 s no processo; "Verificar de novo" força a
+    releitura. O envio recusa o diário se o login ligado foi desativado depois. A lista de usuários não vai
+    mais para a tela, e saiu a leitura dos diários do último ano (`listDailyResponsibles`, até 25 páginas). Fazer o Sienge registrar a própria pessoa como quem cadastrou exigiria um usuário de integração
     por pessoa, criado pelo administrador do Sienge, com a senha de cada um guardada no Obra 360; não foi
     feito.
 

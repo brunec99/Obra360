@@ -9,6 +9,7 @@ import type {
   DailySendPhotoResult,
   DailySendResult,
 } from '@/domain/daily-report';
+import type { SiengeUserCheck } from '@/domain/sienge-daily-report';
 
 /** Cliente do Diário de Obra (2.4), 24/11/2026. A tela só fala com `/api/diario/*`: a credencial do Sienge
  * fica no servidor. Leitura do dia, comandos, URL assinada das fotos (como na terminalidade) e as três
@@ -71,6 +72,9 @@ export const fetchDiary = (workId: string, date: string) =>
 /** POST /api/diario/commands?workId= */
 export const sendDiaryCommand = (workId: string, command: DailyReportCommand) =>
   post<DailyCommandResult>(`/api/diario/commands?workId=${encodeURIComponent(workId)}`, command);
+
+/** POST /api/diario/usuario-sienge: confere o login do Sienge digitado, sem gravar. `live` = "Verificar de novo". */
+export const checkSiengeUserCode = (code: string, live = false) => post<SiengeUserCheck>('/api/diario/usuario-sienge', { code, live });
 
 type UploadTicket = { path: string; signedUrl: string };
 export interface DiaryUploadKey {
