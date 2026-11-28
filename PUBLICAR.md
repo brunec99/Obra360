@@ -1,64 +1,67 @@
-# Publicar o Obra 360 em produção
+# PUBLICAR.md: publicação do Obra 360 em produção
 
-Protocolo para publicar uma versão do Obra 360 em `https://obra360.atrincorporadora.com.br` (servidor da ATR).
-Quem publica é o Bruno. Se você é o Claude do Bruno, siga este roteiro inteiro antes de cada publicação e
-pare onde ele manda parar.
+Instruções para o agente. Siga todas, na ordem, sempre que o usuário pedir para publicar em produção.
+Produção: `https://obra360.atrincorporadora.com.br`. A produção fica presa a um commit; ela só muda por este roteiro.
 
-A homologação (`planejamento-teste`) segue a `latest` sozinha. A produção não: ela fica presa a um commit e só
-muda quando alguém publica por aqui.
-
-## O comando
-
-O servidor só aceita estes comandos da chave de publicação. Não há terminal, e a chave não alcança mais nada no
-servidor.
+## Comandos permitidos
 
 ```bash
-ssh atr-publicar obra360 ver                 # commit e digest no ar, e o anterior
-ssh atr-publicar obra360 publicar <commit>   # publica a imagem daquele commit (12 primeiros caracteres)
+ssh atr-publicar obra360 ver                 # commit e digest no ar, o anterior e as últimas publicações
+ssh atr-publicar obra360 publicar <commit>   # 12 primeiros caracteres do commit
 ssh atr-publicar obra360 voltar              # volta para a versão anterior
 ```
 
-O `publicar` baixa a imagem `ghcr.io/brunec99/obra360:<commit>`, fixa pelo digest, troca o container e confere a
-tela de login. Se o login não responder, ele avisa e mostra como voltar. Cada publicação fica registrada no
-servidor com data, commit e digest.
+Não use nenhum outro comando no servidor. Não tente abrir terminal, copiar arquivos ou ler o `.env`.
 
-## Antes de publicar
+## 1. Identificar as versões
 
-`<no-ar>` é o commit que `ssh atr-publicar obra360 ver` mostra. `<novo>` é o commit a publicar.
+- `<novo>`: o commit a publicar, na `main`.
+- `<no-ar>`: o commit em produção, o valor de `NO_AR_COMMIT` em `ssh atr-publicar obra360 ver`. Se vier vazio,
+  pare e peça ao usuário o commit que está no ar.
 
-1. **O commit está na `main` e passou na CI.** O workflow "CI" e o "Imagem" estão verdes para esse commit:
-   `gh run list --commit <novo>`.
-2. **Migração nova: pare.** Se `git diff --name-only <no-ar> <novo> -- supabase/migrations` listar algum
-   arquivo, não publique. Migração mexe no banco compartilhado com o Takt e é aplicada pelo Thiago. Mande a ele o
-   commit e o nome da migração.
-3. **Variável nova: pare.** Se `git diff <no-ar> <novo> -- src | grep -E "process\.env\.[A-Z_]+"` mostrar uma
-   variável que não existia, não publique. O `.env` da produção é do Thiago: mande o nome da variável e para que
-   serve (o valor vai por canal separado, nunca por e-mail ou chat).
-4. **Dependência nova: confira cada uma.** Para cada pacote novo ou com versão nova em
-   `git diff <no-ar> <novo> -- package-lock.json`:
-   - `npm view <pacote>@<versão> time scripts repository --json`;
-   - **pare** se a versão foi publicada há menos de 7 dias, se tem `preinstall`, `install` ou `postinstall`, ou se
-     o repositório não bate com o nome do pacote. Ataques de supply chain usam versões recém-publicadas.
-   - `npm audit --package-lock-only --omit=dev --audit-level=high` precisa sair sem alerta alto ou crítico.
-5. **Leia o que muda.** `git log --oneline <no-ar>..<novo>` e o diff das rotas em `src/app/api`. Rota nova
-   precisa conferir login e acesso à obra antes de ler ou gravar qualquer dado (como as rotas que já existem).
+## 2. Verificar antes de publicar
 
-Se parou em algum passo, explique ao Bruno o motivo e chame o Thiago (thiago@aironlab.com.br).
+Pare no primeiro item que falhar (veja "Quando parar").
 
-## Publicar
+1. `gh run list --commit <novo>`: os workflows "CI" e "Imagem" estão com `success`.
+2. `git diff --name-only <no-ar> <novo> -- supabase/migrations` não lista nenhum arquivo.
+3. `git diff <no-ar> <novo> -- src | grep -E "^\+.*process\.env\.[A-Z_]+"` não mostra nenhuma variável que não existia em `<no-ar>`.
+4. Para cada pacote novo ou com versão nova em `git diff <no-ar> <novo> -- package-lock.json`, rode
+   `npm view <pacote>@<versão> time scripts repository --json` e confira:
+   - a versão foi publicada há 7 dias ou mais;
+   - não tem `preinstall`, `install` nem `postinstall`;
+   - o repositório corresponde ao pacote.
+5. `npm audit --package-lock-only --omit=dev --audit-level=high` termina sem alerta alto ou crítico.
+6. Leia `git log --oneline <no-ar>..<novo>` e o diff de `src/app/api`. Toda rota nova confere login e acesso à obra
+   antes de ler ou gravar dados, como as rotas existentes. Nenhum segredo (senha, token, chave) entrou no código.
+
+## 3. Publicar
 
 ```bash
 ssh atr-publicar obra360 publicar <novo>
 ```
 
-## Depois de publicar
+Se o comando terminar com erro, rode `ssh atr-publicar obra360 voltar` e reporte a saída ao usuário.
 
-1. Abra `https://obra360.atrincorporadora.com.br` logado e teste a tela que mudou.
-2. Se algo quebrou: `ssh atr-publicar obra360 voltar`, e só depois investigue.
-3. Avise o Thiago: commit publicado, o que mudou em uma linha, e se precisou voltar.
+## 4. Conferir depois
 
-## O que não passa por aqui
+1. Peça ao usuário para abrir `https://obra360.atrincorporadora.com.br` logado e testar a tela que mudou.
+2. Se algo quebrou: `ssh atr-publicar obra360 voltar`, depois investigue.
+3. Entregue ao usuário um resumo de uma linha para o administrador do servidor: commit publicado, o que mudou, e
+   se foi preciso voltar.
 
-- Migração no banco, variável no `.env`, nginx, certificado e qualquer outra coisa no servidor: com o Thiago.
-- A chave de publicação fica só no computador do Bruno (`~/.ssh/atr_publicar`). Não copie, não ponha em
-  secret do GitHub e não mande a ninguém. Se o computador for perdido ou invadido, avise o Thiago para apagá-la.
+## Quando parar
+
+Não publique e diga ao usuário que a mudança precisa do administrador do servidor quando houver:
+
+- migração nova (item 2): ela altera o banco compartilhado;
+- variável nova (item 3): informe o nome e a finalidade, nunca o valor;
+- CI ou imagem sem `success` (item 1);
+- dependência que falhou no item 4 ou alerta no item 5;
+- rota sem verificação de acesso ou segredo no código (item 6): corrija antes, em outro commit.
+
+## Regras
+
+- A chave `~/.ssh/atr_publicar` não sai do computador do usuário: não copie, não coloque em secret do GitHub, não
+  mostre o conteúdo.
+- Nginx, certificado, `.env`, banco e qualquer outra mudança no servidor estão fora deste roteiro.
