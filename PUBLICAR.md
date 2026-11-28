@@ -68,13 +68,16 @@ Se o comando terminar com erro, rode `ssh atr-publicar obra360 voltar` e reporte
 
 ## Quando parar
 
-Não publique e diga ao usuário que a mudança precisa do administrador do servidor quando houver:
+Não publique; corrija primeiro, em outro commit, e recomece do item 1:
 
-- migração que não passa nos itens de "Migrações": divida antes, como descrito lá;
-- variável nova (item 3): informe o nome e a finalidade, nunca o valor;
 - CI ou imagem sem `success` (item 1);
+- migração que não passa em "Migrações": divida como descrito lá;
 - dependência que falhou no item 4 ou alerta no item 5;
-- rota sem verificação de acesso ou segredo no código (item 6): corrija antes, em outro commit.
+- rota sem verificação de acesso ou segredo no código (item 6).
+
+Não publique e diga ao usuário que precisa do administrador do servidor:
+
+- variável nova (item 3): informe o nome e a finalidade, nunca o valor. Publique só depois que ela estiver no `.env`.
 
 ## Regras
 
